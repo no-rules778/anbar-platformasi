@@ -528,6 +528,7 @@ async function loadFromDB() {
     id: r.id, w: r.warehouse, d: r.date, c: r.item_code,
     i: parseFloat(r.in_qty) || 0, o: parseFloat(r.out_qty) || 0,
     t: r.type || 'Satınalma', p: r.partner || '',
+    ch: r.channel || '',
     ct: r.contract_num || '', iv: r.invoice_num || '',
     pr: parseFloat(r.price) || 0,
     note: r.note || '', by: r.created_by || 'sistem',
@@ -557,6 +558,7 @@ async function emit(e, op, d, note) {
           date: d.d, warehouse: d.w, item_code: d.c,
           in_qty: d.i || 0, out_qty: d.o || 0,
           type: d.t || 'Satınalma', partner: d.p || '',
+          channel: d.ch || '',
           contract_num: d.ct || '', invoice_num: d.iv || '',
           price: d.pr || 0, note: note || d.note || '',
           doc_num: d.doc || '', created_by: ME.sbId
@@ -570,6 +572,7 @@ async function emit(e, op, d, note) {
           date: d.d, warehouse: d.w, item_code: d.c,
           in_qty: d.i || 0, out_qty: d.o || 0,
           type: d.t, partner: d.p || '',
+          channel: d.ch || '',
           contract_num: d.ct || '', invoice_num: d.iv || '',
           price: d.pr || 0, note: note || ''
         };
@@ -987,7 +990,7 @@ function rMov() {
   const sin = all.reduce((s, m) => s + (m.i || 0), 0), sout = all.reduce((s, m) => s + (m.o || 0), 0);
   const sval = all.reduce((s, m) => s + (m.i || 0) * (m.pr || (DB.itemBy.get(m.c) || {}).price || 0), 0);
   $('#t-mov').innerHTML = tbl(
-    [{ t: 'Tarix' }, { t: 'Anbar' }, { t: 'Kod' }, { t: 'Malın adı' }, { t: 'Növü' }, { t: 'Kontragent / Layihə' }, { t: 'Giriş', r: 1 }, { t: 'Çıxış', r: 1 }, { t: 'Qiymət', r: 1 }, { t: 'Məbləğ', r: 1 }, { t: 'Qeyd edən' }, { t: '' }],
+    [{ t: 'Tarix' }, { t: 'Anbar' }, { t: 'Kod' }, { t: 'Malın adı' }, { t: 'Növü' }, { t: 'Kontragent / Layihə' }, { t: 'Kanal' }, { t: 'Giriş', r: 1 }, { t: 'Çıxış', r: 1 }, { t: 'Qiymət', r: 1 }, { t: 'Məbləğ', r: 1 }, { t: 'Qeyd edən' }, { t: '' }],
     rows.map(m => {
       const it = DB.itemBy.get(m.c) || {};
       const pr = m.pr || it.price || 0;
@@ -996,6 +999,7 @@ function rMov() {
           esc(m.d), esc(m.w), `<span class="code">${esc(m.c)}</span>`,
           `<div class="nm">${esc(it.name || '—')}</div>` + (m.iv || m.ct ? `<span class="hint">${esc([m.ct, m.iv].filter(Boolean).join(' · '))}</span>` : ''),
           TYPE_TAG(m.t), esc(m.p || '—'),
+          m.ch ? `<span class="hint">${esc(m.ch)}</span>` : '<span class="muted">—</span>',
           m.i ? `<span style="color:var(--in)">${nf(m.i, 2)}</span>` : '—',
           m.o ? `<span style="color:var(--out)">${nf(m.o, 2)}</span>` : '—',
           pr ? nf(pr, 2) : '—', pr ? money(((m.i || 0) + (m.o || 0)) * pr) : '—',
@@ -1008,8 +1012,8 @@ function rMov() {
     `<span class="hint">${nf(all.length)} qeyd · mədaxil <b class="num">${nf(sin, 2)}</b> · məxaric <b class="num">${nf(sout, 2)}</b> · mədaxil dəyəri <b>${money(sval)}</b>`
     + cutNote(all, 'mov', rMov) + `</span>`;
   $('#mov-print').onclick = () => { printHead('Mal hərəkəti', nf(all.length) + ' qeyd'); setTimeout(() => window.print(), 60); };
-  $('#mov-exp').onclick = () => xls([['Tarix', 'Anbar', 'Kod', 'Malın adı', 'Ölçü', 'Növü', 'Kontragent/Layihə', 'Giriş', 'Çıxış', 'Vahid qiyməti', 'Məbləğ', 'Müqavilə', 'Qaimə', 'Qeyd edən']]
-    .concat(all.map(m => { const it = DB.itemBy.get(m.c) || {}; const pr = m.pr || it.price || 0; return [m.d, m.w, m.c, it.name || '', it.unit || '', m.t, m.p, m.i || '', m.o || '', pr || '', pr ? (((m.i || 0) + (m.o || 0)) * pr).toFixed(2) : '', m.ct || '', m.iv || '', m.by || '']; })), 'mal_hereketi');
+  $('#mov-exp').onclick = () => xls([['Tarix', 'Anbar', 'Kod', 'Malın adı', 'Ölçü', 'Növü', 'Kontragent/Layihə', 'Alınma kanalı', 'Giriş', 'Çıxış', 'Vahid qiyməti', 'Məbləğ', 'Müqavilə', 'Qaimə', 'Qeyd edən']]
+    .concat(all.map(m => { const it = DB.itemBy.get(m.c) || {}; const pr = m.pr || it.price || 0; return [m.d, m.w, m.c, it.name || '', it.unit || '', m.t, m.p, m.ch || '', m.i || '', m.o || '', pr || '', pr ? (((m.i || 0) + (m.o || 0)) * pr).toFixed(2) : '', m.ct || '', m.iv || '', m.by || '']; })), 'mal_hereketi');
 }
 document.addEventListener('click', e => {
   const ed = e.target.closest('[data-edit]');
@@ -1210,10 +1214,15 @@ function rAnb() {
 const OP = { kind: 'in', lines: [], pick: null };
 $$('#op-seg button').forEach(b => b.onclick = () => { OP.kind = b.dataset.k; $$('#op-seg button').forEach(x => x.classList.toggle('on', x === b)); rOp(); });
 
+const CHANNELS = ['Nağd alış', 'Kommersiya şirkəti', 'Sahə üzrə məsul şəxs'];
+function channelOptions() {
+  const used = Array.from(new Set(DB.movs.map(m => m.ch).filter(Boolean)));
+  return Array.from(new Set(CHANNELS.concat(used)));
+}
 function partnerOptions(kind) {
   const names = kind === 'mv' ? DB.whs
     : kind === 'out' ? DB.locs.filter(l => l.kind !== 'anbar').map(l => l.name).concat(DB.locs.filter(l => l.kind === 'anbar').map(l => l.name))
-      : DB.partners.map(p => p.name).concat(DB.locs.filter(l => l.name === 'Nağd alış' || l.name === 'Kommersiya şirkəti').map(l => l.name));
+      : DB.partners.map(p => p.name);
   return Array.from(new Set(names));
 }
 function rOp() {
@@ -1241,7 +1250,8 @@ function rOp() {
       <label class="f"><span>Ölçü vahidi</span><input type="text" id="o-unit" readonly placeholder="—"></label>
       ${k === 'in' ? `<label class="f"><span>Vahidin qiyməti (₼)</span><input type="number" id="o-price" step="0.01" min="0" placeholder="0.00"></label>` : ''}
     </div>
-    ${k === 'in' ? `<div class="row" style="grid-template-columns:1fr 1fr">
+    ${k === 'in' ? `<div class="row" style="grid-template-columns:1fr 1fr 1fr">
+      <label class="f"><span>Alınma kanalı</span><select id="o-ch"><option value="">—</option>${channelOptions().map(c => `<option>${esc(c)}</option>`).join('')}</select></label>
       <label class="f"><span>Müqavilə №</span><input type="text" id="o-ct" placeholder="məs. №06/2026"></label>
       <label class="f"><span>Qaimə №</span><input type="text" id="o-iv" placeholder="məs. 83951"></label></div>` : ''}
     <label class="f"><span>Qeyd</span><input type="text" id="o-note" placeholder="istəyə bağlı — əsaslandırma, sifariş nömrəsi, məsul şəxs"></label>
@@ -1293,6 +1303,7 @@ function addLine() {
     w2: OP.kind === 'mv' ? $('#o-wh2').value : '', c: it.code, name: it.name, unit: it.unit,
     q: qty, pr: $('#o-price') ? (parseFloat($('#o-price').value) || 0) : (it.price || 0),
     p: OP.kind === 'mv' ? $('#o-wh2').value : $('#o-p').value,
+    ch: $('#o-ch') ? $('#o-ch').value.trim() : '',
     ct: $('#o-ct') ? $('#o-ct').value.trim() : '', iv: $('#o-iv') ? $('#o-iv').value.trim() : '',
     note: $('#o-note').value.trim()
   };
@@ -1331,7 +1342,7 @@ $('#op-post').onclick = async () => {
   const evs = [];
   const priced = new Map();
   for (const l of OP.lines) {
-    const base = { d: l.d, c: l.c, t: l.t, pr: l.pr || 0, ct: l.ct, iv: l.iv, note: l.note, by: ME.name, ts: Date.now(), doc };
+    const base = { d: l.d, c: l.c, t: l.t, pr: l.pr || 0, ch: l.ch || '', ct: l.ct, iv: l.iv, note: l.note, by: ME.name, ts: Date.now(), doc };
     if (l.kind === 'in') {
       evs.push({ e: 'mv', op: 'a', d: Object.assign({ id: uid(), w: l.w, i: l.q, o: 0, p: l.p }, base) });
       // mədaxildə göstərilən qiymət malın cari qiyməti olur
@@ -1367,7 +1378,10 @@ function editMov(id) {
       <label class="f"><span>Çıxış</span><input type="number" step="0.01" id="e-o" value="${m.o || ''}"></label>
       <label class="f"><span>Vahid qiyməti</span><input type="number" step="0.01" id="e-pr" value="${m.pr || ''}" ${can('price.edit') ? '' : 'disabled'}></label>
     </div>
-    <label class="f"><span>Kontragent / layihə</span><input type="text" id="e-p" value="${esc(m.p || '')}"></label>
+    <div class="row" style="grid-template-columns:1fr 1fr">
+      <label class="f"><span>Kontragent / layihə</span><input type="text" id="e-p" value="${esc(m.p || '')}"></label>
+      <label class="f"><span>Alınma kanalı</span><input type="text" id="e-ch" value="${esc(m.ch || '')}" list="ch-list"><datalist id="ch-list">${channelOptions().map(c => `<option>${esc(c)}</option>`).join('')}</datalist></label>
+    </div>
     <div class="row" style="grid-template-columns:1fr 1fr">
       <label class="f"><span>Müqavilə №</span><input type="text" id="e-ct" value="${esc(m.ct || '')}"></label>
       <label class="f"><span>Qaimə №</span><input type="text" id="e-iv" value="${esc(m.iv || '')}"></label>
@@ -1382,6 +1396,7 @@ function editMov(id) {
       id: m.id, d: $('#e-d').value, w: $('#e-w').value, t: $('#e-t').value,
       i: parseFloat($('#e-i').value) || 0, o: parseFloat($('#e-o').value) || 0,
       pr: parseFloat($('#e-pr').value) || 0, p: $('#e-p').value.trim(),
+      ch: $('#e-ch').value.trim(),
       ct: $('#e-ct').value.trim(), iv: $('#e-iv').value.trim(), by: m.by, edt: ME.name, ts: m.ts || Date.now()
     }, why);
     closeModal(); renderAll(); toast('Qeyd yeniləndi');
