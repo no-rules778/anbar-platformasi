@@ -1855,7 +1855,13 @@ function rSet() {
 }
 
 /* ================= BOOT (Supabase) ================= */
-const DEVICE_ID = 'dev_' + Math.random().toString(36).slice(2, 12);
+const DEVICE_ID = (() => {
+  try {
+    let d = localStorage.getItem('anbar_device_id');
+    if (!d) { d = 'dev_' + Math.random().toString(36).slice(2, 12); localStorage.setItem('anbar_device_id', d); }
+    return d;
+  } catch (e) { return 'dev_' + Math.random().toString(36).slice(2, 12); }
+})();
 
 async function registerSession(uid) {
   if (!SB) return;
@@ -1901,9 +1907,10 @@ function stopHeartbeat() { if (HEARTBEAT) { clearInterval(HEARTBEAT); HEARTBEAT 
 window.addEventListener('pagehide', () => {
   if (!ME || !SB) return;
   try {
-    const url = SB_URL + '/rest/v1/sessions?user_id=eq.' + ME.id;
+    const url = SB_URL + '/rest/v1/sessions?user_id=eq.' + ME.sbId;
+    const tok = (window.SB_TOKEN || SB_KEY);
     fetch(url, { method: 'DELETE', keepalive: true,
-      headers: { apikey: SB_KEY, Authorization: 'Bearer ' + (SB.auth.session ? '' : ''), 'Content-Type': 'application/json' } });
+      headers: { apikey: SB_KEY, Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' } });
   } catch (e) { }
 });
 
@@ -1957,6 +1964,7 @@ async function enterApp(userId, email) {
   $('#app').style.display = 'block';
   $('#btn-me').textContent = ME.name.split(' ')[0] + ' · ' + (ROLES[ME.role] ? ROLES[ME.role].name : ME.role);
   $('#btn-me').onclick = sessionDialog;
+  try { const ss = await SB.auth.getSession(); window.SB_TOKEN = ss.data.session ? ss.data.session.access_token : null; } catch (e) { }
   await registerSession(userId);
   startHeartbeat(userId);
   await loadFromDB();
