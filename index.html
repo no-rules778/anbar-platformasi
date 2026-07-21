@@ -1227,21 +1227,37 @@ function partnerOptions(kind) {
       : DB.partners.map(p => p.name);
   return Array.from(new Set(names));
 }
+function captureOpHeader() {
+  if (!$('#o-date')) return;
+  OP.hdr = {
+    kind: OP.kind,
+    d: $('#o-date').value,
+    t: $('#o-type') ? $('#o-type').value : '',
+    w: $('#o-wh') ? $('#o-wh').value : '',
+    w2: $('#o-wh2') ? $('#o-wh2').value : '',
+    p: $('#o-p') ? $('#o-p').value : '',
+    ch: $('#o-ch') ? $('#o-ch').value : '',
+    ct: $('#o-ct') ? $('#o-ct').value : '',
+    iv: $('#o-iv') ? $('#o-iv').value : ''
+  };
+}
 function rOp() {
   const k = OP.kind;
+  captureOpHeader();
+  const H = (OP.hdr && OP.hdr.kind === k) ? OP.hdr : {};
   const typeOpts = k === 'in' ? ['Satınalma', 'Qaytarma', 'Əvvələ qalıq'] : k === 'out' ? ['Sahəyə', 'Silinmə', 'Satış'] : ['Yerdəyişmə'];
   $('#op-form').innerHTML = `
     <div class="row" style="grid-template-columns:1fr 1fr">
-      <label class="f"><span>Tarix</span><input type="date" id="o-date" value="${today()}"></label>
-      <label class="f"><span>Əməliyyatın növü</span><select id="o-type">${typeOpts.map(t => `<option>${esc(t)}</option>`).join('')}</select></label>
+      <label class="f"><span>Tarix</span><input type="date" id="o-date" value="${H.d || today()}"></label>
+      <label class="f"><span>Əməliyyatın növü</span><select id="o-type">${typeOpts.map(t => `<option ${t === H.t ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></label>
     </div>
     ${k === 'mv' ? `<div class="row" style="grid-template-columns:1fr 1fr">
-        <label class="f"><span>Haradan (anbar)</span><select id="o-wh">${DB.whs.map(w => `<option ${w === ME.wh ? 'selected' : ''}>${esc(w)}</option>`).join('')}</select></label>
-        <label class="f"><span>Hara (anbar)</span><select id="o-wh2">${DB.whs.map(w => `<option ${w !== ME.wh ? 'selected' : ''}>${esc(w)}</option>`).join('')}</select></label>
+        <label class="f"><span>Haradan (anbar)</span><select id="o-wh">${DB.whs.map(w => `<option ${w === (H.w || ME.wh) ? 'selected' : ''}>${esc(w)}</option>`).join('')}</select></label>
+        <label class="f"><span>Hara (anbar)</span><select id="o-wh2">${DB.whs.map(w => `<option ${H.w2 ? (w === H.w2 ? 'selected' : '') : (w !== ME.wh ? 'selected' : '')}>${esc(w)}</option>`).join('')}</select></label>
       </div>`
       : `<div class="row" style="grid-template-columns:1fr 1fr">
-        <label class="f"><span>Anbar</span><select id="o-wh">${DB.whs.map(w => `<option ${w === ME.wh ? 'selected' : ''}>${esc(w)}</option>`).join('')}</select></label>
-        <label class="f"><span>${k === 'in' ? 'Kontragent' : 'Təhvil alan / layihə'}</span><select id="o-p">${partnerOptions(k).map(p => `<option>${esc(p)}</option>`).join('')}</select></label>
+        <label class="f"><span>Anbar</span><select id="o-wh">${DB.whs.map(w => `<option ${w === (H.w || ME.wh) ? 'selected' : ''}>${esc(w)}</option>`).join('')}</select></label>
+        <label class="f"><span>${k === 'in' ? 'Kontragent' : 'Təhvil alan / layihə'}</span><select id="o-p">${partnerOptions(k).map(p => `<option ${p === H.p ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select></label>
       </div>`}
     <label class="f"><span>Mal (ad və ya kod yazın)</span>
       <div style="position:relative"><input type="text" id="o-item" autocomplete="off" placeholder="məs. kabel, 0000123…">
@@ -1253,9 +1269,9 @@ function rOp() {
       ${k === 'in' ? `<label class="f"><span>Vahidin qiyməti (₼)</span><input type="number" id="o-price" step="0.01" min="0" placeholder="0.00"></label>` : ''}
     </div>
     ${k === 'in' ? `<div class="row" style="grid-template-columns:1fr 1fr 1fr">
-      <label class="f"><span>Alınma kanalı</span><select id="o-ch"><option value="">—</option>${channelOptions().map(c => `<option>${esc(c)}</option>`).join('')}</select></label>
-      <label class="f"><span>Müqavilə №</span><input type="text" id="o-ct" placeholder="məs. №06/2026"></label>
-      <label class="f"><span>Qaimə №</span><input type="text" id="o-iv" placeholder="məs. 83951"></label></div>` : ''}
+      <label class="f"><span>Alınma kanalı</span><select id="o-ch"><option value="">—</option>${channelOptions().map(c => `<option ${c === H.ch ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>
+      <label class="f"><span>Müqavilə №</span><input type="text" id="o-ct" value="${esc(H.ct || '')}" placeholder="məs. №06/2026"></label>
+      <label class="f"><span>Qaimə №</span><input type="text" id="o-iv" value="${esc(H.iv || '')}" placeholder="məs. 83951"></label></div>` : ''}
     <label class="f"><span>Qeyd</span><input type="text" id="o-note" placeholder="istəyə bağlı — əsaslandırma, sifariş nömrəsi, məsul şəxs"></label>
     <div style="display:flex;gap:8px"><button class="btn pri" id="o-add">Sətri əlavə et</button><span class="hint" id="o-err"></span></div>`;
 
@@ -1360,6 +1376,8 @@ $('#op-post').onclick = async () => {
   priced.forEach((pr, code) => evs.push({ e: 'item', op: 'u', d: { code, price: pr, psrc: 'sənəd' }, note: 'qiymət mədaxil sənədindən yeniləndi (' + doc + ')' }));
   await emitMany(evs);
   const n = OP.lines.length; OP.lines = [];
+  captureOpHeader();
+  if (OP.hdr) { OP.hdr.iv = ''; OP.hdr.ct = ''; }   // yeni sənəd — yeni qaimə/müqavilə nömrəsi
   renderAll(); toast(n + ' sətirlik sənəd qeyd edildi (' + doc + ')');
 };
 
