@@ -216,6 +216,7 @@ label.f>span{display:block;font-size:10.5px;text-transform:uppercase;letter-spac
       <!-- DASHBOARD -->
       <section class="page on" id="p-dash">
         <div class="phead"><div><h2>İdarə paneli</h2><p id="dash-sub"></p></div><div class="sp"></div>
+          <button class="btn" id="full-exp" title="Bütün məlumatları Excel-ə ixrac et">⬇ Tam ixrac</button>
           <select id="dash-wh" style="width:auto;min-width:150px"></select></div>
         <div class="kpis" id="dash-kpis"></div>
         <div class="grid" style="grid-template-columns:1.35fr 1fr;margin-top:12px" id="dash-row1">
@@ -2036,6 +2037,84 @@ async function enterApp(userId, email) {
       toast(e.message || 'Sessiya bərpa olunmadı', true);
       $('#g-go').disabled = false; $('#g-go').textContent = 'Daxil ol';
     }
+  /* ================= FULL EXPORT (все данные одним xlsx) ================= */
+  window.fullExport = function() {
+    if (typeof XLSX === 'undefined') { toast('Excel kitabxanası yüklənmədi', true); return; }
+    const wb = XLSX.utils.book_new();
+    const today_ = today();
+
+    // --- Hərəkət registri ---
+    const movRows = [['Tarix','Anbar','Kod','Malın adı','Ölçü','Növü','Kontragent','Kanal','Giriş','Çıxış','Qiymət','Məbləğ','Müqavilə №','Qaimə №','Qeyd edən']];
+    DB.movs.slice().sort((a,b)=>dsort(a.d,b.d)||(a.ts||0)-(b.ts||0)).forEach(m=>{
+      const it=DB.itemBy.get(m.c)||{}; const pr=m.pr||it.price||0;
+      movRows.push([m.d,m.w,m.c,it.name||'',it.unit||'',m.t,m.p||'',m.ch||'',
+        m.i||'',m.o||'',pr||'',pr?(((m.i||0)+(m.o||0))*pr).toFixed(2):'',
+        m.ct||'',m.iv||'',m.by||'']);
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(movRows.map((r,i)=>i===0?r:r.map(toNum))), 'Hərəkət registri');
+
+    // --- Anbar qalıqları ---
+    const balRows = [['Anbar','Kod','Malın adı','Ölçü','Mədaxil','Məxaric','Qalıq','Qiymət','Dəyər']];
+    IX.bal.slice().sort((a,b)=>a.w.localeCompare(b.w)||(a.name||'').localeCompare(b.name||'')).forEach(b=>{
+      if(Math.abs(b.q)<1e-9) return;
+      balRows.push([b.w,b.c,b.name,b.unit,b.in,b.out,b.q,b.price||'',b.val||'']);
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(balRows.map((r,i)=>i===0?r:r.map(toNum))), 'Anbar qalıqları');
+
+    // --- Satınalmalar (Filtrasiya) ---
+    const filRows = [['Tarix','Malın adı','Kod','Ölçü','Miqdar','Qiymət','Məbləğ','Kanal','Kontragent','Müqavilə №','Qaimə №']];
+    DB.movs.filter(m=>m.t==='Satınalma').slice().sort((a,b)=>dsort(a.d,b.d)).forEach(m=>{
+      const it=DB.itemBy.get(m.c)||{}; const pr=m.pr||it.price||0;
+      filRows.push([m.d,it.name||'',m.c,it.unit||'',m.i||'',pr||'',
+        pr?(m.i||0)*pr:'',m.ch||'',m.p||'',m.ct||'',m.iv||'']);
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(filRows.map((r,i)=>i===0?r:r.map(toNum))), 'Satınalmalar');
+
+    // --- Nomenklatura ---
+    const nomRows = [['Kod','Malın adı','Ölçü vahidi','Son qiymət (₼)','Ümumi qalıq','Dəyər']];
+    DB.items.slice().sort((a,b)=>a.code.localeCompare(b.code)).forEach(it=>{
+      const bi=IX.byItem.get(it.code)||{q:0,val:0};
+      nomRows.push([it.code,it.name,it.unit,it.price||'',bi.q||0,bi.val||'']);
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(nomRows.map((r,i)=>i===0?r:r.map(toNum))), 'Nomenklatura');
+
+    // --- Kontragentlər ---
+    const kntRows = [['Kontragentin adı','VÖEN','Müqavilə №','Müqavilə tarixi']];
+    DB.partners.forEach(p=>kntRows.push([p.name,p.voen||'',p.contract||'',p.cdate||'']));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(kntRows), 'Kontragentlər');
+
+    // --- колонки по ширине ---
+    [movRows,balRows,filRows,nomRows,kntRows].forEach((rows,i)=>{
+      const ws = wb.Sheets[wb.SheetNames[i]];
+      const w = (rows[0]||[]).map((_,ci)=>{
+        let m=6;
+        for(let ri=0;ri<Math.min(rows.length,300);ri++) m=Math.max(m,String(rows[ri][ci]||'').length);
+        return {wch:Math.min(m+2,55)};
+      });
+      ws['!cols']=w;
+      ws['!freeze']={xSplit:0,ySplit:1};
+      ws['!autofilter']={ref:XLSX.utils.encode_range({s:{r:0,c:0},e:{r:rows.length-1,c:(rows[0]||[]).length-1}})};
+    });
+
+    // --- служебные листы в точном формате базы (для пересборки исходного Excel) ---
+    const rawItems = [['code','name','unit','price','price_source']];
+    DB.items.forEach(i=>rawItems.push([i.code,i.name,i.unit,i.price||0,i.psrc||'']));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rawItems), '_items');
+
+    const rawMovs = [['date','warehouse','item_code','in_qty','out_qty','type','partner','channel','contract_num','invoice_num','price','note','doc_num']];
+    DB.movs.forEach(m=>rawMovs.push([m.d,m.w,m.c,m.i||0,m.o||0,m.t,m.p||'',m.ch||'',m.ct||'',m.iv||'',m.pr||0,m.note||'',m.doc||'']));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rawMovs), '_movements');
+
+    const rawParts = [['name','voen','contract','contract_date']];
+    DB.partners.forEach(p=>rawParts.push([p.name,p.voen||'',p.contract||'',p.cdate||'']));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rawParts), '_partners');
+
+    XLSX.writeFile(wb, 'Anbar_'+today_+'.xlsx');
+    toast('Anbar_'+today_+'.xlsx yükləndi — '+nf(DB.movs.length)+' hərəkət, '+nf(DB.items.length)+' mal, '+nf(IX.positions.length)+' aktiv mövqe');
+  };
+
+  document.getElementById('full-exp').onclick = fullExport;
+
   })();
 })();
 
