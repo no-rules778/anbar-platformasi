@@ -591,6 +591,7 @@ async function emit(e, op, d, note) {
         const { error } = await SB.from('items').insert(row);
         if (error) throw error;
         DB.items.push(d);
+        DB.itemBy.set(d.code, d);
       } else if (op === 'u') {
         const upd = {};
         if (d.name !== undefined) upd.name = d.name;
@@ -602,7 +603,7 @@ async function emit(e, op, d, note) {
           if (error) throw error;
         }
         const k = DB.items.findIndex(x => x.code === d.code);
-        if (k >= 0) DB.items[k] = Object.assign({}, DB.items[k], d);
+        if (k >= 0) { DB.items[k] = Object.assign({}, DB.items[k], d); DB.itemBy.set(d.code, DB.items[k]); }
       }
     } else if (e === 'partner') {
       if (op === 'a') {
