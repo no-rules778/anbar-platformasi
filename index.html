@@ -315,7 +315,8 @@ label.f>span{display:block;font-size:10.5px;text-transform:uppercase;letter-spac
 
       <!-- FINANCE -->
       <section class="page" id="p-fin">
-        <div class="phead"><div><h2>Maliyyə göstəriciləri</h2><p>Satınalma məbləği, qalıq dəyəri, kontragent öhdəlikləri və qiymət intizamı.</p></div></div>
+        <div class="phead"><div><h2>Maliyyə göstəriciləri</h2><p>Satınalma məbləği, qalıq dəyəri, kontragent öhdəlikləri və qiymət intizamı.</p></div><div class="sp"></div>
+          <button class="btn" id="fin-exp" title="Rəhbərlik üçün maliyyə hesabatını Excel-ə ixrac et">⬇ Hesabatı ixrac et</button></div>
         <div class="kpis" id="fin-kpis"></div>
         <div class="grid" style="grid-template-columns:1fr 1fr;margin-top:12px">
           <div class="card"><header><h3>Satınalma xərcinin kontragentlər üzrə bölgüsü</h3></header><div class="pad" id="ch-spend"></div></div>
@@ -2132,6 +2133,109 @@ async function enterApp(userId, email) {
   };
 
   document.getElementById('full-exp').onclick = fullExport;
+
+  /* ================= MALİYYƏ HESABATI (rəhbərlik üçün) ================= */
+  window.finExport = function () {
+    if (typeof XLSX === 'undefined') { toast('Excel kitabxanası yüklənmədi', true); return; }
+    const wb = XLSX.utils.book_new();
+    const d_ = today();
+    const P = c => (DB.itemBy.get(c) || {}).price || 0;
+
+    const purch = DB.movs.filter(m => m.t === 'Satınalma' && m.i > 0);
+    const spend = purch.reduce((s, m) => s + m.i * (m.pr || P(m.c)), 0);
+    const priced = purch.filter(m => (m.pr || P(m.c))).length;
+    const noDoc = purch.filter(m => !m.iv && !m.ct).length;
+    const cash = DB.movs.filter(m => (m.p || '').indexOf('Nağd') === 0 || m.p === 'Bazar');
+    const wo = DB.movs.filter(m => m.t === 'Silinmə');
+    const woVal = wo.reduce((s, m) => s + (m.o || 0) * P(m.c), 0);
+
+    // 1. Xülasə
+    const sum = [['MALİYYƏ HESABATI'], ['Hesabat tarixi', d_], ['Hazırlayan', ME.name || ''], [],
+      ['Göstərici', 'Dəyər', 'İzah'],
+      ['Qalıq dəyəri (₼)', r2(IX.totVal), 'Bütün anbarlar üzrə ehtiyatın dəyəri'],
+      ['Satınalma məbləği (₼)', r2(spend), nf(purch.length) + ' satınalma sətri'],
+      ['Qiymətlə örtülmə (%)', purch.length ? r2(priced / purch.length * 100) : 0, 'Qiyməti daxil edilmiş sətirlərin payı'],
+      ['Sənədsiz satınalma (say)', noDoc, 'Qaimə və müqavilə göstərilməyib — vergi riski'],
+      ['Nağd əməliyyat (say)', cash.length, 'Əlavə nəzarət tələb edir'],
+      ['Silinmə dəyəri (₼)', r2(woVal), nf(wo.length) + ' silinmə qeydi'],
+      ['Aktiv mövqe (say)', IX.positions.length, 'Qalığı olan mal mövqeləri'],
+      ['Nomenklatura (say)', DB.items.length, 'Bazadakı mal kartları'],
+      ['Kontragent (say)', DB.partners.length, 'Qeydiyyatdan keçmiş təchizatçılar']];
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sum), 'Xülasə');
+
+    // 2. Anbar üzrə dəyər
+    const byW = new Map();
+    IX.bal.forEach(b => { if (Math.abs(b.q) < 1e-9) return; const x = byW.get(b.w) || { n: 0, q: 0, v: 0 }; x.n++; x.q += b.q; x.v += b.val || 0; byW.set(b.w, x); });
+    const wRows = [['Anbar', 'Mövqe sayı', 'Ümumi miqdar', 'Dəyər (₼)', 'Payı (%)']];
+    const totV = Array.from(byW.values()).reduce((s, x) => s + x.v, 0) || 1;
+    Array.from(byW.entries()).sort((a, b) => b[1].v - a[1].v).forEach(([w, x]) =>
+      wRows.push([w, x.n, r2(x.q), r2(x.v), r2(x.v / totV * 100)]));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(wRows), 'Anbar üzrə dəyər');
+
+    // 3. Kontragent üzrə xərc
+    const sp = new Map();
+    purch.forEach(m => { const k = m.p || '(göstərilməyib)'; const x = sp.get(k) || { v: 0, n: 0, doc: 0 }; x.v += m.i * (m.pr || P(m.c)); x.n++; if (m.iv || m.ct) x.doc++; sp.set(k, x); });
+    const spRows = [['Kontragent', 'Əməliyyat sayı', 'Məbləğ (₼)', 'Payı (%)', 'Sənədlə örtülmə (%)', 'VÖEN']];
+    const tS = Array.from(sp.values()).reduce((s, x) => s + x.v, 0) || 1;
+    Array.from(sp.entries()).sort((a, b) => b[1].v - a[1].v).forEach(([k, x]) => {
+      const pt = DB.partners.find(p => p.name === k);
+      spRows.push([k, x.n, r2(x.v), r2(x.v / tS * 100), x.n ? r2(x.doc / x.n * 100) : 0, pt && pt.voen ? pt.voen : '—']);
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(spRows), 'Kontragent üzrə xərc');
+
+    // 4. Ödəniş üsulu
+    const meth = new Map();
+    DB.movs.forEach(m => {
+      const k = (m.p || '').indexOf('Nağd') === 0 || m.p === 'Bazar' ? 'Nağd' : m.t === 'Əvvələ qalıq' ? 'Əvvəlki qalıq' : m.t === 'Yerdəyişmə' ? 'Daxili köçürmə' : 'Bank / müqavilə';
+      const x = meth.get(k) || { n: 0, v: 0, doc: 0 }; x.n++; x.v += (m.i || 0) * (m.pr || P(m.c)); if (m.iv || m.ct) x.doc++; meth.set(k, x);
+    });
+    const mRows = [['Ödəniş üsulu', 'Əməliyyat sayı', 'Dəyər (₼)', 'Sənədlə örtülmə (%)']];
+    Array.from(meth.entries()).sort((a, b) => b[1].v - a[1].v).forEach(([k, x]) =>
+      mRows.push([k, x.n, r2(x.v), x.n ? r2(x.doc / x.n * 100) : 0]));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(mRows), 'Ödəniş üsulu');
+
+    // 5. Qiymət intizamı
+    const pr = [['Kod', 'Mal', 'Ölçü', 'Ən aşağı (₼)', 'Ən yüksək (₼)', 'Fərq (%)', 'Müşahidə sayı', 'Ən ucuz təchizatçı', 'Ən baha təchizatçı']];
+    const prR = [];
+    IX.priceObs.forEach((arr, c) => {
+      if (arr.length < 2) return;
+      const ps = arr.map(a => a.p), mn = Math.min(...ps), mx = Math.max(...ps);
+      if (mx - mn < 0.005) return;
+      const it = DB.itemBy.get(c) || {};
+      prR.push({ c, name: it.name || c, unit: it.unit || '', mn, mx, sp: (mx - mn) / mn, n: arr.length, b: arr.find(a => a.p === mn), w: arr.find(a => a.p === mx) });
+    });
+    prR.sort((a, b) => b.sp - a.sp).forEach(x =>
+      pr.push([x.c, x.name, x.unit, r2(x.mn), r2(x.mx), r2(x.sp * 100), x.n, x.b ? x.b.k : '—', x.w ? x.w.k : '—']));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(pr), 'Qiymət intizamı');
+
+    // 6. Nəzarət və risklər
+    const gs = controlIssues();
+    const ctl = [['NƏZARƏT VƏ RİSKLƏR'], [], ['Problem', 'Ciddilik', 'Say', 'İzah']];
+    gs.forEach(g => ctl.push([g.title, g.sev === 'high' ? 'Yüksək' : g.sev === 'med' ? 'Orta' : 'Aşağı', g.rows.length, g.why]));
+    ctl.push([]); ctl.push(['TAM SİYAHI']);
+    gs.forEach(g => { ctl.push([]); ctl.push([g.title + ' (' + g.rows.length + ')']); ctl.push(g.cols); g.rows.forEach(r => ctl.push(r)); });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(ctl), 'Nəzarət və risklər');
+
+    // ширина колонок
+    wb.SheetNames.forEach(n => {
+      const ws = wb.Sheets[n], ref = XLSX.utils.decode_range(ws['!ref']);
+      const cols = [];
+      for (let c = ref.s.c; c <= ref.e.c; c++) {
+        let m = 8;
+        for (let r = ref.s.r; r <= Math.min(ref.e.r, 200); r++) {
+          const cell = ws[XLSX.utils.encode_cell({ r, c })];
+          if (cell && cell.v != null) m = Math.max(m, String(cell.v).length);
+        }
+        cols.push({ wch: Math.min(m + 2, 60) });
+      }
+      ws['!cols'] = cols;
+    });
+
+    XLSX.writeFile(wb, 'Maliyye_hesabati_' + d_ + '.xlsx');
+    toast('Maliyyə hesabatı yükləndi — 6 vərəq');
+  };
+  function r2(x) { return Math.round((x || 0) * 100) / 100; }
+  document.getElementById('fin-exp').onclick = finExport;
 
   })();
 })();
