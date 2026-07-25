@@ -3,6 +3,7 @@
 <head>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ANBAR · Vahid Anbar və Təchizat Platforması</title>
@@ -217,6 +218,7 @@ label.f>span{display:block;font-size:10.5px;text-transform:uppercase;letter-spac
       <section class="page on" id="p-dash">
         <div class="phead"><div><h2>İdarə paneli</h2><p id="dash-sub"></p></div><div class="sp"></div>
           <button class="btn" id="full-exp" title="Bütün məlumatları Excel-ə ixrac et">⬇ Tam ixrac</button>
+          <button class="btn" id="son-exp" title="Excel-i orijinal SON formatında ixrac et (Filtrasiya, anbarlar, pivotlar)">⬇ Excel (SON formatı)</button>
           <select id="dash-wh" style="width:auto;min-width:150px"></select></div>
         <div class="kpis" id="dash-kpis"></div>
         <div class="grid" style="grid-template-columns:1.35fr 1fr;margin-top:12px" id="dash-row1">
@@ -2142,6 +2144,165 @@ async function enterApp(userId, email) {
   };
 
   document.getElementById('full-exp').onclick = fullExport;
+
+  /* ================= SON FORMAT EXPORT (surgical .xlsx from template) =================
+     Regenerates the original workbook (Filtrasiya, 3 anbar, Nomenklatura, Kontragent)
+     from platform data by editing the template's XML in place. Pivots (Mal hereket,
+     Hesabat) recalc on open via refreshOnLoad. Mirrors scratchpad build_export.py. */
+  const SONX = (function () {
+    function xesc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+    function numstr(x) { if (x == null || x === '') return '0'; const f = Number(x); return isFinite(f) ? String(f) : '0'; }
+    function excelSerial(d) {
+      if (!d) return null; let m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d), y, mo, da;
+      if (m) { y = +m[1]; mo = +m[2]; da = +m[3]; } else { m = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(d); if (!m) return null; da = +m[1]; mo = +m[2]; y = +m[3]; }
+      return Math.round((Date.UTC(y, mo - 1, da) - Date.UTC(1899, 11, 30)) / 86400000);
+    }
+    function toDDMM(d) { if (!d) return null; let m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d); if (m) return m[3] + '.' + m[2] + '.' + m[1]; return d; }
+    function SS(xml) {
+      const doc = new DOMParser().parseFromString(xml, 'text/xml'), sis = doc.getElementsByTagName('si');
+      const val = [], idx = new Map(), nsi = [];
+      for (let i = 0; i < sis.length; i++) { const ts = sis[i].getElementsByTagName('t'); let v = ''; for (let j = 0; j < ts.length; j++) v += ts[j].textContent || ''; val.push(v); if (!idx.has(v)) idx.set(v, val.length - 1); }
+      return {
+        sid(s) { s = s == null ? '' : String(s); if (idx.has(s)) return idx.get(s); const i = val.length; val.push(s); idx.set(s, i); const t = xesc(s); nsi.push((s !== s.trim() || s.includes('  ')) ? '<si><t xml:space="preserve">' + t + '</t></si>' : '<si><t>' + t + '</t></si>'); return i; },
+        serialize() { const u = val.length; let b = xml.replace(/<sst\b[^>]*>/, tag => tag.replace(/count="\d+"/, 'count="' + u + '"').replace(/uniqueCount="\d+"/, 'uniqueCount="' + u + '"')); return b.replace('</sst>', nsi.join('') + '</sst>'); }
+      };
+    }
+    function patchRefs(x, last) { return x.replace(/ref="([A-Z]+\d+):([A-Z]+)\d+"/g, (m, s, c) => 'ref="' + s + ':' + c + last + '"'); }
+    function patchDim(x, last) { return x.replace(/<dimension ref="([A-Z]+\d+):([A-Z]+)\d+"\/>/, (m, s, c) => '<dimension ref="' + s + ':' + c + last + '"/>'); }
+    function split(x) { const a = x.indexOf('<sheetData>') + 11, h = x.indexOf('</row>', a) + 6, b = x.indexOf('</sheetData>'); return { p: x.slice(0, h), s: x.slice(b) }; }
+
+    const CH2USUL = { 'Əvvələ anbar qalığı': 'Əvvələ qalıq', 'Nağd alış': 'Nağd', 'Kommersiya şirkəti': 'Köçürmə', 'Köçürmə': 'Köçürmə', 'Sahə üzrə məsul şəxs': 'Sahə üzrə məsul şəxs' };
+    const D_F = '_xlfn.XLOOKUP(Table4[[#This Row],[Malın kodu]],Table1[[#All],[Malın kodu]],Table1[[#All],[Malın adı]],"xəta",0)';
+    const I_F = 'Table4[[#This Row],[Malın miqdarı]]*Table4[[#This Row],[Vahidin qiyməti]]';
+    const NOM_VIS = new Set(['0000523', '0000665', '0000763', '0000893', '0000914', '0000933']);
+    const WH = {
+      sheet6: { wh: 'Ələt', sty: { B: 26, C: 27, D: 28, E: 29, F: 26, G: 26, H: 26, I: 26 }, ge: '26', ef: '_xlfn.XLOOKUP(Table7[[#This Row],[Malın kodu]],Table4[Malın kodu],Table4[Malın adı],"Xəta",0)', ra: ' x14ac:dyDescent="0.25"', fs: true, tf: 'table2.xml' },
+      sheet7: { wh: 'Astara', sty: { B: 4, C: 5, D: 8, E: 12, F: 4, G: null, H: 4, I: 4 }, ge: null, ef: '_xlfn.XLOOKUP(Table79[[#This Row],[Malın kodu]],Filtrasiya!E:E,Filtrasiya!D:D,"xəta",0)', ra: ' ht="15.6" x14ac:dyDescent="0.3"', fs: false, tf: 'table3.xml' },
+      sheet8: { wh: 'Xocahəsən', sty: { B: 4, C: 5, D: 8, E: 10, F: 4, G: null, H: 4, I: 4 }, ge: null, ef: '_xlfn.XLOOKUP(Table7912[[#This Row],[Malın kodu]],Filtrasiya!E:E,Filtrasiya!D:D,"xəta",0)', ra: ' ht="15.6" x14ac:dyDescent="0.3"', fs: true, tf: 'table4.xml' }
+    };
+
+    function kontragent(x, ss, ps) {
+      const { p, s } = split(x), N = ps.length, last = N + 2, sl = N + 1, rows = [];
+      ps.forEach((pt, i) => {
+        const n = i + 1, r = n + 2; let c = '';
+        c += n === 1 ? '<c r="B' + r + '" s="4"><f t="shared" ref="B3:B' + sl + '" si="0">ROW()-2</f><v>' + n + '</v></c>' : r === last ? '<c r="B' + r + '" s="4"><f>ROW()-2</f><v>' + n + '</v></c>' : '<c r="B' + r + '" s="4"><f t="shared" si="0"/><v>' + n + '</v></c>';
+        if (pt.voen) c += '<c r="C' + r + '" s="4" t="s"><v>' + ss.sid(String(pt.voen)) + '</v></c>';
+        c += '<c r="D' + r + '" s="4" t="s"><v>' + ss.sid(pt.name) + '</v></c><c r="E' + r + '"/>';
+        if (pt.contract) c += '<c r="F' + r + '" s="4" t="s"><v>' + ss.sid(pt.contract) + '</v></c>';
+        const d = toDDMM(pt.contract_date); c += d ? '<c r="G' + r + '" s="5" t="s"><v>' + ss.sid(d) + '</v></c>' : '<c r="G' + r + '" s="5"/>';
+        rows.push('<row r="' + r + '" spans="2:7" x14ac:dyDescent="0.3">' + c + '</row>');
+      });
+      return { xml: p + rows.join('') + s, n: N };
+    }
+    function nomenklatura(x, ss, its) {
+      const { p, s } = split(x), so = its.slice().sort((a, b) => a.code.localeCompare(b.code));
+      for (let i = 0; i < so.length; i++) { const e = String(i + 1).padStart(7, '0'); if (so[i].code !== e) throw new Error('Nomenklatura kod ardıcıllığı pozulub: ' + so[i].code + ' (gözlənilən ' + e + '). İxrac dayandırıldı.'); }
+      const freq = new Map(); so.forEach(it => freq.set(it.name, (freq.get(it.name) || 0) + 1));
+      const rows = [];
+      so.forEach((it, i) => {
+        const n = i + 1, r = n + 2, code = String(n).padStart(7, '0'), hid = NOM_VIS.has(code) ? '' : ' hidden="1"';
+        rows.push('<row r="' + r + '" spans="2:5"' + hid + ' x14ac:dyDescent="0.3">' +
+          '<c r="B' + r + '" s="4"><f>ROW()-2</f><v>' + n + '</v></c>' +
+          '<c r="C' + r + '" s="10" t="s"><v>' + ss.sid(it.name) + '</v></c>' +
+          '<c r="D' + r + '" s="4" t="str"><f>TEXT(ROW()-2,"0000000")</f><v>' + code + '</v></c>' +
+          '<c r="E' + r + '" s="4"><f>COUNTIF(Table1[Malın adı],Table1[[#This Row],[Malın adı]])</f><v>' + freq.get(it.name) + '</v></c></row>');
+      });
+      return { xml: p + rows.join('') + s, n: so.length };
+    }
+    function filtrasiya(x, ss, movs, itemBy) {
+      const { p, s } = split(x), inc = movs.filter(m => m.type === 'Əvvələ qalıq' || m.type === 'Satınalma'), rows = [];
+      inc.forEach((m, i) => {
+        const n = i + 1, r = n + 3, code = m.item_code, it = itemBy.get(code) || {}, qty = numstr(m.in_qty), price = numstr(m.price);
+        const total = numstr(parseFloat(qty) * parseFloat(price)), usul = CH2USUL[m.channel] || m.channel || '', se = excelSerial(m.date);
+        let c = '<c r="B' + r + '" s="4"><f>ROW()-3</f><v>' + n + '</v></c>';
+        c += se != null ? '<c r="C' + r + '" s="5"><v>' + se + '</v></c>' : '<c r="C' + r + '" s="5"/>';
+        c += '<c r="D' + r + '" s="10" t="str" cm="1"><f t="array" ref="D' + r + '">' + D_F + '</f><v>' + xesc(it.name || '') + '</v></c>';
+        c += '<c r="E' + r + '" s="8" t="s"><v>' + ss.sid(code) + '</v></c><c r="F' + r + '" s="4" t="s"><v>' + ss.sid(it.unit || '') + '</v></c>';
+        c += '<c r="G' + r + '" s="4"><v>' + qty + '</v></c><c r="H' + r + '" s="4"><v>' + price + '</v></c>';
+        c += '<c r="I' + r + '" s="4"><f>' + I_F + '</f><v>' + total + '</v></c>';
+        c += '<c r="J' + r + '" s="4" t="s"><v>' + ss.sid(usul) + '</v></c><c r="K' + r + '" s="4" t="s"><v>' + ss.sid(m.partner || '') + '</v></c>';
+        if (m.contract_num) c += '<c r="L' + r + '" s="4" t="s"><v>' + ss.sid(m.contract_num) + '</v></c>';
+        if (m.invoice_num) c += '<c r="M' + r + '" s="4" t="s"><v>' + ss.sid(m.invoice_num) + '</v></c>';
+        rows.push('<row r="' + r + '" spans="2:13" x14ac:dyDescent="0.3">' + c + '</row>');
+      });
+      return { xml: p + rows.join('') + s, n: inc.length };
+    }
+    function warehouse(x, ss, movs, itemBy, cfg) {
+      const { p, s } = split(x), sty = cfg.sty, wm = movs.filter(m => m.warehouse === cfg.wh), rows = [];
+      wm.forEach((m, i) => {
+        const n = i + 1, r = n + 3, code = m.item_code, nm = (itemBy.get(code) || {}).name || '', se = excelSerial(m.date);
+        const inq = Number(m.in_qty || 0), outq = Number(m.out_qty || 0), hid = (cfg.fs && m.type !== 'Silinmə') ? ' hidden="1"' : '';
+        let c = '<c r="B' + r + '" s="' + sty.B + '"><f>ROW()-3</f><v>' + n + '</v></c>';
+        c += se != null ? '<c r="C' + r + '" s="' + sty.C + '"><v>' + se + '</v></c>' : '<c r="C' + r + '" s="' + sty.C + '"/>';
+        c += '<c r="D' + r + '" s="' + sty.D + '" t="s"><v>' + ss.sid(code) + '</v></c>';
+        c += '<c r="E' + r + '" s="' + sty.E + '" t="str"><f>' + cfg.ef + '</f><v>' + xesc(nm) + '</v></c>';
+        c += inq > 0 ? '<c r="F' + r + '" s="' + sty.F + '"><v>' + numstr(m.in_qty) + '</v></c>' : '<c r="F' + r + '" s="' + sty.F + '"/>';
+        if (outq > 0) { const gs = sty.G != null ? ' s="' + sty.G + '"' : ''; c += '<c r="G' + r + '"' + gs + '><v>' + numstr(m.out_qty) + '</v></c>'; }
+        else { const gs = cfg.ge ? ' s="' + cfg.ge + '"' : ''; c += '<c r="G' + r + '"' + gs + '/>'; }
+        c += '<c r="H' + r + '" s="' + sty.H + '" t="s"><v>' + ss.sid(m.type || '') + '</v></c>';
+        c += '<c r="I' + r + '" s="' + sty.I + '" t="s"><v>' + ss.sid(m.channel || '') + '</v></c>';
+        rows.push('<row r="' + r + '" spans="2:9"' + cfg.ra + hid + '>' + c + '</row>');
+      });
+      return { xml: p + rows.join('') + s, n: wm.length };
+    }
+
+    async function build(zip, data) {
+      const itemBy = new Map(data.items.map(it => [it.code, it]));
+      const ss = SS(await zip.file('xl/sharedStrings.xml').async('text'));
+      const s10 = kontragent(await zip.file('xl/worksheets/sheet10.xml').async('text'), ss, data.partners);
+      const s9 = nomenklatura(await zip.file('xl/worksheets/sheet9.xml').async('text'), ss, data.items);
+      const s3 = filtrasiya(await zip.file('xl/worksheets/sheet3.xml').async('text'), ss, data.movements, itemBy);
+      const wo = {};
+      for (const sh of Object.keys(WH)) wo[sh] = warehouse(await zip.file('xl/worksheets/' + sh + '.xml').async('text'), ss, data.movements, itemBy, WH[sh]);
+
+      zip.file('xl/worksheets/sheet10.xml', patchDim(s10.xml, s10.n + 2));
+      zip.file('xl/worksheets/sheet9.xml', patchDim(s9.xml, s9.n + 2));
+      zip.file('xl/worksheets/sheet3.xml', patchDim(s3.xml, s3.n + 3));
+      for (const sh of Object.keys(WH)) zip.file('xl/worksheets/' + sh + '.xml', patchDim(wo[sh].xml, wo[sh].n + 3));
+
+      zip.file('xl/tables/table6.xml', patchRefs(await zip.file('xl/tables/table6.xml').async('text'), s10.n + 2));
+      zip.file('xl/tables/table5.xml', patchRefs(await zip.file('xl/tables/table5.xml').async('text'), s9.n + 2));
+      zip.file('xl/tables/table1.xml', patchRefs(await zip.file('xl/tables/table1.xml').async('text'), s3.n + 3));
+      for (const sh of Object.keys(WH)) { const tf = WH[sh].tf; zip.file('xl/tables/' + tf, patchRefs(await zip.file('xl/tables/' + tf).async('text'), wo[sh].n + 3)); }
+
+      zip.file('xl/sharedStrings.xml', ss.serialize());
+      zip.remove('xl/calcChain.xml');
+      zip.file('[Content_Types].xml', (await zip.file('[Content_Types].xml').async('text')).replace(/<Override PartName="\/xl\/calcChain\.xml"[^>]*\/>/, ''));
+      zip.file('xl/_rels/workbook.xml.rels', (await zip.file('xl/_rels/workbook.xml.rels').async('text')).replace(/<Relationship [^>]*Target="calcChain\.xml"[^>]*\/>/, ''));
+      zip.file('xl/workbook.xml', (await zip.file('xl/workbook.xml').async('text')).replace(/<calcPr[^>]*\/>/, t => t.includes('fullCalcOnLoad') ? t : t.slice(0, -2) + ' fullCalcOnLoad="1"/>'));
+      return { s3, s9, s10, wo };
+    }
+    return { build };
+  })();
+
+  window.sonExport = async function () {
+    if (typeof JSZip === 'undefined') { toast('JSZip kitabxanası yüklənmədi', true); return; }
+    const btn = document.getElementById('son-exp'); const old = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Hazırlanır...';
+    try {
+      // adapt platform DB to exporter shape
+      const items = DB.items.map(i => ({ code: i.code, name: i.name, unit: i.unit, price: i.price || 0 }));
+      const partners = DB.partners.map(p => ({ name: p.name, voen: p.voen, contract: p.contract, contract_date: p.cdate }));
+      const priceOf = c => (DB.itemBy.get(c) || {}).price || 0;
+      const movements = DB.movs.map(m => ({
+        date: m.d, warehouse: m.w, item_code: m.c, in_qty: m.i || 0, out_qty: m.o || 0,
+        type: m.t, partner: m.p || '', channel: m.ch || '',
+        contract_num: m.ct || '', invoice_num: m.iv || '', price: m.pr || priceOf(m.c) || 0
+      }));
+      const resp = await fetch('./export-template.xlsx');
+      if (!resp.ok) throw new Error('Şablon tapılmadı (export-template.xlsx). Fayl saytda deploy olunmayıb.');
+      const zip = await JSZip.loadAsync(await resp.arrayBuffer());
+      const r = await SONX.build(zip, { items, movements, partners });
+      const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob), a = document.createElement('a');
+      a.href = url; a.download = 'Anbar_' + today() + '.xlsx'; document.body.appendChild(a); a.click();
+      setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 4000);
+      toast('Excel (SON formatı) yükləndi — Filtrasiya ' + r.s3.n + ', Nomenklatura ' + r.s9.n + ', ' + r.wo.sheet6.n + '/' + r.wo.sheet7.n + '/' + r.wo.sheet8.n + ' anbar sətri');
+    } catch (e) {
+      toast(e.message || 'İxrac alınmadı', true); console.error(e);
+    } finally { btn.disabled = false; btn.textContent = old; }
+  };
+  document.getElementById('son-exp').onclick = sonExport;
 
   /* ================= MALİYYƏ HESABATI (rəhbərlik üçün) ================= */
   window.finExport = function () {
