@@ -2212,13 +2212,18 @@ async function enterApp(userId, email) {
     function filtrasiya(x, ss, movs, itemBy) {
       const { p, s } = split(x), inc = movs.filter(m => m.type === 'Əvvələ qalıq' || m.type === 'Satınalma'), rows = [];
       inc.forEach((m, i) => {
-        const n = i + 1, r = n + 3, code = m.item_code, it = itemBy.get(code) || {}, qty = numstr(m.in_qty), price = numstr(m.price);
-        const total = numstr(parseFloat(qty) * parseFloat(price)), usul = CH2USUL[m.channel] || m.channel || '', se = excelSerial(m.date);
+        const n = i + 1, r = n + 3, code = m.item_code, it = itemBy.get(code) || {}, qty = numstr(m.in_qty);
+        // Price comes ONLY from the movement itself (never the item card): opening stock
+        // (Əvvələ qalıq) stays priceless, purchases keep their real price — statuses stay distinct.
+        const pnum = Number(m.price) || 0, hasPrice = pnum > 0;
+        const price = numstr(m.price), total = hasPrice ? numstr(parseFloat(qty) * pnum) : '0';
+        const usul = CH2USUL[m.channel] || m.channel || '', se = excelSerial(m.date);
         let c = '<c r="B' + r + '" s="4"><f>ROW()-3</f><v>' + n + '</v></c>';
         c += se != null ? '<c r="C' + r + '" s="5"><v>' + se + '</v></c>' : '<c r="C' + r + '" s="5"/>';
         c += '<c r="D' + r + '" s="10" t="str" cm="1"><f t="array" ref="D' + r + '">' + D_F + '</f><v>' + xesc(it.name || '') + '</v></c>';
         c += '<c r="E' + r + '" s="8" t="s"><v>' + ss.sid(code) + '</v></c><c r="F' + r + '" s="4" t="s"><v>' + ss.sid(it.unit || '') + '</v></c>';
-        c += '<c r="G' + r + '" s="4"><v>' + qty + '</v></c><c r="H' + r + '" s="4"><v>' + price + '</v></c>';
+        c += '<c r="G' + r + '" s="4"><v>' + qty + '</v></c>';
+        c += hasPrice ? '<c r="H' + r + '" s="4"><v>' + price + '</v></c>' : '<c r="H' + r + '" s="4"/>';
         c += '<c r="I' + r + '" s="4"><f>' + I_F + '</f><v>' + total + '</v></c>';
         c += '<c r="J' + r + '" s="4" t="s"><v>' + ss.sid(usul) + '</v></c><c r="K' + r + '" s="4" t="s"><v>' + ss.sid(m.partner || '') + '</v></c>';
         if (m.contract_num) c += '<c r="L' + r + '" s="4" t="s"><v>' + ss.sid(m.contract_num) + '</v></c>';
@@ -2283,11 +2288,11 @@ async function enterApp(userId, email) {
       // adapt platform DB to exporter shape
       const items = DB.items.map(i => ({ code: i.code, name: i.name, unit: i.unit, price: i.price || 0 }));
       const partners = DB.partners.map(p => ({ name: p.name, voen: p.voen, contract: p.contract, contract_date: p.cdate }));
-      const priceOf = c => (DB.itemBy.get(c) || {}).price || 0;
       const movements = DB.movs.map(m => ({
         date: m.d, warehouse: m.w, item_code: m.c, in_qty: m.i || 0, out_qty: m.o || 0,
         type: m.t, partner: m.p || '', channel: m.ch || '',
-        contract_num: m.ct || '', invoice_num: m.iv || '', price: m.pr || priceOf(m.c) || 0
+        // price strictly from the movement — no item-card fallback, so opening stock stays priceless
+        contract_num: m.ct || '', invoice_num: m.iv || '', price: m.pr || 0
       }));
       const resp = await fetch('./export-template.xlsx');
       if (!resp.ok) throw new Error('Şablon tapılmadı (export-template.xlsx). Fayl saytda deploy olunmayıb.');
