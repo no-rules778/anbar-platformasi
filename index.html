@@ -393,6 +393,8 @@ const nf = (n, d) => {
 const money = n => (n == null || isNaN(n) || n === 0) ? '—' : nf(n, 2) + ' ₼';
 const today = () => new Date().toISOString().slice(0, 10);
 const dsort = (a, b) => a < b ? -1 : a > b ? 1 : 0;
+const fmtD = s => (typeof s === 'string' && /^\d{4}-\d{2}-\d{2}/.test(s)) ? s.slice(8, 10) + '.' + s.slice(5, 7) + '.' + s.slice(0, 4) : (s == null ? '' : s);
+const fmtM = s => (typeof s === 'string' && /^\d{4}-\d{2}$/.test(s)) ? s.slice(5, 7) + '.' + s.slice(0, 4) : (s == null ? '' : s);
 function toast(msg, bad) { const t = $('#toast'); t.textContent = msg; t.className = 'toast on' + (bad ? ' bad' : ''); clearTimeout(t._t); t._t = setTimeout(() => t.className = 'toast', 2600); }
 function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms || 220); }; }
 function initials(n) { return n.trim().split(/\s+/).slice(0, 2).map(x => x[0] || '').join('').toUpperCase() || '?'; }
@@ -929,7 +931,7 @@ function rDash() {
   $('#t-recent').innerHTML = tbl(
     [{ t: 'Tarix' }, { t: 'Mal' }, { t: 'Növ' }, { t: 'Miqdar', r: 1 }],
     rec.map(m => ({
-      _a: `data-card="${esc(m.c)}"`, c: [esc(m.d) + `<div class="hint">${esc(m.by || '')}</div>`,
+      _a: `data-card="${esc(m.c)}"`, c: [esc(fmtD(m.d)) + `<div class="hint">${esc(m.by || '')}</div>`,
       `<div>${esc((DB.itemBy.get(m.c) || {}).name || m.c)}</div><span class="code">${esc(m.w)}</span>`,
       TYPE_TAG(m.t), (m.i ? `<span style="color:var(--in)">+${nf(m.i, 2)}</span>` : '') + (m.o ? `<span style="color:var(--out)">−${nf(m.o, 2)}</span>` : '')]
     })), { clk: 1 });
@@ -999,7 +1001,7 @@ function rMov() {
       const pr = m.pr || it.price || 0;
       return {
         _a: `data-mv="${esc(m.id)}"`, c: [
-          esc(m.d), esc(m.w), `<span class="code">${esc(m.c)}</span>`,
+          esc(fmtD(m.d)), esc(m.w), `<span class="code">${esc(m.c)}</span>`,
           `<div class="nm">${esc(it.name || '—')}</div>` + (m.iv || m.ct ? `<span class="hint">${esc([m.ct, m.iv].filter(Boolean).join(' · '))}</span>` : ''),
           TYPE_TAG(m.t), esc(m.p || '—'),
           m.ch ? `<span class="hint">${esc(m.ch)}</span>` : '<span class="muted">—</span>',
@@ -1048,10 +1050,10 @@ function itemCard(code) {
       <h4 style="margin:16px 0 7px;font-size:12px" class="eyebrow">Anbarlar üzrə qalıq</h4>
       <div class="card">${tbl([{ t: 'Anbar' }, { t: 'Mədaxil', r: 1 }, { t: 'Məxaric', r: 1 }, { t: 'Qalıq', r: 1 }],
     bal.map(b => ({ c: [esc(b.w), nf(b.in, 2), nf(b.out, 2), `<b class="${b.q < 0 ? 'neg' : ''}">${nf(b.q, 2)}</b>`] })))}</div>
-      ${obs.length > 1 ? `<h4 style="margin:16px 0 7px;font-size:12px" class="eyebrow">Qiymət tarixçəsi</h4><div class="card">${tbl([{ t: 'Tarix' }, { t: 'Kontragent' }, { t: 'Qiymət', r: 1 }], obs.slice().sort((a, b) => dsort(b.d, a.d)).map(o => ({ c: [esc(o.d), esc(o.k), nf(o.p, 2) + ' ₼'] })))}</div>` : ''}
+      ${obs.length > 1 ? `<h4 style="margin:16px 0 7px;font-size:12px" class="eyebrow">Qiymət tarixçəsi</h4><div class="card">${tbl([{ t: 'Tarix' }, { t: 'Kontragent' }, { t: 'Qiymət', r: 1 }], obs.slice().sort((a, b) => dsort(b.d, a.d)).map(o => ({ c: [esc(fmtD(o.d)), esc(o.k), nf(o.p, 2) + ' ₼'] })))}</div>` : ''}
       <h4 style="margin:16px 0 7px;font-size:12px" class="eyebrow">Hərəkət tarixçəsi</h4>
       <div class="card">${tbl([{ t: 'Tarix' }, { t: 'Anbar' }, { t: 'Növ' }, { t: 'Kontragent' }, { t: 'Giriş', r: 1 }, { t: 'Çıxış', r: 1 }],
-      movs.map(m => ({ c: [esc(m.d), esc(m.w), TYPE_TAG(m.t), esc(m.p || '—'), m.i ? nf(m.i, 2) : '—', m.o ? nf(m.o, 2) : '—'] })))}</div>
+      movs.map(m => ({ c: [esc(fmtD(m.d)), esc(m.w), TYPE_TAG(m.t), esc(m.p || '—'), m.i ? nf(m.i, 2) : '—', m.o ? nf(m.o, 2) : '—'] })))}</div>
       <div style="display:flex;gap:8px;margin-top:14px">
         <button class="btn pri" data-close onclick="prefillOp('${esc(code)}')">Bu mal üzrə əməliyyat</button>
         ${can('item.edit') ? `<button class="btn" onclick="editItem('${esc(code)}')">Malı redaktə et</button>` : ''}
@@ -1119,7 +1121,7 @@ function rBal() {
     [{ t: 'Kod' }, { t: 'Malın adı' }, { t: 'Anbar' }, { t: 'Ölçü' }, { t: 'Mədaxil', r: 1 }, { t: 'Məxaric', r: 1 }, { t: 'Qalıq', r: 1 }, { t: 'Vahid qiyməti', r: 1 }, { t: 'Dəyər', r: 1 }, { t: 'Son hərəkət' }],
     page.map(b => ({
       _a: `data-card="${esc(b.c)}"`, c: [`<span class="code">${esc(b.c)}</span>`, `<div class="nm">${esc(b.name)}</div>`, esc(b.w), esc(b.unit),
-      nf(b.in, 2), nf(b.out, 2), `<b class="${b.q < 0 ? 'neg' : ''}">${nf(b.q, 2)}</b>`, b.price ? nf(b.price, 2) : '<span class="muted">—</span>', money(b.val), b.nomv ? '<span class="tag t-mut">hərəkət yoxdur</span>' : esc(b.last)]
+      nf(b.in, 2), nf(b.out, 2), `<b class="${b.q < 0 ? 'neg' : ''}">${nf(b.q, 2)}</b>`, b.price ? nf(b.price, 2) : '<span class="muted">—</span>', money(b.val), b.nomv ? '<span class="tag t-mut">hərəkət yoxdur</span>' : esc(fmtD(b.last))]
     })), { clk: 1 });
   $('#bal-pager').innerHTML = `<span class="hint">${nf(rows.length)} sətir` + cutNote(rows, 'bal', rBal) + `</span>`;
   $('#bal-print').onclick = () => { printHead('Anbar qalıqları', (BF.w === '__sum' ? 'ümumi' : (BF.w || 'bütün anbarlar')) + ' · ' + nf(rows.length) + ' mövqe'); setTimeout(() => window.print(), 60); };
@@ -1186,7 +1188,7 @@ function rKnt() {
     [{ t: 'Kontragent' }, { t: 'VÖEN' }, { t: 'Müqavilə' }, { t: 'Müqavilə tarixi' }, { t: 'Əməliyyat', r: 1 }, { t: 'Mədaxil miqdarı', r: 1 }, { t: 'Dövriyyə məbləği', r: 1 }, { t: '' }],
     rows.map(r => ({
       c: [`<b>${esc(r.p.name)}</b>`, r.p.voen ? `<span class="code">${esc(r.p.voen)}</span>` : `<span class="tag t-rm">yoxdur</span>`,
-      esc(r.p.contract || '—'), esc(r.p.cdate || '—'), nf(r.st.n), nf(r.st.in, 2), money(r.st.val),
+      esc(r.p.contract || '—'), esc(fmtD(r.p.cdate) || '—'), nf(r.st.n), nf(r.st.in, 2), money(r.st.val),
       can('partner.edit') ? `<button class="btn sm" onclick="editPartner('${esc(r.p.id)}')">Düzəliş</button>` : '']
     })));
   $('#knt-add').onclick = () => editPartner(null);
@@ -1662,10 +1664,10 @@ function rRep() {
     for (const [d, s] of IX.byDate) { const m = d.slice(0, 7); const x = byMonth.get(m) || { in: 0, out: 0, n: 0, val: 0 }; x.in += s.in; x.out += s.out; x.n += s.n; x.val += s.val; byMonth.set(m, x); }
     const months = Array.from(byMonth.entries()).sort((a, b) => dsort(a[0], b[0]));
     const days = IX.dates.map(d => ({ k: d, v: IX.byDate.get(d).n }));
-    REP_NAME = 'dovr_uzre'; REP_ROWS = [['Ay', 'Əməliyyat', 'Mədaxil', 'Məxaric', 'Mədaxil dəyəri']].concat(months.map(([m, s]) => [m, s.n, s.in, s.out, s.val.toFixed(2)]));
+    REP_NAME = 'dovr_uzre'; REP_ROWS = [['Ay', 'Əməliyyat', 'Mədaxil', 'Məxaric', 'Mədaxil dəyəri']].concat(months.map(([m, s]) => [fmtM(m), s.n, s.in, s.out, s.val.toFixed(2)]));
     out.innerHTML = `<div class="card"><header><h3>Günlük əməliyyat sayı</h3></header><div class="pad">${sparkline(days)}</div></div>
       <div class="card" style="margin-top:12px"><div class="tw">${tbl([{ t: 'Ay' }, { t: 'Əməliyyat', r: 1 }, { t: 'Mədaxil', r: 1 }, { t: 'Məxaric', r: 1 }, { t: 'Mədaxil dəyəri', r: 1 }],
-      months.map(([m, s]) => ({ c: [esc(m), nf(s.n), nf(s.in, 2), nf(s.out, 2), money(s.val)] })))}</div></div>`;
+      months.map(([m, s]) => ({ c: [esc(fmtM(m)), nf(s.n), nf(s.in, 2), nf(s.out, 2), money(s.val)] })))}</div></div>`;
   }
   else if (k === 'abc') {
     const pos = IX.positions.slice().sort((a, b) => b.val - a.val);
@@ -1694,7 +1696,7 @@ function rRep() {
       <div class="kpi r"><div class="eyebrow">Dondurulmuş dəyər</div><div class="v" style="font-size:19px">${money(rows.reduce((s, r) => s + r.b.val, 0))}</div><div class="s">dövriyyədən kənar vəsait</div></div>
       <div class="kpi"><div class="eyebrow">Heç istifadə olunmayıb</div><div class="v">${nf(rows.filter(r => !r.moved).length)}</div><div class="s">yalnız mədaxil olub</div></div></div>
       <div class="card" style="margin-top:12px"><div class="tw">${tbl([{ t: 'Kod' }, { t: 'Mal' }, { t: 'Anbar' }, { t: 'Qalıq', r: 1 }, { t: 'Dəyər', r: 1 }, { t: 'Son hərəkət' }, { t: 'Gün', r: 1 }, { t: 'Status' }],
-      cut(rows, 'dead').map(r => ({ _a: `data-card="${esc(r.b.c)}"`, c: [`<span class="code">${esc(r.b.c)}</span>`, `<div class="nm">${esc(r.b.name)}</div>`, esc(r.b.w), nf(r.b.q, 2), money(r.b.val), esc(r.b.last), nf(r.days), r.moved ? '<span class="tag t-mut">hərəkətsiz</span>' : '<span class="tag t-rm">istifadəsiz</span>'] })), { clk: 1 })}</div></div>`;
+      cut(rows, 'dead').map(r => ({ _a: `data-card="${esc(r.b.c)}"`, c: [`<span class="code">${esc(r.b.c)}</span>`, `<div class="nm">${esc(r.b.name)}</div>`, esc(r.b.w), nf(r.b.q, 2), money(r.b.val), esc(fmtD(r.b.last)), nf(r.days), r.moved ? '<span class="tag t-mut">hərəkətsiz</span>' : '<span class="tag t-rm">istifadəsiz</span>'] })), { clk: 1 })}</div></div>`;
   }
   else if (k === 'tr') {
     const mat = new Map();
@@ -1770,31 +1772,32 @@ function controlIssues() {
   const nop = IX.positions.filter(b => !b.price);
   if (nop.length) G.push({ id: 'nop', sev: 'med', title: 'Qiyməti olmayan qalıq', why: 'Qiymət daxil edilmədən qalığın dəyəri sıfır kimi hesablanır; balans və sığorta dəyəri əskik göstərilir.', cols: ['Anbar', 'Kod', 'Mal', 'Qalıq'], rows: nop.map(b => [b.w, b.c, b.name, nf(b.q, 2)]), codes: nop.map(b => b.c) });
   const nodoc = DB.movs.filter(m => m.t === 'Satınalma' && !m.iv && !m.ct);
-  if (nodoc.length) G.push({ id: 'doc', sev: 'low', title: 'Sənədsiz satınalma', why: 'Qaimə və ya müqavilə nömrəsi göstərilməyib. Bu, əməliyyatı bloklamır — yalnız xatırlatma üçündür.', cols: ['Tarix', 'Anbar', 'Kod', 'Kontragent'], rows: nodoc.map(m => [m.d, m.w, m.c, m.p || '—']), codes: nodoc.map(m => m.c) });
+  if (nodoc.length) G.push({ id: 'doc', sev: 'low', title: 'Sənədsiz satınalma', why: 'Qaimə və ya müqavilə nömrəsi göstərilməyib. Bu, əməliyyatı bloklamır — yalnız xatırlatma üçündür.', cols: ['Tarix', 'Anbar', 'Kod', 'Kontragent'], rows: nodoc.map(m => [fmtD(m.d), m.w, m.c, m.p || '—']), codes: nodoc.map(m => m.c) });
   const internal = new Set(DB.locs.map(l => l.name).concat(DB.whs).concat(['Bazar', 'Nağd alış', 'Kommersiya şirkəti', 'Sahə üzrə məsul şəxs', 'Əvvələ anbar qalığı', 'Anbar qalığı']));
   const noVoen = DB.movs.filter(m => m.t === 'Satınalma' && m.p && !internal.has(m.p) && !DB.partners.some(p => p.name === m.p && p.voen));
-  if (noVoen.length) G.push({ id: 'voen', sev: 'low', title: 'VÖEN-siz kontragentdən alış', why: 'Kontragent bazasında VÖEN yoxdur. Bu, əməliyyatı bloklamır — yalnız xatırlatma üçündür.', cols: ['Tarix', 'Kontragent', 'Kod', 'Miqdar'], rows: noVoen.map(m => [m.d, m.p, m.c, nf(m.i, 2)]), codes: noVoen.map(m => m.c) });
+  if (noVoen.length) G.push({ id: 'voen', sev: 'low', title: 'VÖEN-siz kontragentdən alış', why: 'Kontragent bazasında VÖEN yoxdur. Bu, əməliyyatı bloklamır — yalnız xatırlatma üçündür.', cols: ['Tarix', 'Kontragent', 'Kod', 'Miqdar'], rows: noVoen.map(m => [fmtD(m.d), m.p, m.c, nf(m.i, 2)]), codes: noVoen.map(m => m.c) });
   const orphan = DB.movs.filter(m => !DB.itemBy.has(m.c));
-  if (orphan.length) G.push({ id: 'orph', sev: 'high', title: 'Nomenklaturada olmayan mal', why: 'Hərəkət qeydi mövcud olmayan mal koduna istinad edir — hesabatlarda ad görünmür.', cols: ['Tarix', 'Anbar', 'Kod', 'Miqdar'], rows: orphan.map(m => [m.d, m.w, m.c, nf(m.i - m.o, 2)]), codes: orphan.map(m => m.c) });
+  if (orphan.length) G.push({ id: 'orph', sev: 'high', title: 'Nomenklaturada olmayan mal', why: 'Hərəkət qeydi mövcud olmayan mal koduna istinad edir — hesabatlarda ad görünmür.', cols: ['Tarix', 'Anbar', 'Kod', 'Miqdar'], rows: orphan.map(m => [fmtD(m.d), m.w, m.c, nf(m.i - m.o, 2)]), codes: orphan.map(m => m.c) });
   // unpaired transfers
   const tr = DB.movs.filter(m => m.t === 'Yerdəyişmə');
   const dd = (a, b) => (!a || !b) ? 0 : Math.abs(new Date(a) - new Date(b)) / 86400000;
   const pair = m => {
     const other = DB.whs.find(w => (m.p || '').indexOf(w) === 0); if (!other) return null;
-    return tr.find(x => x !== m && x.c === m.c && x.w === other && ((m.i > 0 && x.o > 0) || (m.o > 0 && x.i > 0)) && Math.abs((x.i || x.o) - (m.i || m.o)) < 1e-6) || null;
+    const cands = tr.filter(x => x !== m && x.c === m.c && x.w === other && ((m.i > 0 && x.o > 0) || (m.o > 0 && x.i > 0)) && Math.abs((x.i || x.o) - (m.i || m.o)) < 1e-6);
+    return cands.find(x => x.d === m.d) || cands[0] || null;
   };
   const unp = tr.filter(m => !pair(m));
-  if (unp.length) G.push({ id: 'tr', sev: 'high', title: 'Cütü olmayan yerdəyişmə', why: 'Bir anbardan çıxan mal digərində mədaxil edilməyib — yolda itki və ya uçot boşluğu deməkdir.', cols: ['Tarix', 'Anbar', 'Kod', 'Miqdar', 'Qarşı tərəf'], rows: unp.map(m => [m.d, m.w, m.c, nf(m.i || m.o, 2), m.p || '—']), codes: unp.map(m => m.c) });
+  if (unp.length) G.push({ id: 'tr', sev: 'high', title: 'Cütü olmayan yerdəyişmə', why: 'Bir anbardan çıxan mal digərində mədaxil edilməyib — yolda itki və ya uçot boşluğu deməkdir.', cols: ['Tarix', 'Anbar', 'Kod', 'Miqdar', 'Qarşı tərəf'], rows: unp.map(m => [fmtD(m.d), m.w, m.c, nf(m.i || m.o, 2), m.p || '—']), codes: unp.map(m => m.c) });
   const lag = tr.filter(m => m.o > 0).map(m => ({ m, x: pair(m) })).filter(r => r.x && dd(r.x.d, r.m.d) > 3);
-  if (lag.length) G.push({ id: 'lag', sev: 'med', title: 'Yerdəyişmənin tarixləri uyğun gəlmir', why: 'Malın çıxışı və mədaxili fərqli tarixlərdə qeyd olunub. Ay sonunda qalıq iki anbarda birdən və ya heç birində görünmür — dövr kəsiliş (cut-off) səhvidir.', cols: ['Kod', 'Göndərən anbar', 'Çıxış tarixi', 'Qəbul tarixi', 'Fərq (gün)'], rows: lag.map(r => [r.m.c, r.m.w, r.m.d, r.x.d, nf(dd(r.x.d, r.m.d))]), codes: lag.map(r => r.m.c) });
+  if (lag.length) G.push({ id: 'lag', sev: 'med', title: 'Yerdəyişmənin tarixləri uyğun gəlmir', why: 'Malın çıxışı və mədaxili fərqli tarixlərdə qeyd olunub. Ay sonunda qalıq iki anbarda birdən və ya heç birində görünmür — dövr kəsiliş (cut-off) səhvidir.', cols: ['Kod', 'Göndərən anbar', 'Çıxış tarixi', 'Qəbul tarixi', 'Fərq (gün)'], rows: lag.map(r => [r.m.c, r.m.w, fmtD(r.m.d), fmtD(r.x.d), nf(dd(r.x.d, r.m.d))]), codes: lag.map(r => r.m.c) });
   const norm = s => s.toLowerCase().replace(/[\s/.,"'-]+/g, '');
   const dupm = new Map(); DB.items.forEach(i => { const k = norm(i.name); if (!dupm.has(k)) dupm.set(k, []); dupm.get(k).push(i); });
   const dups = Array.from(dupm.values()).filter(v => v.length > 1);
   if (dups.length) G.push({ id: 'dup', sev: 'med', title: 'Nomenklaturada təkrar', why: 'Eyni mal iki kodla qeydə alınıb — qalıq bölünür, satınalma tələbi səhv hesablanır.', cols: ['Adı', 'Kodlar', 'Qalıqlar'], rows: dups.map(v => [v[0].name, v.map(x => x.code).join(', '), v.map(x => nf((IX.byItem.get(x.code) || { q: 0 }).q, 2)).join(' / ')]), codes: dups.map(v => v[0].code) });
   const future = DB.movs.filter(m => m.d > today());
-  if (future.length) G.push({ id: 'fut', sev: 'med', title: 'Gələcək tarixli qeyd', why: 'Əməliyyat tarixi bugünkü tarixdən sonradır — yazılış səhvi ehtimalı yüksəkdir.', cols: ['Tarix', 'Anbar', 'Kod', 'Qeyd edən'], rows: future.map(m => [m.d, m.w, m.c, m.by || '—']), codes: future.map(m => m.c) });
+  if (future.length) G.push({ id: 'fut', sev: 'med', title: 'Gələcək tarixli qeyd', why: 'Əməliyyat tarixi bugünkü tarixdən sonradır — yazılış səhvi ehtimalı yüksəkdir.', cols: ['Tarix', 'Anbar', 'Kod', 'Qeyd edən'], rows: future.map(m => [fmtD(m.d), m.w, m.c, m.by || '—']), codes: future.map(m => m.c) });
   const bigwo = DB.movs.filter(m => m.t === 'Silinmə' && (m.o || 0) * ((DB.itemBy.get(m.c) || {}).price || 0) > 500);
-  if (bigwo.length) G.push({ id: 'wo', sev: 'high', title: 'İri məbləğli silinmə', why: '500 ₼-dən yuxarı silinmə komissiya aktı və rəhbər təsdiqi tələb edir.', cols: ['Tarix', 'Anbar', 'Kod', 'Məbləğ'], rows: bigwo.map(m => [m.d, m.w, m.c, money(m.o * ((DB.itemBy.get(m.c) || {}).price || 0))]), codes: bigwo.map(m => m.c) });
+  if (bigwo.length) G.push({ id: 'wo', sev: 'high', title: 'İri məbləğli silinmə', why: '500 ₼-dən yuxarı silinmə komissiya aktı və rəhbər təsdiqi tələb edir.', cols: ['Tarix', 'Anbar', 'Kod', 'Məbləğ'], rows: bigwo.map(m => [fmtD(m.d), m.w, m.c, money(m.o * ((DB.itemBy.get(m.c) || {}).price || 0))]), codes: bigwo.map(m => m.c) });
   return G;
 }
 function rCtrl() {
