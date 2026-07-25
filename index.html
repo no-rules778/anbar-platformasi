@@ -1217,14 +1217,14 @@ function rAnb() {
 const OP = { kind: 'in', lines: [], pick: null };
 $$('#op-seg button').forEach(b => b.onclick = () => { OP.kind = b.dataset.k; $$('#op-seg button').forEach(x => x.classList.toggle('on', x === b)); rOp(); });
 
-const CHANNELS = ['Nağd alış', 'Kommersiya şirkəti', 'Sahə üzrə məsul şəxs'];
+const CHANNELS = ['Nağd alış', 'Kommersiya şirkəti', 'Köçürmə', 'Sahə üzrə məsul şəxs'];
 function channelOptions() {
   const used = Array.from(new Set(DB.movs.map(m => m.ch).filter(Boolean)));
   return Array.from(new Set(CHANNELS.concat(used)));
 }
 function partnerOptions(kind) {
   const names = kind === 'mv' ? DB.whs
-    : kind === 'out' ? DB.locs.filter(l => l.kind !== 'anbar').map(l => l.name).concat(DB.locs.filter(l => l.kind === 'anbar').map(l => l.name))
+    : kind === 'out' ? ['Sahə üzrə məsul şəxs'].concat(DB.locs.filter(l => l.kind !== 'anbar').map(l => l.name)).concat(DB.locs.filter(l => l.kind === 'anbar').map(l => l.name))
       : DB.partners.map(p => p.name);
   return Array.from(new Set(names));
 }
@@ -1292,6 +1292,12 @@ function rOp() {
   };
   inp.oninput = debounce(search, 160);
   inp.onblur = () => setTimeout(() => res.style.display = 'none', 200);
+  // Silinmə üçün təhvil alan həmişə "Sahə üzrə məsul şəxs"
+  if (k === 'out' && $('#o-type') && $('#o-p')) {
+    const syncSil = () => { if ($('#o-type').value === 'Silinmə') $('#o-p').value = 'Sahə üzrə məsul şəxs'; };
+    $('#o-type').onchange = syncSil;
+    syncSil();
+  }
   $('#o-add').onclick = addLine;
   if (OP.pick) pickItem(OP.pick, true);
   renderLines();
@@ -1764,10 +1770,10 @@ function controlIssues() {
   const nop = IX.positions.filter(b => !b.price);
   if (nop.length) G.push({ id: 'nop', sev: 'med', title: 'Qiyməti olmayan qalıq', why: 'Qiymət daxil edilmədən qalığın dəyəri sıfır kimi hesablanır; balans və sığorta dəyəri əskik göstərilir.', cols: ['Anbar', 'Kod', 'Mal', 'Qalıq'], rows: nop.map(b => [b.w, b.c, b.name, nf(b.q, 2)]), codes: nop.map(b => b.c) });
   const nodoc = DB.movs.filter(m => m.t === 'Satınalma' && !m.iv && !m.ct);
-  if (nodoc.length) G.push({ id: 'doc', sev: 'high', title: 'Sənədsiz satınalma', why: 'Qaimə və ya müqavilə nömrəsi göstərilməyib. ƏDV-nin əvəzləşdirilməsi və vergi yoxlaması üçün risklidir.', cols: ['Tarix', 'Anbar', 'Kod', 'Kontragent'], rows: nodoc.map(m => [m.d, m.w, m.c, m.p || '—']), codes: nodoc.map(m => m.c) });
+  if (nodoc.length) G.push({ id: 'doc', sev: 'low', title: 'Sənədsiz satınalma', why: 'Qaimə və ya müqavilə nömrəsi göstərilməyib. Bu, əməliyyatı bloklamır — yalnız xatırlatma üçündür.', cols: ['Tarix', 'Anbar', 'Kod', 'Kontragent'], rows: nodoc.map(m => [m.d, m.w, m.c, m.p || '—']), codes: nodoc.map(m => m.c) });
   const internal = new Set(DB.locs.map(l => l.name).concat(DB.whs).concat(['Bazar', 'Nağd alış', 'Kommersiya şirkəti', 'Sahə üzrə məsul şəxs', 'Əvvələ anbar qalığı', 'Anbar qalığı']));
   const noVoen = DB.movs.filter(m => m.t === 'Satınalma' && m.p && !internal.has(m.p) && !DB.partners.some(p => p.name === m.p && p.voen));
-  if (noVoen.length) G.push({ id: 'voen', sev: 'med', title: 'VÖEN-siz kontragentdən alış', why: 'Kontragent bazasında VÖEN yoxdur və ya kontragent ümumiyyətlə qeydiyyatdan keçməyib.', cols: ['Tarix', 'Kontragent', 'Kod', 'Miqdar'], rows: noVoen.map(m => [m.d, m.p, m.c, nf(m.i, 2)]), codes: noVoen.map(m => m.c) });
+  if (noVoen.length) G.push({ id: 'voen', sev: 'low', title: 'VÖEN-siz kontragentdən alış', why: 'Kontragent bazasında VÖEN yoxdur. Bu, əməliyyatı bloklamır — yalnız xatırlatma üçündür.', cols: ['Tarix', 'Kontragent', 'Kod', 'Miqdar'], rows: noVoen.map(m => [m.d, m.p, m.c, nf(m.i, 2)]), codes: noVoen.map(m => m.c) });
   const orphan = DB.movs.filter(m => !DB.itemBy.has(m.c));
   if (orphan.length) G.push({ id: 'orph', sev: 'high', title: 'Nomenklaturada olmayan mal', why: 'Hərəkət qeydi mövcud olmayan mal koduna istinad edir — hesabatlarda ad görünmür.', cols: ['Tarix', 'Anbar', 'Kod', 'Miqdar'], rows: orphan.map(m => [m.d, m.w, m.c, nf(m.i - m.o, 2)]), codes: orphan.map(m => m.c) });
   // unpaired transfers
@@ -1803,7 +1809,7 @@ function rCtrl() {
   ].map(k => `<div class="kpi ${k[3]}"><div class="eyebrow">${esc(k[0])}</div><div class="v" style="font-size:19px">${k[1]}</div><div class="s">${esc(k[2])}</div></div>`).join('');
   $('#ctrl-out').innerHTML = G.length ? G.map(g => `
     <div class="card" style="margin-bottom:12px">
-      <header><span class="tag ${g.sev === 'high' ? 't-rm' : 't-out'}">${g.sev === 'high' ? 'yüksək risk' : 'orta risk'}</span><h3>${esc(g.title)}</h3><div class="sp"></div><b class="num">${nf(g.rows.length)}</b></header>
+      <header><span class="tag ${g.sev === 'high' ? 't-rm' : g.sev === 'low' ? 't-mut' : 't-out'}">${g.sev === 'high' ? 'yüksək risk' : g.sev === 'low' ? 'xatırlatma' : 'orta risk'}</span><h3>${esc(g.title)}</h3><div class="sp"></div><b class="num">${nf(g.rows.length)}</b></header>
       <div class="pad hint" style="padding-bottom:0">${esc(g.why)}</div>
       <div class="tw" style="max-height:320px">${tbl(g.cols.map(c => ({ t: c, r: /Qalıq|Miqdar|Məbləğ/.test(c) })), cut(g.rows, 'ctrl' + g.t).map((r, i) => ({ _a: g.codes[i] ? `data-card="${esc(g.codes[i])}"` : '', c: r.map(esc) })), { clk: 1 })}</div>
       ${g.rows.length > 100 ? `<div class="pad hint">İlk 100 sətir göstərilir.</div>` : ''}
