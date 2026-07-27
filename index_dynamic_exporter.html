@@ -1,0 +1,2511 @@
+<!DOCTYPE html>
+<html lang="az">
+<head>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ANBAR · Vahid Anbar və Təchizat Platforması</title>
+<style>
+:root{
+  --ink:#0E141A; --ink-2:#3C4C5A; --ink-3:#71838F;
+  --paper:#EEF1F3; --panel:#FFFFFF; --line:#D6DEE3; --line-2:#E9EEF1;
+  --steel:#1F4E6B; --steel-d:#143548; --steel-l:#E7F0F5;
+  --in:#0E7C6B; --in-l:#E2F2EF;
+  --out:#B06A11; --out-l:#FBEFDD;
+  --alarm:#A9231C; --alarm-l:#FBE9E7;
+  --move:#5B4B9E; --move-l:#EDEAF7;
+  --mono:ui-monospace,"SF Mono","Cascadia Mono","Roboto Mono",Consolas,monospace;
+  --sans:"Segoe UI",Inter,system-ui,-apple-system,"Helvetica Neue",Arial,sans-serif;
+  --rail:212px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:13px;line-height:1.45;-webkit-font-smoothing:antialiased}
+button,input,select,textarea{font-family:inherit;font-size:13px;color:inherit}
+h1,h2,h3,h4{margin:0;font-weight:650;letter-spacing:-.01em}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.code{font-family:var(--mono);font-size:12px;color:var(--ink-2)}
+.eyebrow{font-size:10px;text-transform:uppercase;letter-spacing:.13em;color:var(--ink-3);font-weight:650}
+
+/* ---------- shell ---------- */
+#app{display:none}
+.topbar{position:sticky;top:0;z-index:60;height:46px;background:var(--steel-d);color:#fff;display:flex;align-items:center;gap:14px;padding:0 14px}
+.topbar .brand{font-weight:700;letter-spacing:.16em;font-size:12px;text-transform:uppercase}
+.topbar .brand span{opacity:.55;letter-spacing:.05em;font-weight:500;text-transform:none;margin-left:8px;font-size:11px}
+.topbar .sp{flex:1}
+.presence{display:flex;align-items:center;gap:5px}
+.chip{display:inline-flex;align-items:center;gap:5px;background:rgba(255,255,255,.12);border-radius:20px;padding:3px 9px 3px 4px;font-size:11px}
+.chip i{width:18px;height:18px;border-radius:50%;display:grid;place-items:center;font-style:normal;font-size:9px;font-weight:700;background:#fff;color:var(--steel-d)}
+.sync{font-size:11px;opacity:.7;display:flex;align-items:center;gap:6px}
+.dot{width:7px;height:7px;border-radius:50%;background:#5FD3A8;box-shadow:0 0 0 0 rgba(95,211,168,.7);animation:pulse 2.6s infinite}
+.dot.off{background:#E0A03C;animation:none}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(95,211,168,.6)}70%{box-shadow:0 0 0 7px rgba(95,211,168,0)}100%{box-shadow:0 0 0 0 rgba(95,211,168,0)}}
+.layout{display:flex;align-items:flex-start}
+.rail{width:var(--rail);flex:0 0 var(--rail);position:sticky;top:46px;height:calc(100vh - 46px);background:var(--panel);border-right:1px solid var(--line);padding:10px 0;overflow-y:auto}
+.rail .grp{padding:12px 16px 5px;font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--ink-3);font-weight:700}
+.rail a{display:flex;align-items:center;gap:9px;padding:8px 16px;color:var(--ink-2);text-decoration:none;cursor:pointer;border-left:3px solid transparent;font-weight:500}
+.rail a:hover{background:var(--line-2);color:var(--ink)}
+.rail a.on{background:var(--steel-l);color:var(--steel-d);border-left-color:var(--steel);font-weight:650}
+.rail a b{margin-left:auto;font-family:var(--mono);font-size:10px;font-weight:600;color:var(--ink-3)}
+.rail a.on b{color:var(--steel)}
+.main{flex:1;min-width:0;padding:18px 20px 60px}
+.page{display:none}.page.on{display:block}
+.phead{display:flex;align-items:flex-end;gap:14px;margin-bottom:14px;flex-wrap:wrap}
+.phead h2{font-size:19px}
+.phead p{margin:2px 0 0;color:var(--ink-3);font-size:12px}
+.phead .sp{flex:1}
+
+/* ---------- cards / tables ---------- */
+.card{background:var(--panel);border:1px solid var(--line);border-radius:5px}
+.card>header{padding:10px 13px;border-bottom:1px solid var(--line-2);display:flex;align-items:center;gap:10px}
+.card>header h3{font-size:13px}
+.card>header .sp{flex:1}
+.pad{padding:13px}
+.grid{display:grid;gap:12px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:10px}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:5px;padding:11px 13px;position:relative;overflow:hidden}
+.kpi:after{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--steel)}
+.kpi.g:after{background:var(--in)}.kpi.o:after{background:var(--out)}.kpi.r:after{background:var(--alarm)}.kpi.v:after{background:var(--move)}
+.kpi .v{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:22px;font-weight:600;letter-spacing:-.02em;margin-top:3px}
+.kpi .s{font-size:11px;color:var(--ink-3);margin-top:2px}
+.tw{overflow:auto;max-height:calc(100vh - 250px);min-height:180px}
+.tw[style*='max-height']{min-height:0}
+table{width:100%;border-collapse:collapse}
+th{position:sticky;top:0;background:#F7F9FA;box-shadow:0 1px 0 var(--line);text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-3);font-weight:700;padding:8px 9px;border-bottom:1px solid var(--line);z-index:2;white-space:nowrap}
+th.r,td.r{text-align:right}
+td{padding:7px 9px;border-bottom:1px solid var(--line-2);vertical-align:top}
+tbody tr:hover{background:#F8FAFB}
+tbody tr.clk{cursor:pointer}
+td.nm{max-width:390px}
+.tag{display:inline-block;padding:1px 7px;border-radius:3px;font-size:10.5px;font-weight:650;white-space:nowrap;border:1px solid transparent}
+.t-in{background:var(--in-l);color:var(--in)}
+.t-out{background:var(--out-l);color:var(--out)}
+.t-mv{background:var(--move-l);color:var(--move)}
+.t-rm{background:var(--alarm-l);color:var(--alarm)}
+.t-op{background:var(--steel-l);color:var(--steel-d)}
+.t-mut{background:var(--line-2);color:var(--ink-3)}
+.bar{height:6px;background:var(--line-2);border-radius:3px;overflow:hidden;min-width:60px}
+.bar i{display:block;height:100%;background:var(--steel)}
+.muted{color:var(--ink-3)}
+.neg{color:var(--alarm);font-weight:650}
+
+/* ---------- controls ---------- */
+.btn{display:inline-flex;align-items:center;gap:6px;background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:6px 11px;cursor:pointer;font-weight:600;color:var(--ink-2)}
+.btn:hover{border-color:var(--ink-3);color:var(--ink)}
+.btn.pri{background:var(--steel);border-color:var(--steel);color:#fff}
+.btn.pri:hover{background:var(--steel-d)}
+.btn.dgr{color:var(--alarm);border-color:#E9C7C4}
+.btn.dgr:hover{background:var(--alarm-l)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.sm{padding:3px 8px;font-size:11.5px}
+input[type=text],input[type=number],input[type=date],input[type=search],select,textarea{background:#fff;border:1px solid var(--line);border-radius:4px;padding:6px 8px;width:100%;outline:none}
+input:focus,select:focus,textarea:focus{border-color:var(--steel);box-shadow:0 0 0 3px rgba(31,78,107,.12)}
+label.f{display:block;margin-bottom:9px}
+label.f>span{display:block;font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-3);font-weight:700;margin-bottom:3px}
+.row{display:grid;gap:10px}
+.filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.filters input,.filters select{width:auto;min-width:130px}
+.filters input[type=search]{min-width:230px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:4px;overflow:hidden;background:#fff}
+.seg button{border:0;background:transparent;padding:6px 12px;cursor:pointer;font-weight:600;color:var(--ink-2);border-right:1px solid var(--line-2)}
+.seg button:last-child{border-right:0}
+.seg button.on{background:var(--steel);color:#fff}
+.hint{font-size:11.5px;color:var(--ink-3)}
+.err{color:var(--alarm);font-size:11.5px;margin-top:4px;display:block}
+.pill-row{display:flex;gap:6px;flex-wrap:wrap}
+
+/* ---------- overlays ---------- */
+.mask{position:fixed;inset:0;background:rgba(14,20,26,.45);z-index:100;display:none}
+.mask.on{display:block}
+.modal{position:fixed;z-index:101;top:50%;left:50%;transform:translate(-50%,-50%);width:min(760px,94vw);max-height:88vh;overflow:auto;background:var(--panel);border-radius:6px;box-shadow:0 24px 60px rgba(14,20,26,.3);display:none}
+.modal.on{display:block}
+.modal>header{position:sticky;top:0;background:var(--panel);padding:14px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px;z-index:2}
+.modal>header .sp{flex:1}
+.modal .body{padding:16px}
+.modal footer{position:sticky;bottom:0;background:#FAFCFD;border-top:1px solid var(--line);padding:11px 16px;display:flex;gap:8px;justify-content:flex-end}
+.x{border:0;background:transparent;font-size:19px;line-height:1;cursor:pointer;color:var(--ink-3);padding:2px 6px}
+.x:hover{color:var(--ink)}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:min(620px,96vw);background:var(--panel);z-index:101;box-shadow:-14px 0 40px rgba(14,20,26,.22);transform:translateX(100%);transition:transform .22s ease;overflow:auto}
+.drawer.on{transform:none}
+.toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(20px);background:var(--ink);color:#fff;padding:9px 16px;border-radius:5px;z-index:200;opacity:0;transition:.22s;font-weight:600;max-width:90vw}
+.toast.on{opacity:1;transform:translateX(-50%)}
+.toast.bad{background:var(--alarm)}
+
+/* ---------- login ---------- */
+#gate{min-height:100vh;display:grid;place-items:center;padding:20px;background:
+  linear-gradient(180deg,#0E141A,#1F3D51)}
+#gate .box{width:min(430px,94vw);background:var(--panel);border-radius:8px;padding:26px;box-shadow:0 30px 70px rgba(0,0,0,.35)}
+#gate h1{font-size:16px;letter-spacing:.18em;text-transform:uppercase}
+#gate p.sub{color:var(--ink-3);margin:6px 0 20px;font-size:12px}
+
+/* ---------- charts ---------- */
+.chart{width:100%;height:auto;display:block;overflow:visible}
+.lg{display:flex;gap:12px;flex-wrap:wrap;font-size:11.5px;color:var(--ink-2);margin-top:8px}
+.lg i{width:9px;height:9px;border-radius:2px;display:inline-block;margin-right:5px}
+.empty{padding:34px 14px;text-align:center;color:var(--ink-3)}
+.empty b{display:block;color:var(--ink-2);margin-bottom:4px}
+.printonly{display:none}
+@media print{.printonly{display:block;margin-bottom:10px}.ph-t{font-size:16px;font-weight:700}.ph-s{font-size:10px;color:#555;margin-top:2px}table{font-size:10px}tr{break-inside:avoid}thead{display:table-header-group}.rail,.topbar,.filters,.btn,.noprint{display:none!important}.main{padding:0}.card{border:0}.tw{max-height:none!important;overflow:visible!important}th{position:static}}
+@media (max-width:900px){
+  .rail{position:fixed;left:0;top:46px;bottom:0;z-index:55;transform:translateX(-100%);transition:.2s}
+  .rail.open{transform:none}
+  .main{padding:14px 12px 60px}
+  .tw{max-height:calc(100vh - 200px)}
+  #burger{display:inline-flex!important}
+}
+#burger{display:none;background:rgba(255,255,255,.14);border:0;color:#fff;border-radius:4px;padding:5px 9px;cursor:pointer}
+</style>
+</head>
+<body>
+
+<div id="gate">
+  <div class="box">
+    <h1>Anbar Platforması</h1>
+    <p class="sub">Ələt · Astara · Xocahəsən anbarları üçün vahid uçot və təhlil sistemi. Davam etmək üçün adınızı yazın və vəzifənizi seçin.</p>
+    <label class="f"><span>Ad, Soyad</span><input type="text" id="g-name" placeholder="məs. Anar Məmmədov" autocomplete="off"></label>
+    <label class="f"><span>Vəzifə</span>
+      <select id="g-role">
+        <option value="anbardar">Anbardar — mədaxil, məxaric, yerdəyişmə</option>
+        <option value="techizat">Təchizatçı — satınalma, kontragent, qiymət</option>
+        <option value="muhasib">Mühasib — qiymətləndirmə, hesabatlar, silinmə</option>
+        <option value="rehber">Rəhbər — tam giriş və audit</option>
+        <option value="baxis">Müşahidəçi — yalnız baxış</option>
+      </select>
+    </label>
+    <label class="f"><span>İşlədiyiniz anbar</span>
+      <select id="g-wh"></select>
+    </label>
+    <button class="btn pri" id="g-go" style="width:100%;justify-content:center;padding:9px">Sistemə daxil ol</button>
+    <p class="hint" style="margin:14px 0 0">Bütün əməliyyatlar adınızla jurnala yazılır və digər istifadəçilərin ekranında avtomatik görünür.</p>
+  </div>
+</div>
+
+<div id="app">
+  <div class="topbar">
+    <button id="burger" title="Menyu">☰</button>
+    <div class="brand">Anbar <span>Uçot və Təchizat Platforması</span></div>
+    <div class="sp"></div>
+    <div class="presence" id="presence"></div>
+    <div class="sync"><span class="dot" id="syncdot"></span><span id="syncTxt">sinxron</span></div>
+    <button class="btn sm" id="btn-me" style="background:rgba(255,255,255,.14);border-color:transparent;color:#fff"></button>
+  </div>
+
+  <div class="layout">
+    <nav class="rail" id="rail">
+      <div class="grp">Əməliyyat</div>
+      <a data-p="dash" class="on">İdarə paneli</a>
+      <a data-p="op">Yeni əməliyyat</a>
+      <a data-p="mov">Mal hərəkəti <b id="c-mov"></b></a>
+      <a data-p="bal">Anbar qalıqları <b id="c-bal"></b></a>
+      <div class="grp">Bazalar</div>
+      <a data-p="nom">Nomenklatura <b id="c-nom"></b></a>
+      <a data-p="knt">Kontragentlər <b id="c-knt"></b></a>
+      <a data-p="anb">Anbar və layihələr <b id="c-anb"></b></a>
+      <div class="grp">Təhlil</div>
+      <a data-p="rep">Hesabatlar</a>
+      <a data-p="fin">Maliyyə göstəriciləri</a>
+      <a data-p="ctrl">Nəzarət və risklər <b id="c-ctrl"></b></a>
+      <div class="grp">Sistem</div>
+      <a data-p="log">Audit jurnalı <b id="c-log"></b></a>
+      <a data-p="set">Parametrlər və ixrac</a>
+    </nav>
+
+    <main class="main">
+      <div id="printhead" class="printonly"></div>
+      <!-- DASHBOARD -->
+      <section class="page on" id="p-dash">
+        <div class="phead"><div><h2>İdarə paneli</h2><p id="dash-sub"></p></div><div class="sp"></div>
+          <button class="btn" id="full-exp" title="Bütün məlumatları Excel-ə ixrac et">⬇ Tam ixrac</button>
+          <button class="btn" id="son-exp" title="Excel-i orijinal SON formatında ixrac et (Filtrasiya, anbarlar, pivotlar)">⬇ Excel (SON formatı)</button>
+          <select id="dash-wh" style="width:auto;min-width:150px"></select></div>
+        <div class="kpis" id="dash-kpis"></div>
+        <div class="grid" style="grid-template-columns:1.35fr 1fr;margin-top:12px" id="dash-row1">
+          <div class="card"><header><h3>Anbarlar üzrə dəyər və mövqe sayı</h3></header><div class="pad" id="ch-wh"></div></div>
+          <div class="card"><header><h3>Əməliyyat növləri</h3></header><div class="pad" id="ch-type"></div></div>
+        </div>
+        <div class="grid" style="grid-template-columns:1fr 1fr;margin-top:12px">
+          <div class="card"><header><h3>Dəyərə görə ilk 10 mövqe</h3></header><div class="tw" id="t-top"></div></div>
+          <div class="card"><header><h3>Son əməliyyatlar</h3><div class="sp"></div><button class="btn sm" data-goto="mov">Hamısı</button></header><div class="tw" id="t-recent"></div></div>
+        </div>
+        <div class="card" style="margin-top:12px"><header><h3>Diqqət tələb edən məsələlər</h3></header><div class="pad" id="dash-alerts"></div></div>
+      </section>
+
+      <!-- OPERATION -->
+      <section class="page" id="p-op">
+        <div class="phead"><div><h2>Yeni əməliyyat</h2><p>Mədaxil, məxaric və anbarlararası yerdəyişməni bir formadan qeyd edin. Yerdəyişmə avtomatik olaraq iki qeyd yaradır.</p></div></div>
+        <div class="grid" style="grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr)">
+          <div class="card">
+            <header><div class="seg" id="op-seg">
+              <button data-k="in" class="on">Mədaxil</button><button data-k="out">Məxaric</button><button data-k="mv">Yerdəyişmə</button>
+            </div></header>
+            <div class="pad" id="op-form"></div>
+          </div>
+          <div>
+            <div class="card"><header><h3>Sənədin sətirləri</h3><div class="sp"></div><span class="hint" id="op-cnt"></span></header>
+              <div class="tw" id="op-lines"></div>
+              <div class="pad" style="display:flex;gap:8px;justify-content:flex-end;border-top:1px solid var(--line-2)">
+                <button class="btn" id="op-clear">Təmizlə</button>
+                <button class="btn pri" id="op-post">Sənədi qeyd et</button>
+              </div>
+            </div>
+            <div class="card" style="margin-top:12px"><header><h3>Seçilmiş malın vəziyyəti</h3></header><div class="pad" id="op-state"><span class="hint">Mal seçin — bütün anbarlar üzrə qalıq burada görünəcək.</span></div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- MOVEMENTS -->
+      <section class="page" id="p-mov">
+        <div class="phead"><div><h2>Mal hərəkəti</h2><p>Bütün mədaxil, məxaric və yerdəyişmələrin vahid registri.</p></div><div class="sp"></div>
+          <button class="btn" id="mov-exp">Excel</button><button class="btn" id="mov-print">Çap</button><button class="btn pri" data-goto="op">Yeni əməliyyat</button></div>
+        <div class="filters" id="mov-filters"></div>
+        <div class="card"><div class="tw" id="t-mov"></div><div class="pad" id="mov-pager" style="border-top:1px solid var(--line-2);display:flex;align-items:center;gap:10px"></div></div>
+      </section>
+
+      <!-- BALANCES -->
+      <section class="page" id="p-bal">
+        <div class="phead"><div><h2>Anbar qalıqları</h2><p>Qalıq = mədaxil − məxaric. Dəyər son məlum vahid qiyməti əsasında hesablanır.</p></div><div class="sp"></div>
+          <button class="btn" id="bal-exp">Excel</button><button class="btn" id="bal-print">Çap</button></div>
+        <div class="filters" id="bal-filters"></div>
+        <div class="kpis" id="bal-kpis" style="margin-bottom:12px"></div>
+        <div class="card"><div class="tw" id="t-bal"></div><div class="pad" id="bal-pager" style="border-top:1px solid var(--line-2);display:flex;align-items:center;gap:10px"></div></div>
+      </section>
+
+      <!-- NOMENCLATURE -->
+      <section class="page" id="p-nom">
+        <div class="phead"><div><h2>Nomenklatura bazası</h2><p>Malın kodu 7 rəqəmli və unikaldır. Yeni mal əlavə edərkən sistem oxşar adları yoxlayır.</p></div><div class="sp"></div>
+          <button class="btn" id="nom-exp">Excel</button><button class="btn" id="nom-print">Çap</button><button class="btn" id="nom-bulk">Siyahı əlavə et</button><button class="btn pri" id="nom-add">Yeni mal</button></div>
+        <div class="filters" id="nom-filters"></div>
+        <div class="card"><div class="tw" id="t-nom"></div><div class="pad" id="nom-pager" style="border-top:1px solid var(--line-2);display:flex;align-items:center;gap:10px"></div></div>
+      </section>
+
+      <!-- PARTNERS -->
+      <section class="page" id="p-knt">
+        <div class="phead"><div><h2>Kontragent bazası</h2><p>VÖEN 10 rəqəm olmalıdır. Müqavilə və qaimə rekvizitləri satınalma sənədlərinə avtomatik düşür.</p></div><div class="sp"></div>
+          <button class="btn pri" id="knt-add">Yeni kontragent</button></div>
+        <div class="card"><div class="tw" id="t-knt"></div></div>
+      </section>
+
+      <!-- WAREHOUSES -->
+      <section class="page" id="p-anb">
+        <div class="phead"><div><h2>Anbar və layihələr</h2><p>Fiziki anbarlar qalıq saxlayır; layihə/təhvil məntəqələri isə məxaric ünvanı kimi çıxış edir.</p></div><div class="sp"></div>
+          <button class="btn pri" id="anb-add">Yeni ünvan</button></div>
+        <div class="grid" style="grid-template-columns:1fr 1fr">
+          <div class="card"><header><h3>Fiziki anbarlar</h3></header><div class="tw" id="t-anb"></div></div>
+          <div class="card"><header><h3>Layihə və təhvil məntəqələri</h3></header><div class="tw" id="t-loc"></div></div>
+        </div>
+      </section>
+
+      <!-- REPORTS -->
+      <section class="page" id="p-rep">
+        <div class="phead"><div><h2>Hesabatlar</h2><p>Hesabatlar hər əməliyyatdan sonra dərhal yenilənir.</p></div><div class="sp"></div>
+          <select id="rep-pick" style="width:auto;min-width:250px">
+            <option value="knt">Kontragentlər üzrə dövriyyə</option>
+            <option value="type">Əməliyyat növləri üzrə xülasə</option>
+            <option value="wh">Anbarlar üzrə müqayisə</option>
+            <option value="per">Dövr (gün/ay) üzrə hərəkət</option>
+            <option value="abc">ABC təhlili</option>
+            <option value="dead">Hərəkətsiz və ölü qalıq</option>
+            <option value="tr">Anbarlararası yerdəyişmə matrisi</option>
+          </select>
+          <button class="btn" id="rep-exp">Excel</button><button class="btn" id="rep-print">Çap</button>
+        </div>
+        <div class="filters" id="rep-filters"></div>
+        <div id="rep-out"></div>
+      </section>
+
+      <!-- FINANCE -->
+      <section class="page" id="p-fin">
+        <div class="phead"><div><h2>Maliyyə göstəriciləri</h2><p>Satınalma məbləği, qalıq dəyəri, kontragent öhdəlikləri və qiymət intizamı.</p></div><div class="sp"></div>
+          <button class="btn" id="fin-exp" title="Rəhbərlik üçün maliyyə hesabatını Excel-ə ixrac et">⬇ Hesabatı ixrac et</button></div>
+        <div class="kpis" id="fin-kpis"></div>
+        <div class="grid" style="grid-template-columns:1fr 1fr;margin-top:12px">
+          <div class="card"><header><h3>Satınalma xərcinin kontragentlər üzrə bölgüsü</h3></header><div class="pad" id="ch-spend"></div></div>
+          <div class="card"><header><h3>Ödəniş üsulu və sənədləşmə</h3></header><div class="tw" id="t-method"></div></div>
+        </div>
+        <div class="card" style="margin-top:12px"><header><h3>Qiymət intizamı — eyni malın müxtəlif qiymətləri</h3><div class="sp"></div><span class="hint">Təchizat şöbəsi üçün danışıq bazası</span></header><div class="tw" id="t-price"></div></div>
+      </section>
+
+      <!-- CONTROLS -->
+      <section class="page" id="p-ctrl">
+        <div class="phead"><div><h2>Nəzarət və risklər</h2><p>Uçotun düzgünlüyünü və sənəd intizamını pozan halların avtomatik siyahısı.</p></div><div class="sp"></div>
+          <button class="btn" id="ctrl-exp">Excel</button><button class="btn" id="ctrl-print">Çap</button></div>
+        <div class="kpis" id="ctrl-kpis"></div>
+        <div id="ctrl-out" style="margin-top:12px"></div>
+      </section>
+
+      <!-- AUDIT -->
+      <section class="page" id="p-log">
+        <div class="phead"><div><h2>Audit jurnalı</h2><p>Kim, nə vaxt, hansı qeydi dəyişdi. Jurnal silinmir.</p></div><div class="sp"></div>
+          <button class="btn" id="log-exp">Excel</button><button class="btn" id="log-print">Çap</button></div>
+        <div class="filters" id="log-filters"></div>
+        <div class="card"><div class="tw" id="t-log"></div></div>
+      </section>
+
+      <!-- SETTINGS -->
+      <section class="page" id="p-set">
+        <div class="phead"><div><h2>Parametrlər və ixrac</h2><p>Məlumat mübadiləsi, ehtiyat nüsxə və istifadəçi hüquqları.</p></div></div>
+        <div class="grid" style="grid-template-columns:1fr 1fr">
+          <div class="card"><header><h3>Məlumatların ixracı</h3></header><div class="pad">
+            <p class="hint" style="margin-top:0">CSV faylları Excel-də birbaşa açılır (UTF-8 BOM, nöqtəli vergül ayırıcı).</p>
+            <div class="pill-row">
+              <button class="btn" data-exp="mov">Mal hərəkəti</button>
+              <button class="btn" data-exp="bal">Anbar qalıqları</button>
+              <button class="btn" data-exp="nom">Nomenklatura</button>
+              <button class="btn" data-exp="knt">Kontragentlər</button>
+              <button class="btn" data-exp="log">Audit jurnalı</button>
+              <button class="btn pri" id="exp-all">Tam ehtiyat nüsxə (JSON)</button>
+            </div>
+          </div></div>
+          <div class="card"><header><h3>Məlumatların idxalı</h3></header><div class="pad">
+            <p class="hint" style="margin-top:0">Excel-dən sətirləri kopyalayıb aşağıya yapışdırın. Sütun ardıcıllığı: <span class="code">Tarix; Anbar; Malın kodu; Giriş; Çıxış; Növü; Kontragent</span></p>
+            <textarea id="imp-txt" rows="6" placeholder="2026-07-01	Ələt	0000123	5		Satınalma	&quot;Neq MMC&quot;"></textarea>
+            <div style="display:flex;gap:8px;margin-top:9px"><button class="btn pri" id="imp-go">Yoxla və yüklə</button><span class="hint" id="imp-res"></span></div>
+          </div></div>
+        </div>
+        <div class="card" style="margin-top:12px"><header><h3>Hüquq matrisi</h3></header><div class="tw" id="t-perm"></div></div>
+        <div class="card" style="margin-top:12px"><header><h3>Sistemdə olan istifadəçilər</h3></header><div class="tw" id="t-users"></div></div>
+        <div class="card" style="margin-top:12px"><header><h3>Məlumat mənbəyi</h3></header><div class="pad" id="set-src"></div></div>
+      </section>
+    </main>
+  </div>
+</div>
+
+<div class="mask" id="mask"></div>
+<div class="modal" id="modal"><header><h3 id="m-title"></h3><div class="sp"></div><button class="x" id="m-x">×</button></header><div class="body" id="m-body"></div><footer id="m-foot"></footer></div>
+<div class="drawer" id="drawer"></div>
+<div class="toast" id="toast"></div>
+<script>
+/* ====================================================================
+   ANBAR PLATFORMASI — vahid anbar, təchizat və maliyyə uçotu
+   Mənbə: "Anar anbar version 1.xlsb" Excel faylı
+   ==================================================================== */
+
+/* ---------- utils ---------- */
+const $ = (s, r) => (r || document).querySelector(s);
+const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+const nf = (n, d) => {
+  if (n == null || isNaN(n)) return '—';
+  const v = Number(n);
+  return v.toLocaleString('az-AZ', { minimumFractionDigits: d == null ? 0 : d, maximumFractionDigits: d == null ? 2 : d });
+};
+const money = n => (n == null || isNaN(n) || n === 0) ? '—' : nf(n, 2) + ' ₼';
+const today = () => new Date().toISOString().slice(0, 10);
+const dsort = (a, b) => a < b ? -1 : a > b ? 1 : 0;
+const fmtD = s => (typeof s === 'string' && /^\d{4}-\d{2}-\d{2}/.test(s)) ? s.slice(8, 10) + '.' + s.slice(5, 7) + '.' + s.slice(0, 4) : (s == null ? '' : s);
+const fmtM = s => (typeof s === 'string' && /^\d{4}-\d{2}$/.test(s)) ? s.slice(5, 7) + '.' + s.slice(0, 4) : (s == null ? '' : s);
+function toast(msg, bad) { const t = $('#toast'); t.textContent = msg; t.className = 'toast on' + (bad ? ' bad' : ''); clearTimeout(t._t); t._t = setTimeout(() => t.className = 'toast', 2600); }
+function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms || 220); }; }
+function initials(n) { return n.trim().split(/\s+/).slice(0, 2).map(x => x[0] || '').join('').toUpperCase() || '?'; }
+
+/* ---------- roles ---------- */
+const ROLES = {
+  rehber: { name: 'Rəhbər', can: ['mv.add', 'mv.edit', 'mv.del', 'item.add', 'item.edit', 'partner.edit', 'loc.edit', 'price.edit', 'import'] },
+  anbardar: { name: 'Anbardar', can: ['mv.add', 'mv.edit', 'item.add', 'import'] },
+  techizat: { name: 'Təchizatçı', can: ['mv.add', 'item.add', 'item.edit', 'partner.edit', 'price.edit'] },
+  muhasib: { name: 'Mühasib', can: ['mv.edit', 'mv.del', 'item.edit', 'price.edit', 'loc.edit'] },
+  baxis: { name: 'Müşahidəçi', can: [] }
+};
+let ME = null;
+const can = a => !!(ME && ROLES[ME.role] && ROLES[ME.role].can.includes(a));
+function need(a) { if (can(a)) return true; toast('Bu əməliyyat üçün icazəniz yoxdur (' + ROLES[ME.role].name + ')', true); return false; }
+
+/* ---------- SUPABASE CONFIG ---------- */
+const SB_URL = 'https://bbjmhaerssakbreykxiw.supabase.co';
+const SB_KEY = 'sb_publishable_DIBx0-l-Eh7sGbePXIekBw_MEy1mycV';
+
+/* ---------- supabase client (loaded via CDN) ---------- */
+let SB = null;
+const REMEMBER_KEY = 'anbar:remember';
+const EMAIL_KEY = 'anbar:email';
+
+/* session lives in localStorage when "remember me" is on, otherwise only for this tab */
+function authStore() {
+  const pick = () => {
+    try { return localStorage.getItem(REMEMBER_KEY) === '1' ? localStorage : sessionStorage; }
+    catch (e) { return sessionStorage; }
+  };
+  return {
+    getItem(k) { try { return pick().getItem(k); } catch (e) { return null; } },
+    setItem(k, v) { try { pick().setItem(k, v); } catch (e) { } },
+    removeItem(k) { try { localStorage.removeItem(k); sessionStorage.removeItem(k); } catch (e) { } }
+  };
+}
+function initSB() {
+  if (typeof supabase !== 'undefined' && !SB) {
+    SB = supabase.createClient(SB_URL, SB_KEY, {
+      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false, storage: authStore() }
+    });
+  }
+}
+function setRemember(on) {
+  try { on ? localStorage.setItem(REMEMBER_KEY, '1') : localStorage.removeItem(REMEMBER_KEY); } catch (e) { }
+}
+function rememberOn() {
+  try { return localStorage.getItem(REMEMBER_KEY) === '1'; } catch (e) { return false; }
+}
+function savedEmail() {
+  try { return localStorage.getItem(EMAIL_KEY) || ''; } catch (e) { return ''; }
+}
+function saveEmail(v) {
+  try { v ? localStorage.setItem(EMAIL_KEY, v) : localStorage.removeItem(EMAIL_KEY); } catch (e) { }
+}
+async function sbSession() {
+  if (!SB) initSB();
+  if (!SB) return null;
+  try { const { data } = await SB.auth.getSession(); return data && data.session ? data.session : null; }
+  catch (e) { return null; }
+}
+/* current password is re-checked first so an unattended screen can't be hijacked */
+async function sbChangePassword(email, oldPass, newPass) {
+  if (!SB) return { error: { message: 'Bağlantı yoxdur' } };
+  const chk = await SB.auth.signInWithPassword({ email, password: oldPass });
+  if (chk.error) return { error: { message: 'Cari şifrə yanlışdır' } };
+  const { error } = await SB.auth.updateUser({ password: newPass });
+  return { error };
+}
+
+/* ---------- auth helpers ---------- */
+async function sbSignIn(email, password) {
+  if (!SB) initSB();
+  if (!SB) return { error: { message: 'Supabase kitabxanası yüklənmədi — internet bağlantısını yoxlayın' } };
+  return await SB.auth.signInWithPassword({ email, password });
+}
+async function sbSignOut() {
+  if (!SB) return;
+  await SB.auth.signOut();
+}
+async function sbGetUser() {
+  if (!SB) return null;
+  const { data } = await SB.auth.getUser();
+  return data?.user || null;
+}
+
+/* ---------- state ---------- */
+const DB = {
+  items: [], itemBy: new Map(),
+  partners: [], locs: [], whs: [],
+  movs: [], events: [],
+  users: {}, dirty: true
+};
+
+/* ---------- initial data load from DB ---------- */
+/* PostgREST returns max 1000 rows per request — read in pages until exhausted */
+const PAGE_SIZE = 1000;
+async function fetchAll(table, orderCols) {
+  let out = [], from = 0;
+  for (let guard = 0; guard < 200; guard++) {
+    let q = SB.from(table).select('*');
+    (orderCols || []).forEach(c => { q = q.order(c); });
+    const { data, error } = await q.range(from, from + PAGE_SIZE - 1);
+    if (error) { console.error('fetchAll ' + table, error); toast('Yükləmə xətası: ' + table, true); break; }
+    const batch = data || [];
+    out = out.concat(batch);
+    if (batch.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+  return out;
+}
+
+async function loadFromDB() {
+  if (!SB) return;
+  const [itemRows, partnerRows, whRows, mvRows] = await Promise.all([
+    fetchAll('items', ['code']),
+    fetchAll('partners', ['name']),
+    fetchAll('warehouses', []),
+    fetchAll('movements', ['date', 'created_at'])
+  ]);
+  const items = { data: itemRows }, partners = { data: partnerRows },
+        warehouses = { data: whRows }, movements = { data: mvRows };
+  DB.items = (items.data || []).map(r => ({
+    code: r.code, name: r.name, unit: r.unit || 'ədəd',
+    price: parseFloat(r.price) || 0, price_source: r.price_source || '', seed: true
+  }));
+  DB.partners = (partners.data || []).map(r => ({
+    id: r.id, name: r.name, voen: r.voen || '', contract: r.contract || '',
+    cdate: r.contract_date || '', seed: true
+  }));
+  DB.whs = (warehouses.data || []).filter(r => r.active && r.type === 'anbar').map(r => r.name);
+  DB.locs = (warehouses.data || []).map(r => ({ id: r.id, name: r.name, kind: r.type, seed: true }));
+  DB.movs = (movements.data || []).map(r => ({
+    id: r.id, w: r.warehouse, d: r.date, c: r.item_code,
+    i: parseFloat(r.in_qty) || 0, o: parseFloat(r.out_qty) || 0,
+    t: r.type || 'Satınalma', p: r.partner || '',
+    ch: r.channel || '',
+    ct: r.contract_num || '', iv: r.invoice_num || '',
+    pr: parseFloat(r.price) || 0,
+    note: r.note || '', by: r.created_by || 'sistem',
+    ts: new Date(r.created_at).getTime(), seed: true
+  }));
+  let uname = new Map();
+  try {
+    const us = await SB.from('users').select('id,name');
+    (us.data || []).forEach(u => uname.set(u.id, u.name));
+  } catch (e) { }
+  DB.movs.forEach(m => {
+    m.by = !m.by || m.by === 'sistem' ? 'Excel idxalı' : (uname.get(m.by) || (ME && m.by === ME.sbId ? ME.name : 'digər istifadəçi'));
+  });
+  DB.itemBy = new Map(DB.items.map(i => [i.code, i]));
+  DB.events = [];
+  index();
+}
+
+/* ---------- write operations (go straight to Postgres) ---------- */
+async function emit(e, op, d, note) {
+  if (!SB || !ME) return null;
+  let result = null;
+  try {
+    if (e === 'mv') {
+      if (op === 'a') {
+        const row = {
+          date: d.d, warehouse: d.w, item_code: d.c,
+          in_qty: d.i || 0, out_qty: d.o || 0,
+          type: d.t || 'Satınalma', partner: d.p || '',
+          channel: d.ch || '',
+          contract_num: d.ct || '', invoice_num: d.iv || '',
+          price: d.pr || 0, note: note || d.note || '',
+          doc_num: d.doc || '', created_by: ME.sbId
+        };
+        const { data, error } = await SB.from('movements').insert(row).select().single();
+        if (error) throw error;
+        DB.movs.push({ ...d, id: data.id, seed: false });
+        result = data;
+      } else if (op === 'u') {
+        const row = {
+          date: d.d, warehouse: d.w, item_code: d.c,
+          in_qty: d.i || 0, out_qty: d.o || 0,
+          type: d.t, partner: d.p || '',
+          channel: d.ch || '',
+          contract_num: d.ct || '', invoice_num: d.iv || '',
+          price: d.pr || 0, note: note || ''
+        };
+        const { error } = await SB.from('movements').update(row).eq('id', d.id);
+        if (error) throw error;
+        const k = DB.movs.findIndex(m => m.id === d.id);
+        if (k >= 0) DB.movs[k] = Object.assign({}, DB.movs[k], d);
+      } else if (op === 'd') {
+        const { error } = await SB.from('movements').delete().eq('id', d.id);
+        if (error) throw error;
+        DB.movs = DB.movs.filter(m => m.id !== d.id);
+      }
+    } else if (e === 'item') {
+      if (op === 'a') {
+        const row = { code: d.code, name: d.name, unit: d.unit || 'ədəd', price: d.price || 0, price_source: d.psrc || '', created_by: ME.sbId };
+        const { error } = await SB.from('items').insert(row);
+        if (error) throw error;
+        DB.items.push(d);
+        DB.itemBy.set(d.code, d);
+      } else if (op === 'u') {
+        const upd = {};
+        if (d.name !== undefined) upd.name = d.name;
+        if (d.unit !== undefined) upd.unit = d.unit;
+        if (d.price !== undefined) upd.price = d.price;
+        if (d.psrc !== undefined) upd.price_source = d.psrc;
+        if (Object.keys(upd).length) {
+          const { error } = await SB.from('items').update(upd).eq('code', d.code);
+          if (error) throw error;
+        }
+        const k = DB.items.findIndex(x => x.code === d.code);
+        if (k >= 0) { DB.items[k] = Object.assign({}, DB.items[k], d); DB.itemBy.set(d.code, DB.items[k]); }
+      }
+    } else if (e === 'partner') {
+      if (op === 'a') {
+        const row = { name: d.name, voen: d.voen || '', contract: d.contract || '', contract_date: d.cdate || '', created_by: ME.sbId };
+        const { data, error } = await SB.from('partners').insert(row).select().single();
+        if (error) throw error;
+        DB.partners.push({ ...d, id: data.id });
+      } else if (op === 'u') {
+        const { error } = await SB.from('partners').update({ name: d.name, voen: d.voen || '', contract: d.contract || '', contract_date: d.cdate || '' }).eq('id', d.id);
+        if (error) throw error;
+        const k = DB.partners.findIndex(x => x.id === d.id);
+        if (k >= 0) DB.partners[k] = Object.assign({}, DB.partners[k], d);
+      }
+    } else if (e === 'loc') {
+      if (op === 'a') {
+        const row = { name: d.name, type: d.kind || 'layihə', active: true };
+        const { error } = await SB.from('warehouses').insert(row);
+        if (error) throw error;
+        DB.locs.push(d);
+        if (d.kind === 'anbar' && !DB.whs.includes(d.name)) DB.whs.push(d.name);
+      }
+    }
+    // log locally for audit display
+    DB.events.push({ id: uid(), ts: Date.now(), uid: ME.id, un: ME.name, role: ME.role, e, op, d, note: note || '' });
+    setSync(true);
+  } catch (err) {
+    console.error('emit error', err);
+    toast('Xəta: ' + (err.message || 'bilinmir'), true);
+    setSync(false);
+  }
+  index();
+  return result;
+}
+
+async function emitMany(list) {
+  for (const x of list) {
+    await emit(x.e, x.op, x.d, x.note || '');
+  }
+}
+
+/* ---------- realtime subscription ---------- */
+let REALTIME_CH = null, RT_TIMER = null;
+function subscribeRealtime() {
+  if (!SB || REALTIME_CH) return;
+  const bump = () => {                       // birdən çox dəyişiklik gələndə bir dəfə yenilə
+    clearTimeout(RT_TIMER);
+    RT_TIMER = setTimeout(async () => {
+      await loadFromDB();
+      renderAll();
+      toast('Məlumatlar yeniləndi (digər istifadəçi)');
+    }, 400);
+  };
+  REALTIME_CH = SB.channel('anbar_changes');
+  ['movements', 'items', 'partners', 'warehouses'].forEach(t => {
+    REALTIME_CH.on('postgres_changes', { event: '*', schema: 'public', table: t }, bump);
+  });
+  REALTIME_CH.subscribe(st => {
+    if (st === 'SUBSCRIBED') setSync(true);
+    if (st === 'CHANNEL_ERROR' || st === 'TIMED_OUT') setSync(false);
+  });
+}
+
+/* ---------- sync indicator ---------- */
+function setSync(ok) {
+  const dot = $('#syncdot'), txt = $('#syncTxt');
+  if (dot) dot.className = 'dot' + (ok ? '' : ' off');
+  if (txt) txt.textContent = ok ? 'sinxron' : 'xəta';
+}
+
+/* ---------- presence (simple - just show current user) ---------- */
+function renderPresence() {
+  const el = $('#presence');
+  if (el && ME) el.innerHTML = `<span class="chip" title="${esc(ME.name)}"><i>${esc(initials(ME.name))}</i>${esc(ME.name.split(' ')[0])}</span>`;
+}
+async function beat() { /* handled by supabase realtime */ }
+async function pull(first) { if (first) { await loadFromDB(); } }
+
+/* ---------- CSV ---------- */
+function csv(rows, name) {
+  const body = rows.map(r => r.map(c => {
+    const s = c == null ? '' : String(c);
+    return /[";\\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  }).join(';')).join('\r\n');
+  const blob = new Blob(['\ufeff' + body], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name + '_' + today() + '.csv';
+  document.body.appendChild(a); a.click(); a.remove();
+  toast(name + ' faylı yükləndi');
+}
+
+/* ---------- Excel (.xlsx) export ---------- */
+function toNum(v) {
+  if (typeof v === 'number') return v;
+  const s = String(v == null ? '' : v).trim();
+  if (!s || !/^-?\d+([.,]\d+)?$/.test(s)) return v;
+  const n = Number(s.replace(',', '.'));
+  return isNaN(n) ? v : n;
+}
+function xls(rows, name, sheet) {
+  if (typeof XLSX === 'undefined') { toast('Excel kitabxanası yüklənmədi, CSV yüklənir', true); return csv(rows, name); }
+  const data = rows.map((r, i) => i === 0 ? r.map(c => String(c == null ? '' : c)) : r.map(toNum));
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  const w = (data[0] || []).map((h, i) => {
+    let m = String(h).length;
+    for (let r = 1; r < Math.min(data.length, 400); r++) m = Math.max(m, String(data[r][i] == null ? '' : data[r][i]).length);
+    return { wch: Math.min(Math.max(m + 2, 8), 55) };
+  });
+  ws['!cols'] = w;
+  ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: data.length - 1, c: (data[0] || []).length - 1 } }) };
+  ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, (sheet || 'Hesabat').slice(0, 28));
+  XLSX.writeFile(wb, name + '_' + today() + '.xlsx');
+  toast(name + '.xlsx yükləndi');
+}
+
+/* ---------- print header ---------- */
+function printHead(title, note) {
+  const el = $('#printhead');
+  if (!el) return;
+  el.innerHTML = `<div class="ph-t">${esc(title)}</div>
+    <div class="ph-s">Anbar Platforması · ${esc(new Date().toLocaleString('az-AZ'))} · ${esc(ME ? ME.name : '')}${note ? ' · ' + esc(note) : ''}</div>`;
+}
+
+/* ---------- derived indexes (instant calculations) ---------- */
+const IX = {};
+function index() {
+  const bal = new Map();            // "wh|code" -> {w,c,in,out,q,val,last,first,n}
+  const byItem = new Map();         // code -> {in,out,q,val}
+  const byWh = new Map();
+  const byPartner = new Map();
+  const byType = new Map();
+  const byDate = new Map();
+  const priceObs = new Map();       // code -> [prices]
+  for (const m of DB.movs) {
+    const it = DB.itemBy.get(m.c);
+    const pr = m.pr != null && m.pr > 0 ? m.pr : (it ? it.price : 0);
+    if (m.pr > 0) { if (!priceObs.has(m.c)) priceObs.set(m.c, []); priceObs.get(m.c).push({ p: m.pr, d: m.d, k: m.p }); }
+    const key = m.w + '|' + m.c;
+    let b = bal.get(key);
+    if (!b) { b = { w: m.w, c: m.c, in: 0, out: 0, n: 0, last: '', first: '9999' }; bal.set(key, b); }
+    b.in += m.i || 0; b.out += m.o || 0; b.n++;
+    if (m.d > b.last) b.last = m.d; if (m.d < b.first) b.first = m.d;
+    let bi = byItem.get(m.c); if (!bi) { bi = { in: 0, out: 0, n: 0, last: '' }; byItem.set(m.c, bi); }
+    bi.in += m.i || 0; bi.out += m.o || 0; bi.n++; if (m.d > bi.last) bi.last = m.d;
+    let bw = byWh.get(m.w); if (!bw) { bw = { in: 0, out: 0, n: 0, val: 0, items: new Set() }; byWh.set(m.w, bw); }
+    bw.in += m.i || 0; bw.out += m.o || 0; bw.n++; bw.items.add(m.c);
+    const pk = m.p || '(göstərilməyib)';
+    let bp = byPartner.get(pk); if (!bp) { bp = { in: 0, out: 0, n: 0, val: 0, types: new Set() }; byPartner.set(pk, bp); }
+    bp.in += m.i || 0; bp.out += m.o || 0; bp.n++; bp.val += (m.i || 0) * pr; bp.types.add(m.t);
+    let bt = byType.get(m.t); if (!bt) { bt = { in: 0, out: 0, n: 0, val: 0 }; byType.set(m.t, bt); }
+    bt.in += m.i || 0; bt.out += m.o || 0; bt.n++; bt.val += ((m.i || 0) + (m.o || 0)) * pr;
+    let bd = byDate.get(m.d); if (!bd) { bd = { in: 0, out: 0, n: 0, val: 0 }; byDate.set(m.d, bd); }
+    bd.in += m.i || 0; bd.out += m.o || 0; bd.n++; bd.val += (m.i || 0) * pr;
+  }
+  let totVal = 0, totQty = 0, negs = [];
+  for (const b of bal.values()) {
+    b.q = +(b.in - b.out).toFixed(4);
+    const it = DB.itemBy.get(b.c);
+    b.price = it ? it.price : 0;
+    b.val = b.q * b.price;
+    b.name = it ? it.name : '(nomenklaturada yoxdur: ' + b.c + ')';
+    b.unit = it ? it.unit : '';
+    totVal += b.val; totQty += b.q;
+    if (b.q < 0) negs.push(b);
+    const bw = byWh.get(b.w); if (bw) bw.val += b.val;
+  }
+  for (const [c, bi] of byItem) { const it = DB.itemBy.get(c); bi.q = +(bi.in - bi.out).toFixed(4); bi.price = it ? it.price : 0; bi.val = bi.q * bi.price; }
+  IX.bal = Array.from(bal.values());
+  IX.byItem = byItem; IX.byWh = byWh; IX.byPartner = byPartner; IX.byType = byType; IX.byDate = byDate;
+  IX.priceObs = priceObs;
+  IX.totVal = totVal; IX.totQty = totQty; IX.negs = negs;
+  IX.positions = IX.bal.filter(b => Math.abs(b.q) > 1e-9);
+  IX.dates = Array.from(byDate.keys()).sort(dsort);
+  DB.dirty = false;
+}
+
+
+
+/* ---------- modal / drawer ---------- */
+function modal(title, body, foot) {
+  $('#m-title').textContent = title; $('#m-body').innerHTML = body;
+  $('#m-foot').innerHTML = foot || '<button class="btn" data-close>Bağla</button>';
+  $('#modal').classList.add('on'); $('#mask').classList.add('on');
+}
+function closeModal() { $('#modal').classList.remove('on'); $('#drawer').classList.remove('on'); $('#mask').classList.remove('on'); }
+function drawer(html) { $('#drawer').innerHTML = html; $('#drawer').classList.add('on'); $('#mask').classList.add('on'); }
+document.addEventListener('click', e => {
+  if (e.target.closest('[data-close]') || e.target.id === 'mask' || e.target.id === 'm-x') closeModal();
+  const g = e.target.closest('[data-goto]'); if (g) go(g.dataset.goto);
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+/* ---------- SVG charts ---------- */
+function barChart(data, opt) {
+  opt = opt || {};
+  const max = Math.max(1, ...data.map(d => d.v));
+  const fmtv = opt.fmt || (v => nf(v, 0));
+  return `<div style="display:grid;gap:9px">` + data.map(d => `
+    <div>
+      <div style="display:flex;gap:8px;font-size:12px;margin-bottom:3px">
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(d.k)}">${esc(d.k)}</span>
+        <span class="num" style="font-weight:650">${fmtv(d.v)}</span>
+        ${d.sub ? `<span class="muted" style="min-width:64px;text-align:right">${esc(d.sub)}</span>` : ''}
+      </div>
+      <div class="bar"><i style="width:${(d.v / max * 100).toFixed(1)}%;background:${d.color || 'var(--steel)'}"></i></div>
+    </div>`).join('') + `</div>`;
+}
+function donut(data) {
+  const tot = data.reduce((s, d) => s + d.v, 0) || 1;
+  let a = -Math.PI / 2, segs = '';
+  const R = 62, r = 38, cx = 74, cy = 74;
+  data.forEach(d => {
+    const ang = d.v / tot * Math.PI * 2, b = a + ang, big = ang > Math.PI ? 1 : 0;
+    const p = (rad, an) => [cx + rad * Math.cos(an), cy + rad * Math.sin(an)];
+    const [x1, y1] = p(R, a), [x2, y2] = p(R, b), [x3, y3] = p(r, b), [x4, y4] = p(r, a);
+    segs += `<path d="M${x1} ${y1} A${R} ${R} 0 ${big} 1 ${x2} ${y2} L${x3} ${y3} A${r} ${r} 0 ${big} 0 ${x4} ${y4} Z" fill="${d.color}"><title>${esc(d.k)}: ${nf(d.v)}</title></path>`;
+    a = b;
+  });
+  return `<div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+    <svg viewBox="0 0 148 148" width="148" height="148" class="chart">${segs}</svg>
+    <div style="flex:1;min-width:150px;display:grid;gap:5px">${data.map(d => `<div style="display:flex;gap:7px;font-size:12px;align-items:center"><i style="width:9px;height:9px;border-radius:2px;background:${d.color}"></i><span style="flex:1">${esc(d.k)}</span><b class="num">${nf(d.v)}</b></div>`).join('')}</div></div>`;
+}
+function sparkline(pts, w, h) {
+  w = w || 620; h = h || 90;
+  if (!pts.length) return '';
+  const max = Math.max(...pts.map(p => p.v), 1);
+  const step = pts.length > 1 ? w / (pts.length - 1) : w;
+  const path = pts.map((p, i) => `${i ? 'L' : 'M'}${(i * step).toFixed(1)} ${(h - p.v / max * (h - 10)).toFixed(1)}`).join(' ');
+  const area = path + ` L${w} ${h} L0 ${h} Z`;
+  return `<svg viewBox="0 0 ${w} ${h}" class="chart" preserveAspectRatio="none" style="height:${h}px">
+    <path d="${area}" fill="rgba(31,78,107,.10)"/><path d="${path}" fill="none" stroke="var(--steel)" stroke-width="2"/>
+    ${pts.map((p, i) => `<circle cx="${(i * step).toFixed(1)}" cy="${(h - p.v / max * (h - 10)).toFixed(1)}" r="2.5" fill="var(--steel)"><title>${esc(p.k)}: ${nf(p.v)}</title></circle>`).join('')}
+  </svg>`;
+}
+function tbl(cols, rows, opt) {
+  opt = opt || {};
+  if (!rows.length) return `<div class="empty"><b>Məlumat yoxdur</b>${esc(opt.empty || 'Filtrləri dəyişin və ya yeni qeyd əlavə edin.')}</div>`;
+  return `<table><thead><tr>${cols.map(c => `<th class="${c.r ? 'r' : ''}" ${c.w ? `style="width:${c.w}"` : ''}>${esc(c.t)}</th>`).join('')}</tr></thead>
+  <tbody>${rows.map(r => `<tr class="${opt.clk ? 'clk' : ''}" ${r._a || ''}>${r.c.map((c, i) => `<td class="${cols[i].r ? 'num' : ''} ${cols[i].cls || ''}">${c}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+}
+const TYPE_TAG = t => {
+  const m = { 'Satınalma': 't-in', 'Əvvələ qalıq': 't-op', 'Yerdəyişmə': 't-mv', 'Silinmə': 't-rm', 'Sahəyə': 't-out', 'Qaytarma': 't-mut' };
+  return `<span class="tag ${m[t] || 't-mut'}">${esc(t)}</span>`;
+};
+</script>
+<script>
+/* ================= navigation ================= */
+let PAGE = 'dash';
+function go(p) {
+  PAGE = p;
+  $$('.rail a').forEach(a => a.classList.toggle('on', a.dataset.p === p));
+  $$('.page').forEach(s => s.classList.toggle('on', s.id === 'p-' + p));
+  $('#rail').classList.remove('open');
+  window.scrollTo(0, 0);
+  render(p);
+}
+$$('.rail a').forEach(a => a.onclick = () => go(a.dataset.p));
+$('#burger').onclick = () => $('#rail').classList.toggle('open');
+
+function render(p) {
+  ({ dash: rDash, op: rOp, mov: rMov, bal: rBal, nom: rNom, knt: rKnt, anb: rAnb, rep: rRep, fin: rFin, ctrl: rCtrl, log: rLog, set: rSet }[p] || (() => { }))();
+  counters();
+}
+function renderAll() { render(PAGE); }
+function counters() {
+  $('#c-mov').textContent = nf(DB.movs.length);
+  $('#c-bal').textContent = nf(IX.positions.length);
+  $('#c-nom').textContent = nf(DB.items.length);
+  $('#c-knt').textContent = nf(DB.partners.length);
+  $('#c-anb').textContent = nf(DB.whs.length + DB.locs.length);
+  $('#c-log').textContent = nf(DB.events.length);
+  const ctrl = controlIssues();
+  $('#c-ctrl').textContent = nf(ctrl.reduce((s, g) => s + g.rows.length, 0));
+}
+
+/* ================= DASHBOARD ================= */
+function rDash() {
+  const sel = $('#dash-wh');
+  if (!sel.options.length) {
+    sel.innerHTML = '<option value="">Bütün anbarlar</option>' + DB.whs.map(w => `<option>${esc(w)}</option>`).join('');
+    sel.onchange = rDash;
+  }
+  const w = sel.value;
+  const bal = w ? IX.bal.filter(b => b.w === w) : IX.bal;
+  const movs = w ? DB.movs.filter(m => m.w === w) : DB.movs;
+  const pos = bal.filter(b => Math.abs(b.q) > 1e-9);
+  const val = bal.reduce((s, b) => s + b.val, 0);
+  const tin = movs.reduce((s, m) => s + (m.i || 0), 0), tout = movs.reduce((s, m) => s + (m.o || 0), 0);
+  const purch = movs.filter(m => m.t === 'Satınalma').reduce((s, m) => s + (m.i || 0) * (m.pr || (DB.itemBy.get(m.c) || {}).price || 0), 0);
+  const noPrice = pos.filter(b => !b.price).length;
+  const last = IX.dates[IX.dates.length - 1] || '—';
+
+  $('#dash-sub').textContent = (w || 'Bütün anbarlar') + ' · son əməliyyat tarixi ' + last + ' · ' + nf(movs.length) + ' hərəkət qeydi';
+  $('#dash-kpis').innerHTML = [
+    ['Qalıq dəyəri', money(val), nf(pos.length) + ' aktiv mövqe', 'g'],
+    ['Ümumi mədaxil', nf(tin, 2), 'bütün dövr üzrə', ''],
+    ['Ümumi məxaric', nf(tout, 2), (tin ? (tout / tin * 100).toFixed(1) : 0) + '% dövriyyə', 'o'],
+    ['Satınalma məbləği', money(purch), 'qiyməti bəlli sətirlər üzrə', 'v'],
+    ['Qiyməti olmayan mövqe', nf(noPrice), noPrice ? 'dəyərləndirmə natamamdır' : 'hamısı qiymətlidir', noPrice ? 'r' : 'g']
+  ].map(k => `<div class="kpi ${k[3]}"><div class="eyebrow">${esc(k[0])}</div><div class="v">${k[1]}</div><div class="s">${esc(k[2])}</div></div>`).join('');
+
+  const whData = DB.whs.map(x => {
+    const b = IX.bal.filter(y => y.w === x);
+    return { k: x, v: Math.round(b.reduce((s, y) => s + y.val, 0)), sub: nf(b.filter(y => Math.abs(y.q) > 1e-9).length) + ' mövqe' };
+  }).sort((a, b) => b.v - a.v);
+  $('#ch-wh').innerHTML = barChart(whData, { fmt: v => money(v) }) +
+    `<div class="hint" style="margin-top:11px">Dəyər = qalıq × son məlum vahid qiyməti. Qiyməti daxil edilməmiş mallar sıfır dəyərlə iştirak edir.</div>`;
+
+  const colors = { 'Satınalma': '#0E7C6B', 'Əvvələ qalıq': '#1F4E6B', 'Yerdəyişmə': '#5B4B9E', 'Silinmə': '#A9231C', 'Sahəyə': '#B06A11', 'Qaytarma': '#71838F' };
+  const tData = Array.from(new Set(movs.map(m => m.t))).map(t => ({ k: t, v: movs.filter(m => m.t === t).length, color: colors[t] || '#71838F' })).sort((a, b) => b.v - a.v);
+  $('#ch-type').innerHTML = donut(tData);
+
+  const top = pos.slice().sort((a, b) => b.val - a.val).slice(0, 10);
+  $('#t-top').innerHTML = tbl(
+    [{ t: 'Mal' }, { t: 'Anbar' }, { t: 'Qalıq', r: 1 }, { t: 'Dəyər', r: 1 }],
+    top.map(b => ({ _a: `data-card="${esc(b.c)}"`, c: [`<div>${esc(b.name)}</div><span class="code">${esc(b.c)}</span>`, esc(b.w), nf(b.q, 2) + ' ' + esc(b.unit), money(b.val)] })),
+    { clk: 1 });
+
+  const rec = movs.slice().sort((a, b) => (b.ts || 0) - (a.ts || 0) || dsort(b.d, a.d)).slice(0, 10);
+  $('#t-recent').innerHTML = tbl(
+    [{ t: 'Tarix' }, { t: 'Mal' }, { t: 'Növ' }, { t: 'Miqdar', r: 1 }],
+    rec.map(m => ({
+      _a: `data-card="${esc(m.c)}"`, c: [esc(fmtD(m.d)) + `<div class="hint">${esc(m.by || '')}</div>`,
+      `<div>${esc((DB.itemBy.get(m.c) || {}).name || m.c)}</div><span class="code">${esc(m.w)}</span>`,
+      TYPE_TAG(m.t), (m.i ? `<span style="color:var(--in)">+${nf(m.i, 2)}</span>` : '') + (m.o ? `<span style="color:var(--out)">−${nf(m.o, 2)}</span>` : '')]
+    })), { clk: 1 });
+
+  const groups = controlIssues();
+  $('#dash-alerts').innerHTML = groups.length
+    ? `<div class="pill-row">` + groups.map(g => `<button class="btn ${g.sev === 'high' ? 'dgr' : ''}" data-goto="ctrl">${esc(g.title)} — <b class="num">${nf(g.rows.length)}</b></button>`).join('') + `</div>`
+    : `<span class="hint">Avtomatik yoxlamalar problem aşkarlamadı.</span>`;
+}
+
+/* ================= MOVEMENTS ================= */
+const MF = { q: '', w: '', t: '', p: '', d1: '', d2: '', page: 0, size: 60 };
+function movFilters() {
+  const el = $('#mov-filters'); if (el.dataset.done) return; el.dataset.done = 1;
+  el.innerHTML = `
+    <input type="search" id="mf-q" placeholder="Mal adı, kod, kontragent, qaimə…">
+    <select id="mf-w"><option value="">Bütün anbarlar</option>${DB.whs.map(w => `<option>${esc(w)}</option>`).join('')}</select>
+    <select id="mf-t"><option value="">Bütün növlər</option>${['Əvvələ qalıq','Satınalma','Yerdəyişmə','Silinmə','Sahəyə','Qaytarma'].map(t => `<option>${esc(t)}</option>`).join('')}</select>
+    <select id="mf-p"><option value="">Bütün kontragentlər</option>${Array.from(new Set(DB.movs.map(m => m.p).filter(Boolean))).sort().map(p => `<option>${esc(p)}</option>`).join('')}</select>
+    <input type="date" id="mf-d1" title="Başlanğıc tarix"><input type="date" id="mf-d2" title="Son tarix">
+    <button class="btn" id="mf-reset">Sıfırla</button>`;
+  const upd = () => { MF.q = $('#mf-q').value.trim().toLowerCase(); MF.w = $('#mf-w').value; MF.t = $('#mf-t').value; MF.p = $('#mf-p').value; MF.d1 = $('#mf-d1').value; MF.d2 = $('#mf-d2').value; MF.page = 0; rMov(); };
+  $('#mf-q').oninput = debounce(upd, 200);
+  ['mf-w', 'mf-t', 'mf-p', 'mf-d1', 'mf-d2'].forEach(id => $('#' + id).onchange = upd);
+  $('#mf-reset').onclick = () => { ['mf-q', 'mf-w', 'mf-t', 'mf-p', 'mf-d1', 'mf-d2'].forEach(id => $('#' + id).value = ''); upd(); };
+}
+function movFiltered() {
+  return DB.movs.filter(m => {
+    if (MF.w && m.w !== MF.w) return false;
+    if (MF.t && m.t !== MF.t) return false;
+    if (MF.p && m.p !== MF.p) return false;
+    if (MF.d1 && m.d < MF.d1) return false;
+    if (MF.d2 && m.d > MF.d2) return false;
+    if (MF.q) {
+      const it = DB.itemBy.get(m.c) || {};
+      const hay = (m.c + ' ' + (it.name || '') + ' ' + m.p + ' ' + m.t + ' ' + (m.iv || '') + ' ' + (m.ct || '') + ' ' + (m.note || '')).toLowerCase();
+      if (hay.indexOf(MF.q) < 0) return false;
+    }
+    return true;
+  }).sort((a, b) => dsort(b.d, a.d) || (b.ts || 0) - (a.ts || 0));
+}
+/* bütün siyahılar bir səhifədə göstərilir; çox böyük nəticədə brauzeri dondurmamaq üçün yumşaq hədd */
+const SHOW_MAX = 3000;
+const SHOW_ALL = {};
+function cut(rows, key) {
+  return SHOW_ALL[key] || rows.length <= SHOW_MAX ? rows : rows.slice(0, SHOW_MAX);
+}
+function cutNote(rows, key, rerender) {
+  if (SHOW_ALL[key] || rows.length <= SHOW_MAX) return '';
+  setTimeout(() => {
+    const b = $('#showall-' + key);
+    if (b) b.onclick = () => { SHOW_ALL[key] = 1; rerender(); };
+  }, 0);
+  return ` · <b>${nf(SHOW_MAX)}</b> göstərilir <button class="btn sm" id="showall-${key}">Hamısını göstər (${nf(rows.length)})</button>`;
+}
+
+function rMov() {
+  movFilters();
+  const all = movFiltered();
+  const rows = cut(all, 'mov');
+  const sin = all.reduce((s, m) => s + (m.i || 0), 0), sout = all.reduce((s, m) => s + (m.o || 0), 0);
+  const sval = all.reduce((s, m) => s + (m.i || 0) * (m.pr || (DB.itemBy.get(m.c) || {}).price || 0), 0);
+  $('#t-mov').innerHTML = tbl(
+    [{ t: 'Tarix' }, { t: 'Anbar' }, { t: 'Kod' }, { t: 'Malın adı' }, { t: 'Növü' }, { t: 'Kontragent / Layihə' }, { t: 'Kanal' }, { t: 'Giriş', r: 1 }, { t: 'Çıxış', r: 1 }, { t: 'Qiymət', r: 1 }, { t: 'Məbləğ', r: 1 }, { t: 'Qeyd edən' }, { t: '' }],
+    rows.map(m => {
+      const it = DB.itemBy.get(m.c) || {};
+      const pr = m.pr || it.price || 0;
+      return {
+        _a: `data-mv="${esc(m.id)}"`, c: [
+          esc(fmtD(m.d)), esc(m.w), `<span class="code">${esc(m.c)}</span>`,
+          `<div class="nm">${esc(it.name || '—')}</div>` + (m.iv || m.ct ? `<span class="hint">${esc([m.ct, m.iv].filter(Boolean).join(' · '))}</span>` : ''),
+          TYPE_TAG(m.t), esc(m.p || '—'),
+          m.ch ? `<span class="hint">${esc(m.ch)}</span>` : '<span class="muted">—</span>',
+          m.i ? `<span style="color:var(--in)">${nf(m.i, 2)}</span>` : '—',
+          m.o ? `<span style="color:var(--out)">${nf(m.o, 2)}</span>` : '—',
+          pr ? nf(pr, 2) : '—', pr ? money(((m.i || 0) + (m.o || 0)) * pr) : '—',
+          `<span class="hint">${esc(m.by || '—')}</span>`,
+          (m.seed ? '' : `<button class="btn sm" data-edit="${esc(m.id)}">Düzəliş</button>`)
+        ]
+      };
+    }), { clk: 1 });
+  $('#mov-pager').innerHTML =
+    `<span class="hint">${nf(all.length)} qeyd · mədaxil <b class="num">${nf(sin, 2)}</b> · məxaric <b class="num">${nf(sout, 2)}</b> · mədaxil dəyəri <b>${money(sval)}</b>`
+    + cutNote(all, 'mov', rMov) + `</span>`;
+  $('#mov-print').onclick = () => { printHead('Mal hərəkəti', nf(all.length) + ' qeyd'); setTimeout(() => window.print(), 60); };
+  $('#mov-exp').onclick = () => xls([['Tarix', 'Anbar', 'Kod', 'Malın adı', 'Ölçü', 'Növü', 'Kontragent/Layihə', 'Alınma kanalı', 'Giriş', 'Çıxış', 'Vahid qiyməti', 'Məbləğ', 'Müqavilə', 'Qaimə', 'Qeyd edən']]
+    .concat(all.map(m => { const it = DB.itemBy.get(m.c) || {}; const pr = m.pr || it.price || 0; return [m.d, m.w, m.c, it.name || '', it.unit || '', m.t, m.p, m.ch || '', m.i || '', m.o || '', pr || '', pr ? (((m.i || 0) + (m.o || 0)) * pr).toFixed(2) : '', m.ct || '', m.iv || '', m.by || '']; })), 'mal_hereketi');
+}
+document.addEventListener('click', e => {
+  const ed = e.target.closest('[data-edit]');
+  if (ed) { e.stopPropagation(); editMov(ed.dataset.edit); return; }
+  const mv = e.target.closest('[data-mv]');
+  if (mv) { const m = DB.movs.find(x => x.id === mv.dataset.mv); if (m) itemCard(m.c); return; }
+  const cd = e.target.closest('[data-card]');
+  if (cd) itemCard(cd.dataset.card);
+});
+
+/* ================= ITEM CARD (drill-down) ================= */
+function itemCard(code) {
+  const it = DB.itemBy.get(code) || { code, name: '(nomenklaturada yoxdur)', unit: '', price: 0 };
+  const movs = DB.movs.filter(m => m.c === code).sort((a, b) => dsort(b.d, a.d));
+  const bal = IX.bal.filter(b => b.c === code);
+  const tot = bal.reduce((s, b) => s + b.q, 0);
+  const obs = (IX.priceObs.get(code) || []);
+  drawer(`
+    <header style="padding:15px 17px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--panel);z-index:3;display:flex;gap:10px;align-items:flex-start">
+      <div><div class="eyebrow">Mal kartoçkası · ${esc(code)}</div><h3 style="font-size:16px;margin-top:3px">${esc(it.name)}</h3>
+      <div class="hint">${esc(it.unit)} · son qiymət ${it.price ? nf(it.price, 2) + ' ₼' : 'daxil edilməyib'}</div></div>
+      <div class="sp" style="flex:1"></div><button class="x" data-close>×</button></header>
+    <div style="padding:15px 17px">
+      <div class="kpis" style="grid-template-columns:repeat(3,1fr)">
+        <div class="kpi ${tot < 0 ? 'r' : 'g'}"><div class="eyebrow">Ümumi qalıq</div><div class="v">${nf(tot, 2)}</div><div class="s">${esc(it.unit)}</div></div>
+        <div class="kpi"><div class="eyebrow">Qalıq dəyəri</div><div class="v" style="font-size:18px">${money(tot * it.price)}</div><div class="s">${it.price ? 'son qiymətlə' : 'qiymət yoxdur'}</div></div>
+        <div class="kpi v"><div class="eyebrow">Hərəkət sayı</div><div class="v">${nf(movs.length)}</div><div class="s">${movs.length ? movs[movs.length - 1].d + ' → ' + movs[0].d : '—'}</div></div>
+      </div>
+      <h4 style="margin:16px 0 7px;font-size:12px" class="eyebrow">Anbarlar üzrə qalıq</h4>
+      <div class="card">${tbl([{ t: 'Anbar' }, { t: 'Mədaxil', r: 1 }, { t: 'Məxaric', r: 1 }, { t: 'Qalıq', r: 1 }],
+    bal.map(b => ({ c: [esc(b.w), nf(b.in, 2), nf(b.out, 2), `<b class="${b.q < 0 ? 'neg' : ''}">${nf(b.q, 2)}</b>`] })))}</div>
+      ${obs.length > 1 ? `<h4 style="margin:16px 0 7px;font-size:12px" class="eyebrow">Qiymət tarixçəsi</h4><div class="card">${tbl([{ t: 'Tarix' }, { t: 'Kontragent' }, { t: 'Qiymət', r: 1 }], obs.slice().sort((a, b) => dsort(b.d, a.d)).map(o => ({ c: [esc(fmtD(o.d)), esc(o.k), nf(o.p, 2) + ' ₼'] })))}</div>` : ''}
+      <h4 style="margin:16px 0 7px;font-size:12px" class="eyebrow">Hərəkət tarixçəsi</h4>
+      <div class="card">${tbl([{ t: 'Tarix' }, { t: 'Anbar' }, { t: 'Növ' }, { t: 'Kontragent' }, { t: 'Giriş', r: 1 }, { t: 'Çıxış', r: 1 }],
+      movs.map(m => ({ c: [esc(fmtD(m.d)), esc(m.w), TYPE_TAG(m.t), esc(m.p || '—'), m.i ? nf(m.i, 2) : '—', m.o ? nf(m.o, 2) : '—'] })))}</div>
+      <div style="display:flex;gap:8px;margin-top:14px">
+        <button class="btn pri" data-close onclick="prefillOp('${esc(code)}')">Bu mal üzrə əməliyyat</button>
+        ${can('item.edit') ? `<button class="btn" onclick="editItem('${esc(code)}')">Malı redaktə et</button>` : ''}
+      </div>
+    </div>`);
+}
+
+/* ================= BALANCES ================= */
+const BF = { q: '', w: '', z: 'act', page: 0, size: 80, sort: 'val' };
+function rBal() {
+  const el = $('#bal-filters');
+  if (!el.dataset.done) {
+    el.dataset.done = 1;
+    el.innerHTML = `<input type="search" id="bf-q" placeholder="Mal adı və ya kod…">
+      <select id="bf-w"><option value="">Anbarlar üzrə ayrı</option><option value="__sum">Ümumi (anbarlar birlikdə)</option>${DB.whs.map(w => `<option>${esc(w)}</option>`).join('')}</select>
+      <div class="seg" id="bf-z"><button data-z="act" class="on">Aktiv qalıq</button><button data-z="all">Hamısı</button><button data-z="neg">Mənfi</button><button data-z="zero">Sıfır</button></div>
+      <select id="bf-s"><option value="val">Dəyərə görə</option><option value="q">Miqdara görə</option><option value="name">Ada görə</option><option value="last">Son hərəkətə görə</option></select>`;
+    $('#bf-q').oninput = debounce(() => { BF.q = $('#bf-q').value.trim().toLowerCase(); BF.page = 0; rBal(); }, 200);
+    $('#bf-w').onchange = () => { BF.w = $('#bf-w').value; BF.page = 0; rBal(); };
+    $('#bf-s').onchange = () => { BF.sort = $('#bf-s').value; rBal(); };
+    $$('#bf-z button').forEach(b => b.onclick = () => { BF.z = b.dataset.z; $$('#bf-z button').forEach(x => x.classList.toggle('on', x === b)); BF.page = 0; rBal(); });
+  }
+  let src;
+  if (BF.w === '__sum') {
+    const m = new Map();
+    for (const b of IX.bal) {
+      let x = m.get(b.c);
+      if (!x) { x = { w: 'bütün anbarlar', c: b.c, name: b.name, unit: b.unit, price: b.price, in: 0, out: 0, n: 0, last: '' }; m.set(b.c, x); }
+      x.in += b.in; x.out += b.out; x.n += b.n; if (b.last > x.last) x.last = b.last;
+    }
+    src = Array.from(m.values());
+    for (const x of src) { x.q = +(x.in - x.out).toFixed(4); x.val = x.q * (x.price || 0); }
+  } else if (BF.w) {
+    src = IX.bal.filter(b => b.w === BF.w);
+  } else {
+    src = IX.bal.slice();
+  }
+  // nomenklaturada var, amma heç bir hərəkəti olmayan mallar
+  if (!BF.w || BF.w === '__sum') {
+    const seen = new Set(src.map(b => b.c));
+    for (const i of DB.items) {
+      if (seen.has(i.code)) continue;
+      src.push({ w: BF.w === '__sum' ? 'bütün anbarlar' : '—', c: i.code, name: i.name, unit: i.unit || '', price: i.price || 0, in: 0, out: 0, q: 0, val: 0, last: '', n: 0, nomv: 1 });
+    }
+  }
+  let rows = src.filter(b => {
+    if (BF.z === 'act' && Math.abs(b.q) < 1e-9) return false;
+    if (BF.z === 'neg' && b.q >= 0) return false;
+    if (BF.z === 'zero' && Math.abs(b.q) > 1e-9) return false;
+    if (BF.q && (b.name + ' ' + b.c).toLowerCase().indexOf(BF.q) < 0) return false;
+    return true;
+  });
+  const cmp = { val: (a, b) => b.val - a.val, q: (a, b) => b.q - a.q, name: (a, b) => a.name.localeCompare(b.name, 'az'), last: (a, b) => dsort(b.last, a.last) };
+  rows.sort(cmp[BF.sort]);
+  const val = rows.reduce((s, b) => s + b.val, 0), qty = rows.reduce((s, b) => s + b.q, 0);
+  $('#bal-kpis').innerHTML = [
+    ['Mövqe sayı', nf(rows.length), BF.w === '__sum' ? 'mal üzrə cəmi' : 'anbar × mal sətri', ''],
+    ['Ümumi miqdar', nf(qty, 2), 'ölçü vahidləri qarışıqdır', ''],
+    ['Ümumi dəyər', money(val), 'son qiymətlərlə', 'g'],
+    ['Sıfır qalıq', nf(rows.filter(b => Math.abs(b.q) < 1e-9).length), 'bu filtrdə', ''],
+    ['Mənfi qalıq', nf(rows.filter(b => b.q < 0).length), 'uçot xətası riski', rows.some(b => b.q < 0) ? 'r' : 'g']
+  ].map(k => `<div class="kpi ${k[3]}"><div class="eyebrow">${esc(k[0])}</div><div class="v">${k[1]}</div><div class="s">${esc(k[2])}</div></div>`).join('');
+  const page = cut(rows, 'bal');
+  $('#t-bal').innerHTML = tbl(
+    [{ t: 'Kod' }, { t: 'Malın adı' }, { t: 'Anbar' }, { t: 'Ölçü' }, { t: 'Mədaxil', r: 1 }, { t: 'Məxaric', r: 1 }, { t: 'Qalıq', r: 1 }, { t: 'Vahid qiyməti', r: 1 }, { t: 'Dəyər', r: 1 }, { t: 'Son hərəkət' }],
+    page.map(b => ({
+      _a: `data-card="${esc(b.c)}"`, c: [`<span class="code">${esc(b.c)}</span>`, `<div class="nm">${esc(b.name)}</div>`, esc(b.w), esc(b.unit),
+      nf(b.in, 2), nf(b.out, 2), `<b class="${b.q < 0 ? 'neg' : ''}">${nf(b.q, 2)}</b>`, b.price ? nf(b.price, 2) : '<span class="muted">—</span>', money(b.val), b.nomv ? '<span class="tag t-mut">hərəkət yoxdur</span>' : esc(fmtD(b.last))]
+    })), { clk: 1 });
+  $('#bal-pager').innerHTML = `<span class="hint">${nf(rows.length)} sətir` + cutNote(rows, 'bal', rBal) + `</span>`;
+  $('#bal-print').onclick = () => { printHead('Anbar qalıqları', (BF.w === '__sum' ? 'ümumi' : (BF.w || 'bütün anbarlar')) + ' · ' + nf(rows.length) + ' mövqe'); setTimeout(() => window.print(), 60); };
+  $('#bal-exp').onclick = () => xls([['Anbar', 'Kod', 'Malın adı', 'Ölçü', 'Mədaxil', 'Məxaric', 'Qalıq', 'Vahid qiyməti', 'Dəyər', 'Son hərəkət']]
+    .concat(rows.map(b => [b.w, b.c, b.name, b.unit, b.in, b.out, b.q, b.price || '', b.val.toFixed(2), b.last])), 'anbar_qaliqlari');
+}
+
+/* ================= NOMENCLATURE ================= */
+const NF_ = { q: '', page: 0, size: 60, only: '' };
+function rNom() {
+  const el = $('#nom-filters');
+  if (!el.dataset.done) {
+    el.dataset.done = 1;
+    el.innerHTML = `<input type="search" id="nf-q" placeholder="Ad və ya kod üzrə axtarış…">
+      <div class="seg" id="nf-o"><button data-o="" class="on">Hamısı</button><button data-o="nop">Qiyməti yox</button><button data-o="nomv">Hərəkəti yox</button><button data-o="dup">Oxşar adlar</button></div>`;
+    $('#nf-q').oninput = debounce(() => { NF_.q = $('#nf-q').value.trim().toLowerCase(); NF_.page = 0; rNom(); }, 200);
+    $$('#nf-o button').forEach(b => b.onclick = () => { NF_.only = b.dataset.o; $$('#nf-o button').forEach(x => x.classList.toggle('on', x === b)); NF_.page = 0; rNom(); });
+  }
+  const dupSet = new Set();
+  if (NF_.only === 'dup') {
+    const norm = s => s.toLowerCase().replace(/[\s/.,"'-]+/g, '');
+    const m = new Map();
+    DB.items.forEach(i => { const k = norm(i.name); if (!m.has(k)) m.set(k, []); m.get(k).push(i.code); });
+    m.forEach(v => { if (v.length > 1) v.forEach(c => dupSet.add(c)); });
+  }
+  let rows = DB.items.filter(i => {
+    if (NF_.q && (i.name + ' ' + i.code).toLowerCase().indexOf(NF_.q) < 0) return false;
+    if (NF_.only === 'nop' && i.price) return false;
+    if (NF_.only === 'nomv' && IX.byItem.has(i.code)) return false;
+    if (NF_.only === 'dup' && !dupSet.has(i.code)) return false;
+    return true;
+  });
+  const page = cut(rows, 'nom');
+  $('#t-nom').innerHTML = tbl(
+    [{ t: 'Kod' }, { t: 'Malın adı' }, { t: 'Ölçü' }, { t: 'Son qiymət', r: 1 }, { t: 'Ümumi qalıq', r: 1 }, { t: 'Dəyər', r: 1 }, { t: 'Hərəkət', r: 1 }, { t: '' }],
+    page.map(i => {
+      const b = IX.byItem.get(i.code);
+      return {
+        _a: `data-card="${esc(i.code)}"`, c: [`<span class="code">${esc(i.code)}</span>`, `<div class="nm">${esc(i.name)}</div>`, esc(i.unit),
+        i.price ? nf(i.price, 2) : '<span class="muted">—</span>', b ? `<b class="${b.q < 0 ? 'neg' : ''}">${nf(b.q, 2)}</b>` : '<span class="muted">0</span>',
+        b ? money(b.val) : '—', b ? nf(b.n) : '<span class="muted">0</span>',
+        can('item.edit') ? `<button class="btn sm" onclick="event.stopPropagation();editItem('${esc(i.code)}')">Düzəliş</button>` : '']
+      };
+    }), { clk: 1 });
+  $('#nom-pager').innerHTML = `<span class="hint">${nf(rows.length)} mal`
+    + (rows.length !== DB.items.length ? ` (bazada cəmi ${nf(DB.items.length)})` : '')
+    + cutNote(rows, 'nom', rNom) + `</span>`;
+  $('#nom-print').onclick = () => { printHead('Nomenklatura', nf(rows.length) + ' mal'); setTimeout(() => window.print(), 60); };
+  $('#nom-exp').onclick = () => xls([['Kod', 'Malın adı', 'Ölçü vahidi', 'Son qiymət', 'Ümumi qalıq', 'Dəyər']]
+    .concat(rows.map(i => { const b = IX.byItem.get(i.code) || { q: 0, val: 0 }; return [i.code, i.name, i.unit, i.price || '', b.q, b.val.toFixed(2)]; })), 'nomenklatura');
+  $('#nom-add').onclick = () => editItem(null);
+  $('#nom-add').disabled = !can('item.add');
+  $('#nom-bulk').onclick = () => bulkItems();
+  $('#nom-bulk').disabled = !can('item.add');
+}
+
+/* ================= PARTNERS ================= */
+function rKnt() {
+  const rows = DB.partners.map(p => {
+    const st = IX.byPartner.get(p.name) || { in: 0, out: 0, n: 0, val: 0 };
+    return { p, st };
+  }).sort((a, b) => b.st.val - a.st.val);
+  $('#t-knt').innerHTML = tbl(
+    [{ t: 'Kontragent' }, { t: 'VÖEN' }, { t: 'Müqavilə' }, { t: 'Müqavilə tarixi' }, { t: 'Əməliyyat', r: 1 }, { t: 'Mədaxil miqdarı', r: 1 }, { t: 'Dövriyyə məbləği', r: 1 }, { t: '' }],
+    rows.map(r => ({
+      c: [`<b>${esc(r.p.name)}</b>`, r.p.voen ? `<span class="code">${esc(r.p.voen)}</span>` : `<span class="tag t-rm">yoxdur</span>`,
+      esc(r.p.contract || '—'), esc(fmtD(r.p.cdate) || '—'), nf(r.st.n), nf(r.st.in, 2), money(r.st.val),
+      can('partner.edit') ? `<button class="btn sm" onclick="editPartner('${esc(r.p.id)}')">Düzəliş</button>` : '']
+    })));
+  $('#knt-add').onclick = () => editPartner(null);
+  $('#knt-add').disabled = !can('partner.edit');
+}
+
+/* ================= WAREHOUSES / LOCATIONS ================= */
+function rAnb() {
+  $('#t-anb').innerHTML = tbl(
+    [{ t: 'Anbar' }, { t: 'Mövqe', r: 1 }, { t: 'Qalıq dəyəri', r: 1 }, { t: 'Hərəkət', r: 1 }, { t: 'Son əməliyyat' }],
+    DB.whs.map(w => {
+      const b = IX.bal.filter(x => x.w === w), st = IX.byWh.get(w) || { n: 0 };
+      const last = DB.movs.filter(m => m.w === w).reduce((s, m) => m.d > s ? m.d : s, '');
+      return { c: [`<b>${esc(w)}</b>`, nf(b.filter(x => Math.abs(x.q) > 1e-9).length), money(b.reduce((s, x) => s + x.val, 0)), nf(st.n), esc(last || '—')] };
+    }));
+  $('#t-loc').innerHTML = tbl(
+    [{ t: 'Ünvan / layihə' }, { t: 'Tipi' }, { t: 'Əməliyyat', r: 1 }, { t: 'Dövriyyə', r: 1 }],
+    DB.locs.map(l => {
+      const st = IX.byPartner.get(l.name) || { n: 0, in: 0, out: 0 };
+      return { c: [esc(l.name), `<span class="tag ${l.kind === 'anbar' ? 't-op' : 't-mut'}">${esc(l.kind)}</span>`, nf(st.n), nf(st.in + st.out, 2)] };
+    }));
+  $('#anb-add').onclick = () => editLoc();
+  $('#anb-add').disabled = !can('loc.edit');
+}
+</script>
+<script>
+/* ================= OPERATION ENTRY ================= */
+const OP = { kind: 'in', lines: [], pick: null };
+$$('#op-seg button').forEach(b => b.onclick = () => { OP.kind = b.dataset.k; $$('#op-seg button').forEach(x => x.classList.toggle('on', x === b)); rOp(); });
+
+const CHANNELS = ['Nağd alış', 'Kommersiya şirkəti', 'Köçürmə', 'Sahə üzrə məsul şəxs'];
+function channelOptions() {
+  const used = Array.from(new Set(DB.movs.map(m => m.ch).filter(Boolean)));
+  return Array.from(new Set(CHANNELS.concat(used)));
+}
+function partnerOptions(kind) {
+  const names = kind === 'mv' ? DB.whs
+    : kind === 'out' ? ['Sahə üzrə məsul şəxs'].concat(DB.locs.filter(l => l.kind !== 'anbar').map(l => l.name)).concat(DB.locs.filter(l => l.kind === 'anbar').map(l => l.name))
+      : DB.partners.map(p => p.name);
+  return Array.from(new Set(names));
+}
+function captureOpHeader() {
+  if (!$('#o-date')) return;
+  OP.hdr = {
+    kind: OP.kind,
+    d: $('#o-date').value,
+    t: $('#o-type') ? $('#o-type').value : '',
+    w: $('#o-wh') ? $('#o-wh').value : '',
+    w2: $('#o-wh2') ? $('#o-wh2').value : '',
+    p: $('#o-p') ? $('#o-p').value : '',
+    ch: $('#o-ch') ? $('#o-ch').value : '',
+    ct: $('#o-ct') ? $('#o-ct').value : '',
+    iv: $('#o-iv') ? $('#o-iv').value : ''
+  };
+}
+function rOp() {
+  const k = OP.kind;
+  captureOpHeader();
+  const H = (OP.hdr && OP.hdr.kind === k) ? OP.hdr : {};
+  const typeOpts = k === 'in' ? ['Satınalma', 'Qaytarma', 'Əvvələ qalıq'] : k === 'out' ? ['Sahəyə', 'Silinmə', 'Satış'] : ['Yerdəyişmə'];
+  $('#op-form').innerHTML = `
+    <div class="row" style="grid-template-columns:1fr 1fr">
+      <label class="f"><span>Tarix</span><input type="date" id="o-date" value="${H.d || today()}"></label>
+      <label class="f"><span>Əməliyyatın növü</span><select id="o-type">${typeOpts.map(t => `<option ${t === H.t ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></label>
+    </div>
+    ${k === 'mv' ? `<div class="row" style="grid-template-columns:1fr 1fr">
+        <label class="f"><span>Haradan (anbar)</span><select id="o-wh">${DB.whs.map(w => `<option ${w === (H.w || ME.wh) ? 'selected' : ''}>${esc(w)}</option>`).join('')}</select></label>
+        <label class="f"><span>Hara (anbar)</span><select id="o-wh2">${DB.whs.map(w => `<option ${H.w2 ? (w === H.w2 ? 'selected' : '') : (w !== ME.wh ? 'selected' : '')}>${esc(w)}</option>`).join('')}</select></label>
+      </div>`
+      : `<div class="row" style="grid-template-columns:1fr 1fr">
+        <label class="f"><span>Anbar</span><select id="o-wh">${DB.whs.map(w => `<option ${w === (H.w || ME.wh) ? 'selected' : ''}>${esc(w)}</option>`).join('')}</select></label>
+        <label class="f"><span>${k === 'in' ? 'Kontragent' : 'Təhvil alan / layihə'}</span><select id="o-p">${partnerOptions(k).map(p => `<option ${p === H.p ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select></label>
+      </div>`}
+    <label class="f"><span>Mal (ad və ya kod yazın)</span>
+      <div style="position:relative"><input type="text" id="o-item" autocomplete="off" placeholder="məs. kabel, 0000123…">
+      <div id="o-res" style="position:absolute;left:0;right:0;top:100%;background:#fff;border:1px solid var(--line);border-radius:0 0 4px 4px;max-height:230px;overflow:auto;z-index:20;display:none"></div></div>
+      <span class="hint" id="o-itemsel">Seçilməyib</span></label>
+    <div class="row" style="grid-template-columns:1fr 1fr ${k === 'in' ? '1fr' : ''}">
+      <label class="f"><span>Miqdar</span><input type="number" id="o-qty" step="0.01" min="0" placeholder="0"></label>
+      <label class="f"><span>Ölçü vahidi</span><input type="text" id="o-unit" readonly placeholder="—"></label>
+      ${k === 'in' ? `<label class="f"><span>Vahidin qiyməti (₼)</span><input type="number" id="o-price" step="0.01" min="0" placeholder="0.00"></label>` : ''}
+    </div>
+    ${k === 'in' ? `<div class="row" style="grid-template-columns:1fr 1fr 1fr">
+      <label class="f"><span>Alınma kanalı</span><select id="o-ch"><option value="">—</option>${channelOptions().map(c => `<option ${c === H.ch ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>
+      <label class="f"><span>Müqavilə №</span><input type="text" id="o-ct" value="${esc(H.ct || '')}" placeholder="məs. №06/2026"></label>
+      <label class="f"><span>Qaimə №</span><input type="text" id="o-iv" value="${esc(H.iv || '')}" placeholder="məs. 83951"></label></div>` : ''}
+    <label class="f"><span>Qeyd</span><input type="text" id="o-note" placeholder="istəyə bağlı — əsaslandırma, sifariş nömrəsi, məsul şəxs"></label>
+    <div style="display:flex;gap:8px"><button class="btn pri" id="o-add">Sətri əlavə et</button><span class="hint" id="o-err"></span></div>`;
+
+  // item combobox
+  const inp = $('#o-item'), res = $('#o-res');
+  const search = () => {
+    const q = inp.value.trim().toLowerCase();
+    if (q.length < 2) { res.style.display = 'none'; return; }
+    const hit = DB.items.filter(i => i.name.toLowerCase().indexOf(q) >= 0 || i.code.indexOf(q) >= 0).slice(0, 12);
+    res.innerHTML = hit.length ? hit.map(i => `<div data-c="${esc(i.code)}" style="padding:7px 9px;cursor:pointer;border-bottom:1px solid var(--line-2)"><b>${esc(i.name)}</b><div class="hint"><span class="code">${esc(i.code)}</span> · ${esc(i.unit)}${i.price ? ' · ' + nf(i.price, 2) + ' ₼' : ''}</div></div>`).join('')
+      : `<div style="padding:9px" class="hint">Tapılmadı. ${can('item.add') ? '<a href="#" id="o-new">Yeni mal yarat →</a>' : ''}</div>`;
+    res.style.display = 'block';
+    $$('#o-res [data-c]').forEach(d => d.onmouseenter = () => d.style.background = 'var(--line-2)');
+    $$('#o-res [data-c]').forEach(d => d.onmouseleave = () => d.style.background = '');
+    $$('#o-res [data-c]').forEach(d => d.onclick = () => pickItem(d.dataset.c));
+    if ($('#o-new')) $('#o-new').onclick = e => { e.preventDefault(); res.style.display = 'none'; editItem(null, inp.value); };
+  };
+  inp.oninput = debounce(search, 160);
+  inp.onblur = () => setTimeout(() => res.style.display = 'none', 200);
+  // Silinmə üçün təhvil alan həmişə "Sahə üzrə məsul şəxs"
+  if (k === 'out' && $('#o-type') && $('#o-p')) {
+    const syncSil = () => { if ($('#o-type').value === 'Silinmə') $('#o-p').value = 'Sahə üzrə məsul şəxs'; };
+    $('#o-type').onchange = syncSil;
+    syncSil();
+  }
+  $('#o-add').onclick = addLine;
+  if (OP.pick) pickItem(OP.pick, true);
+  renderLines();
+}
+function pickItem(code, keep) {
+  const it = DB.itemBy.get(code); if (!it) return;
+  OP.pick = code;
+  $('#o-item').value = it.name;
+  $('#o-res').style.display = 'none';
+  $('#o-itemsel').innerHTML = `Seçildi: <span class="code">${esc(it.code)}</span> · ${esc(it.unit)}`;
+  $('#o-unit').value = it.unit;
+  if ($('#o-price') && it.price && !$('#o-price').value) $('#o-price').value = it.price;
+  const bal = IX.bal.filter(b => b.c === code);
+  $('#op-state').innerHTML = `<div style="font-weight:650;margin-bottom:6px">${esc(it.name)}</div>` +
+    tbl([{ t: 'Anbar' }, { t: 'Qalıq', r: 1 }], bal.length ? bal.map(b => ({ c: [esc(b.w), `<b class="${b.q < 0 ? 'neg' : ''}">${nf(b.q, 2)} ${esc(b.unit)}</b>`] })) : [], { empty: 'Bu mal üzrə hələ hərəkət yoxdur.' });
+  if (!keep) $('#o-qty').focus();
+}
+function prefillOp(code) { OP.pick = code; go('op'); setTimeout(() => pickItem(code), 60); }
+function addLine() {
+  const err = $('#o-err'); err.textContent = '';
+  const it = DB.itemBy.get(OP.pick);
+  const qty = parseFloat($('#o-qty').value);
+  if (!it) return err.textContent = 'Əvvəlcə malı seçin.';
+  if (!qty || qty <= 0) return err.textContent = 'Miqdar sıfırdan böyük olmalıdır.';
+  const w = $('#o-wh').value;
+  const line = {
+    kind: OP.kind, d: $('#o-date').value || today(), t: $('#o-type').value, w,
+    w2: OP.kind === 'mv' ? $('#o-wh2').value : '', c: it.code, name: it.name, unit: it.unit,
+    q: qty, pr: $('#o-price') ? (parseFloat($('#o-price').value) || 0) : (it.price || 0),
+    p: OP.kind === 'mv' ? $('#o-wh2').value : $('#o-p').value,
+    ch: $('#o-ch') ? $('#o-ch').value.trim() : '',
+    ct: $('#o-ct') ? $('#o-ct').value.trim() : '', iv: $('#o-iv') ? $('#o-iv').value.trim() : '',
+    note: $('#o-note').value.trim()
+  };
+  if (OP.kind === 'mv' && line.w === line.w2) return err.textContent = 'Mənbə və təyinat anbarı eyni ola bilməz.';
+  if (OP.kind !== 'in') {
+    const b = IX.bal.find(x => x.w === w && x.c === it.code);
+    const have = b ? b.q : 0;
+    const pending = OP.lines.filter(l => l.c === it.code && l.w === w && l.kind !== 'in').reduce((s, l) => s + l.q, 0);
+    if (have - pending < qty) {
+      err.innerHTML = `<span style="color:var(--alarm)">Diqqət: ${esc(w)} anbarında qalıq ${nf(have - pending, 2)} ${esc(it.unit)} — mənfi qalıq yaranacaq.</span>`;
+    }
+  }
+  OP.lines.push(line);
+  OP.pick = null;
+  $('#o-item').value = ''; $('#o-qty').value = ''; $('#o-unit').value = ''; $('#o-itemsel').textContent = 'Seçilməyib';
+  if ($('#o-price')) $('#o-price').value = '';
+  renderLines(); $('#o-item').focus();
+}
+function renderLines() {
+  const L = OP.lines;
+  $('#op-cnt').textContent = L.length ? nf(L.length) + ' sətir · ' + money(L.reduce((s, l) => s + l.q * l.pr, 0)) : '';
+  $('#op-lines').innerHTML = tbl(
+    [{ t: 'Mal' }, { t: 'Marşrut' }, { t: 'Miqdar', r: 1 }, { t: 'Məbləğ', r: 1 }, { t: '' }],
+    L.map((l, i) => ({
+      c: [`<div class="nm">${esc(l.name)}</div><span class="code">${esc(l.c)}</span>`,
+      `${TYPE_TAG(l.t)}<div class="hint">${esc(l.kind === 'mv' ? l.w + ' → ' + l.w2 : (l.kind === 'in' ? l.p + ' → ' + l.w : l.w + ' → ' + l.p))}</div>`,
+      nf(l.q, 2) + ' ' + esc(l.unit), l.pr ? money(l.q * l.pr) : '—',
+      `<button class="btn sm dgr" onclick="OP.lines.splice(${i},1);renderLines()">Sil</button>`]
+    })), { empty: 'Sətir əlavə edin — sənəd bir neçə maldan ibarət ola bilər.' });
+  $('#op-post').disabled = !L.length || !can('mv.add');
+}
+$('#op-clear').onclick = () => { OP.lines = []; renderLines(); };
+$('#op-post').onclick = async () => {
+  if (!need('mv.add') || !OP.lines.length) return;
+  const doc = 'SND-' + Date.now().toString(36).toUpperCase();
+  const evs = [];
+  const priced = new Map();
+  for (const l of OP.lines) {
+    const base = { d: l.d, c: l.c, t: l.t, pr: l.pr || 0, ch: l.ch || '', ct: l.ct, iv: l.iv, note: l.note, by: ME.name, ts: Date.now(), doc };
+    if (l.kind === 'in') {
+      evs.push({ e: 'mv', op: 'a', d: Object.assign({ id: uid(), w: l.w, i: l.q, o: 0, p: l.p }, base) });
+      // mədaxildə göstərilən qiymət malın cari qiyməti olur
+      const it = DB.itemBy.get(l.c);
+      if (l.pr > 0 && it && Math.abs((it.price || 0) - l.pr) > 1e-6) priced.set(l.c, l.pr);
+    }
+    else if (l.kind === 'out') evs.push({ e: 'mv', op: 'a', d: Object.assign({ id: uid(), w: l.w, i: 0, o: l.q, p: l.p }, base) });
+    else {
+      evs.push({ e: 'mv', op: 'a', d: Object.assign({ id: uid(), w: l.w, i: 0, o: l.q, p: l.w2 + ' anbarına' }, base) });
+      evs.push({ e: 'mv', op: 'a', d: Object.assign({ id: uid(), w: l.w2, i: l.q, o: 0, p: l.w + ' anbarı' }, base) });
+    }
+  }
+  priced.forEach((pr, code) => evs.push({ e: 'item', op: 'u', d: { code, price: pr, psrc: 'sənəd' }, note: 'qiymət mədaxil sənədindən yeniləndi (' + doc + ')' }));
+  await emitMany(evs);
+  const n = OP.lines.length; OP.lines = [];
+  captureOpHeader();
+  if (OP.hdr) { OP.hdr.iv = ''; OP.hdr.ct = ''; }   // yeni sənəd — yeni qaimə/müqavilə nömrəsi
+  renderAll(); toast(n + ' sətirlik sənəd qeyd edildi (' + doc + ')');
+};
+
+/* ================= EDITORS ================= */
+function editMov(id) {
+  const m = DB.movs.find(x => x.id === id); if (!m) return;
+  if (!can('mv.edit') && !can('mv.del')) return need('mv.edit');
+  const it = DB.itemBy.get(m.c) || {};
+  modal('Qeydin düzəlişi · ' + m.c, `
+    <div class="hint" style="margin-bottom:12px">${esc(it.name || '')} · ilkin qeyd: ${esc(m.by || '')} ${m.ts ? '· ' + new Date(m.ts).toLocaleString('az-AZ') : ''}</div>
+    <div class="row" style="grid-template-columns:1fr 1fr 1fr">
+      <label class="f"><span>Tarix</span><input type="date" id="e-d" value="${esc(m.d)}"></label>
+      <label class="f"><span>Anbar</span><select id="e-w">${DB.whs.map(w => `<option ${w === m.w ? 'selected' : ''}>${esc(w)}</option>`).join('')}</select></label>
+      <label class="f"><span>Növü</span><select id="e-t">${['Əvvələ qalıq','Satınalma','Yerdəyişmə','Silinmə','Sahəyə','Qaytarma'].map(t => `<option ${t === m.t ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></label>
+    </div>
+    <div class="row" style="grid-template-columns:1fr 1fr 1fr">
+      <label class="f"><span>Giriş</span><input type="number" step="0.01" id="e-i" value="${m.i || ''}"></label>
+      <label class="f"><span>Çıxış</span><input type="number" step="0.01" id="e-o" value="${m.o || ''}"></label>
+      <label class="f"><span>Vahid qiyməti</span><input type="number" step="0.01" id="e-pr" value="${m.pr || ''}" ${can('price.edit') ? '' : 'disabled'}></label>
+    </div>
+    <div class="row" style="grid-template-columns:1fr 1fr">
+      <label class="f"><span>Kontragent / layihə</span><input type="text" id="e-p" value="${esc(m.p || '')}"></label>
+      <label class="f"><span>Alınma kanalı</span><input type="text" id="e-ch" value="${esc(m.ch || '')}" list="ch-list"><datalist id="ch-list">${channelOptions().map(c => `<option>${esc(c)}</option>`).join('')}</datalist></label>
+    </div>
+    <div class="row" style="grid-template-columns:1fr 1fr">
+      <label class="f"><span>Müqavilə №</span><input type="text" id="e-ct" value="${esc(m.ct || '')}"></label>
+      <label class="f"><span>Qaimə №</span><input type="text" id="e-iv" value="${esc(m.iv || '')}"></label>
+    </div>
+    <label class="f"><span>Düzəlişin səbəbi (audit üçün məcburi)</span><input type="text" id="e-why" placeholder="məs. qaimədə miqdar səhv yazılıb"></label>`,
+    `${can('mv.del') ? '<button class="btn dgr" id="e-del">Qeydi ləğv et</button>' : ''}<div style="flex:1"></div>
+     <button class="btn" data-close>İmtina</button><button class="btn pri" id="e-save">Yadda saxla</button>`);
+  $('#e-save').onclick = async () => {
+    const why = $('#e-why').value.trim();
+    if (!why) return toast('Düzəlişin səbəbini yazın', true);
+    await emit('mv', 'u', {
+      id: m.id, d: $('#e-d').value, w: $('#e-w').value, t: $('#e-t').value,
+      i: parseFloat($('#e-i').value) || 0, o: parseFloat($('#e-o').value) || 0,
+      pr: parseFloat($('#e-pr').value) || 0, p: $('#e-p').value.trim(),
+      ch: $('#e-ch').value.trim(),
+      ct: $('#e-ct').value.trim(), iv: $('#e-iv').value.trim(), by: m.by, edt: ME.name, ts: m.ts || Date.now()
+    }, why);
+    closeModal(); renderAll(); toast('Qeyd yeniləndi');
+  };
+  if ($('#e-del')) $('#e-del').onclick = async () => {
+    const why = $('#e-why').value.trim();
+    if (!why) return toast('Ləğv etmənin səbəbini yazın', true);
+    await emit('mv', 'd', { id: m.id }, why); closeModal(); renderAll(); toast('Qeyd ləğv edildi');
+  };
+}
+function nextCode() {
+  let max = 0; DB.items.forEach(i => { const n = parseInt(i.code, 10); if (n > max) max = n; });
+  return String(max + 1).padStart(7, '0');
+}
+function editItem(code, presetName) {
+  if (!need(code ? 'item.edit' : 'item.add')) return;
+  const it = code ? DB.itemBy.get(code) : null;
+  modal(it ? 'Malın düzəlişi' : 'Yeni mal', `
+    <div class="row" style="grid-template-columns:150px 1fr">
+      <label class="f"><span>Kod</span><input type="text" id="i-code" value="${esc(it ? it.code : nextCode())}" ${it ? 'readonly' : ''}></label>
+      <label class="f"><span>Malın adı — standart: <i>Ad / ölçü / marka / mənşə</i></span><input type="text" id="i-name" value="${esc(it ? it.name : (presetName || ''))}"></label>
+    </div>
+    <div class="row" style="grid-template-columns:1fr 1fr">
+      <label class="f"><span>Ölçü vahidi</span><input type="text" id="i-unit" list="unitlist" value="${esc(it ? it.unit : 'ədəd')}">
+        <datalist id="unitlist">${['ədəd','kq','metr','litr','m²','m³','ton','cüt','dəst','bağlama','qutu','çanta','rulon'].map(u => `<option>${esc(u)}</option>`).join('')}</datalist></label>
+      <label class="f"><span>Son vahid qiyməti (₼)</span><input type="number" step="0.01" id="i-price" value="${it && it.price ? it.price : ''}" ${can('price.edit') ? '' : 'disabled'}></label>
+    </div>
+    <div id="i-warn"></div>`,
+    `<div style="flex:1"></div><button class="btn" data-close>İmtina</button><button class="btn pri" id="i-save">Yadda saxla</button>`);
+  const chk = () => {
+    const v = $('#i-name').value.trim().toLowerCase().replace(/[\s/.,"'-]+/g, '');
+    if (v.length < 4) return $('#i-warn').innerHTML = '';
+    const sim = DB.items.filter(x => x.code !== $('#i-code').value && x.name.toLowerCase().replace(/[\s/.,"'-]+/g, '').indexOf(v.slice(0, Math.max(8, v.length - 6))) >= 0).slice(0, 4);
+    $('#i-warn').innerHTML = sim.length ? `<div class="hint" style="background:var(--out-l);padding:8px;border-radius:4px"><b>Oxşar mallar mövcuddur — təkrar yaratmayın:</b><br>${sim.map(s => esc(s.code + ' — ' + s.name)).join('<br>')}</div>` : '';
+  };
+  $('#i-name').oninput = debounce(chk, 250); chk();
+  $('#i-save').onclick = async () => {
+    const c = $('#i-code').value.trim(), n = $('#i-name').value.trim();
+    if (!/^\d{7}$/.test(c)) return toast('Kod 7 rəqəmli olmalıdır', true);
+    if (n.length < 3) return toast('Malın adını yazın', true);
+    if (!it && DB.itemBy.has(c)) return toast('Bu kod artıq mövcuddur', true);
+    await emit('item', it ? 'u' : 'a', { code: c, name: n, unit: $('#i-unit').value.trim() || 'ədəd', price: parseFloat($('#i-price').value) || 0, by: ME.name });
+    closeModal(); renderAll(); toast(it ? 'Mal yeniləndi' : 'Yeni mal əlavə edildi: ' + c);
+  };
+}
+/* ---------- toplu nomenklatura idxalı ---------- */
+const NORM = s => String(s || '').toLowerCase().replace(/[\s/.,"'`’\-–—()]+/g, '');
+let BULK = [];
+function parseItemList(txt, updateExisting) {
+  const lines = txt.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const byName = new Map(); DB.items.forEach(i => { const k = NORM(i.name); if (!byName.has(k)) byName.set(k, i); });
+  let maxCode = 0; DB.items.forEach(i => { const n = parseInt(i.code, 10); if (n > maxCode) maxCode = n; });
+  const seenName = new Set(), seenCode = new Set();
+  const out = [];
+  lines.forEach((line, ix) => {
+    const p = line.split(/\t|;|\|/).map(s => s.trim());
+    if (ix === 0 && /^(kod|code|№|nn?)$/i.test(p[0] || '') || /^(ad|adı|malın adı|name|наименование)$/i.test(p[0] || '') || /^(ad|adı|malın adı|name)$/i.test(p[1] || '')) return;
+    let code = '', name = '', unit = '', price = 0;
+    if (p.length === 1) name = p[0];
+    else if (/^\d{1,7}$/.test(p[0]) && p[1]) { code = p[0].padStart(7, '0'); name = p[1]; unit = p[2] || ''; price = parseFloat(String(p[3] || '').replace(',', '.')) || 0; }
+    else { name = p[0]; unit = p[1] || ''; price = parseFloat(String(p[2] || '').replace(',', '.')) || 0; }
+    unit = unit.replace(/\.$/, '');
+    const r = { n: ix + 1, code, name, unit: unit || 'ədəd', price, raw: line, use: false };
+    const key = NORM(name);
+    if (!name || name.length < 2) { r.st = 'err'; r.msg = 'Ad boşdur və ya çox qısadır'; }
+    else if (code && DB.itemBy.has(code)) {
+      const ex = DB.itemBy.get(code);
+      if (updateExisting) { r.st = 'upd'; r.msg = 'Mövcud kod — yenilənəcək: ' + ex.name; r.use = true; }
+      else { r.st = 'dup'; r.msg = 'Bu kod artıq var: ' + ex.name; }
+    }
+    else if (byName.has(key)) {
+      const ex = byName.get(key);
+      r.exCode = ex.code;
+      if (updateExisting && (price || unit !== ex.unit)) { r.st = 'upd'; r.code = ex.code; r.msg = 'Bazada var (' + ex.code + ') — qiymət/ölçü yenilənəcək'; r.use = true; }
+      else { r.st = 'dup'; r.msg = 'Bazada artıq var: ' + ex.code; }
+    }
+    else if (seenName.has(key)) { r.st = 'rep'; r.msg = 'Siyahının içində təkrarlanır'; }
+    else if (code && seenCode.has(code)) { r.st = 'rep'; r.msg = 'Kod siyahının içində təkrarlanır'; }
+    else {
+      r.st = 'new'; r.use = true;
+      if (!r.code) { maxCode++; r.code = String(maxCode).padStart(7, '0'); r.auto = true; }
+      seenName.add(key); seenCode.add(r.code);
+      r.msg = r.auto ? 'Yeni — kod avtomatik verildi' : 'Yeni';
+    }
+    if (r.st === 'new' || r.st === 'upd') { seenName.add(key); if (r.code) seenCode.add(r.code); }
+    out.push(r);
+  });
+  return out;
+}
+function bulkPreview() {
+  const upd = $('#b-upd').checked;
+  BULK = parseItemList($('#b-txt').value, upd);
+  const c = st => BULK.filter(r => r.st === st).length;
+  const TAG = { new: '<span class="tag t-in">yeni</span>', upd: '<span class="tag t-out">yenilənir</span>', dup: '<span class="tag t-mut">bazada var</span>', rep: '<span class="tag t-mut">təkrar</span>', err: '<span class="tag t-rm">səhv</span>' };
+  const show = BULK.slice(0, 250);
+  $('#b-prev').innerHTML = !BULK.length ? '<div class="empty"><b>Sətir tapılmadı</b>Mətni yapışdırın və yenidən yoxlayın.</div>' : `
+    <div class="pill-row" style="margin:10px 0">
+      <span class="tag t-in">yeni: ${nf(c('new'))}</span>${upd ? `<span class="tag t-out">yenilənir: ${nf(c('upd'))}</span>` : ''}
+      <span class="tag t-mut">bazada var: ${nf(c('dup'))}</span><span class="tag t-mut">təkrar: ${nf(c('rep'))}</span>
+      ${c('err') ? `<span class="tag t-rm">səhv: ${nf(c('err'))}</span>` : ''}
+    </div>
+    <div class="card"><div class="tw" style="max-height:340px">${tbl(
+    [{ t: '' }, { t: '#', r: 1 }, { t: 'Kod' }, { t: 'Malın adı' }, { t: 'Ölçü' }, { t: 'Qiymət', r: 1 }, { t: 'Status' }],
+    show.map((r, i) => ({
+      c: [`<input type="checkbox" data-bi="${i}" ${r.use ? 'checked' : ''} ${r.st === 'err' ? 'disabled' : ''} style="width:auto">`,
+      nf(r.n), `<span class="code">${esc(r.code || '—')}</span>${r.auto ? '<span class="hint"> avto</span>' : ''}`,
+      `<div class="nm">${esc(r.name)}</div>`, esc(r.unit), r.price ? nf(r.price, 2) : '—',
+      TAG[r.st] + `<div class="hint">${esc(r.msg)}</div>`]
+    })))}</div>${BULK.length > 250 ? `<div class="pad hint">İlk 250 sətir göstərilir, yüklənmə bütün ${nf(BULK.length)} sətrə tətbiq olunacaq.</div>` : ''}</div>`;
+  $$('#b-prev [data-bi]').forEach(cb => cb.onchange = () => { BULK[+cb.dataset.bi].use = cb.checked; bulkCount(); });
+  bulkCount();
+}
+function bulkCount() {
+  const n = BULK.filter(r => r.use && r.st !== 'err').length;
+  const btn = $('#b-go'); if (!btn) return;
+  btn.disabled = !n; btn.textContent = n ? 'Bazaya yaz (' + nf(n) + ' sətir)' : 'Bazaya yaz';
+}
+function bulkItems() {
+  if (!need('item.add')) return;
+  BULK = [];
+  modal('Nomenklatura siyahısının toplu əlavəsi', `
+    <p class="hint" style="margin-top:0">Excel-dən sütunları seçib kopyalayın və aşağıya yapışdırın. Sistem sətirləri yoxlayacaq, təkrarları tapacaq və yalnız təsdiqlədiyiniz sətirləri bazaya yazacaq.</p>
+    <div class="card" style="margin-bottom:12px"><div class="pad" style="padding:10px 12px">
+      <div class="eyebrow" style="margin-bottom:5px">Qəbul edilən formatlar</div>
+      <div class="hint" style="font-family:var(--mono);font-size:11.5px;line-height:1.7">
+        Sadəcə ad&nbsp;→ <b>Sement M400</b><br>
+        Ad + ölçü&nbsp;→ <b>Sement M400 ⇥ kq</b><br>
+        Ad + ölçü + qiymət&nbsp;→ <b>Sement M400 ⇥ kq ⇥ 0.35</b><br>
+        Kod + ad + ölçü + qiymət&nbsp;→ <b>0001200 ⇥ Sement M400 ⇥ kq ⇥ 0.35</b>
+      </div>
+      <div class="hint" style="margin-top:7px">Ayırıcı: tabulyasiya, nöqtəli vergül və ya «|». Kod göstərilməyibsə, ardıcıl 7 rəqəmli kod avtomatik verilir. Başlıq sətri avtomatik atılır.</div>
+    </div></div>
+    <label class="f"><span>Siyahı</span><textarea id="b-txt" rows="9" placeholder="Sement M400	kq	0.35&#10;Armatur d12	metr	1.20&#10;Əlcək kətan	cüt"></textarea></label>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
+      <input type="file" id="b-file" accept=".csv,.txt,.tsv" style="width:auto">
+      <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="b-upd" style="width:auto"><span class="hint">Bazada olan malların qiymət və ölçüsünü yenilə</span></label>
+      <div style="flex:1"></div><button class="btn" id="b-chk">Yoxla</button>
+    </div>
+    <div id="b-prev"></div>`,
+    `<div style="flex:1"></div><button class="btn" data-close>İmtina</button><button class="btn pri" id="b-go" disabled>Bazaya yaz</button>`);
+  $('#b-chk').onclick = bulkPreview;
+  $('#b-upd').onchange = () => { if (BULK.length) bulkPreview(); };
+  $('#b-file').onchange = e => {
+    const f = e.target.files[0]; if (!f) return;
+    const rd = new FileReader();
+    rd.onload = () => { $('#b-txt').value = String(rd.result).replace(/^\ufeff/, ''); bulkPreview(); };
+    rd.readAsText(f, 'utf-8');
+  };
+  $('#b-go').onclick = async () => {
+    const rows = BULK.filter(r => r.use && r.st !== 'err');
+    if (!rows.length) return;
+    const evs = rows.map(r => ({
+      e: 'item', op: r.st === 'upd' ? 'u' : 'a',
+      d: { code: r.code, name: r.name, unit: r.unit || 'ədəd', price: r.price || (r.st === 'upd' ? (DB.itemBy.get(r.code) || {}).price || 0 : 0), by: ME.name },
+      note: 'toplu idxal'
+    }));
+    await emitMany(evs);
+    const add = rows.filter(r => r.st === 'new').length, up = rows.filter(r => r.st === 'upd').length;
+    closeModal(); renderAll();
+    toast(nf(add) + ' yeni mal əlavə edildi' + (up ? ', ' + nf(up) + ' mal yeniləndi' : ''));
+  };
+  setTimeout(() => $('#b-txt').focus(), 80);
+}
+
+function editPartner(id) {
+  if (!need('partner.edit')) return;
+  const p = id ? DB.partners.find(x => x.id === id) : null;
+  modal(p ? 'Kontragentin düzəlişi' : 'Yeni kontragent', `
+    <label class="f"><span>Adı (hüquqi ad)</span><input type="text" id="k-name" value="${esc(p ? p.name : '')}" placeholder='məs. "Neq MMC"'></label>
+    <div class="row" style="grid-template-columns:1fr 1fr">
+      <label class="f"><span>VÖEN (10 rəqəm)</span><input type="text" id="k-voen" value="${esc(p ? p.voen : '')}" maxlength="10"></label>
+      <label class="f"><span>Müqavilə tarixi</span><input type="text" id="k-cdate" value="${esc(p ? p.cdate : '')}" placeholder="2026-06-01"></label>
+    </div>
+    <label class="f"><span>Müqavilə nömrəsi</span><input type="text" id="k-ct" value="${esc(p ? p.contract : '')}"></label>
+    <p class="hint">VÖEN-siz kontragentlə əməliyyat vergi və audit riski yaradır. Nağd alışlar üçün satıcının qəbzi saxlanılmalıdır.</p>`,
+    `<div style="flex:1"></div><button class="btn" data-close>İmtina</button><button class="btn pri" id="k-save">Yadda saxla</button>`);
+  $('#k-save').onclick = async () => {
+    const n = $('#k-name').value.trim(); if (n.length < 2) return toast('Adı yazın', true);
+    const v = $('#k-voen').value.trim();
+    if (v && !/^\d{10}$/.test(v)) return toast('VÖEN 10 rəqəm olmalıdır', true);
+    await emit('partner', p ? 'u' : 'a', { id: p ? p.id : 'p' + uid(), name: n, voen: v, contract: $('#k-ct').value.trim(), cdate: $('#k-cdate').value.trim() });
+    closeModal(); renderAll(); toast('Kontragent yadda saxlanıldı');
+  };
+}
+function editLoc() {
+  if (!need('loc.edit')) return;
+  modal('Yeni anbar / layihə ünvanı', `
+    <label class="f"><span>Adı</span><input type="text" id="l-name" placeholder="məs. Qobustan anbar"></label>
+    <label class="f"><span>Tipi</span><select id="l-kind"><option value="anbar">Fiziki anbar (qalıq saxlayır)</option><option value="layihə">Layihə / təhvil məntəqəsi</option></select></label>
+    <p class="hint">Fiziki anbar əlavə etdikdə o, bütün qalıq hesabatlarında ayrıca sütun kimi görünəcək.</p>`,
+    `<div style="flex:1"></div><button class="btn" data-close>İmtina</button><button class="btn pri" id="l-save">Yadda saxla</button>`);
+  $('#l-save').onclick = async () => {
+    const n = $('#l-name').value.trim(); if (n.length < 2) return toast('Adı yazın', true);
+    await emit('loc', 'a', { id: 'l' + uid(), name: n, kind: $('#l-kind').value });
+    closeModal(); renderAll(); toast('Ünvan əlavə edildi');
+  };
+}
+
+/* ================= REPORTS ================= */
+let REP_ROWS = [], REP_NAME = 'hesabat';
+function rRep() {
+  const pick = $('#rep-pick');
+  if (!pick.dataset.done) { pick.dataset.done = 1; pick.onchange = rRep; $('#rep-print').onclick = () => { printHead('Hesabat: ' + REP_NAME, nf(Math.max(0, REP_ROWS.length - 1)) + ' sətir'); setTimeout(() => window.print(), 60); };
+  $('#rep-exp').onclick = () => xls(REP_ROWS, REP_NAME); }
+  const k = pick.value;
+  const out = $('#rep-out');
+  const C = { in: 'var(--in)', out: 'var(--out)', st: 'var(--steel)', mv: 'var(--move)', al: 'var(--alarm)' };
+
+  if (k === 'knt') {
+    const rows = Array.from(IX.byPartner.entries()).map(([n, s]) => ({ n, s })).sort((a, b) => b.s.val - a.s.val);
+    REP_NAME = 'kontragent_dovriyye';
+    REP_ROWS = [['Kontragent/Layihə', 'Əməliyyat sayı', 'Mədaxil miqdarı', 'Məxaric miqdarı', 'Mədaxil dəyəri', 'VÖEN', 'Müqavilə']]
+      .concat(rows.map(r => { const p = DB.partners.find(x => x.name === r.n) || {}; return [r.n, r.s.n, r.s.in, r.s.out, r.s.val.toFixed(2), p.voen || '', p.contract || '']; }));
+    out.innerHTML = `<div class="grid" style="grid-template-columns:1fr 1fr">
+      <div class="card"><header><h3>Dəyərə görə ilk 12 kontragent</h3></header><div class="pad">${barChart(rows.slice(0, 12).map(r => ({ k: r.n, v: Math.round(r.s.val), sub: nf(r.s.n) + ' əm.' })), { fmt: money })}</div></div>
+      <div class="card"><header><h3>Tam siyahı</h3></header><div class="tw">${tbl([{ t: 'Kontragent / Layihə' }, { t: 'VÖEN' }, { t: 'Əməliyyat', r: 1 }, { t: 'Mədaxil', r: 1 }, { t: 'Məxaric', r: 1 }, { t: 'Dəyər', r: 1 }],
+      rows.map(r => { const p = DB.partners.find(x => x.name === r.n) || {}; return { c: [esc(r.n), p.voen ? `<span class="code">${esc(p.voen)}</span>` : '<span class="muted">—</span>', nf(r.s.n), nf(r.s.in, 2), nf(r.s.out, 2), money(r.s.val)] }; }))}</div></div></div>`;
+  }
+  else if (k === 'type') {
+    const rows = Array.from(IX.byType.entries()).map(([t, s]) => ({ t, s })).sort((a, b) => b.s.n - a.s.n);
+    REP_NAME = 'novler_uzre'; REP_ROWS = [['Növ', 'Sayı', 'Mədaxil', 'Məxaric', 'Dəyər']].concat(rows.map(r => [r.t, r.s.n, r.s.in, r.s.out, r.s.val.toFixed(2)]));
+    out.innerHTML = `<div class="card"><div class="tw">${tbl([{ t: 'Əməliyyat növü' }, { t: 'Qeyd sayı', r: 1 }, { t: 'Mədaxil miqdarı', r: 1 }, { t: 'Məxaric miqdarı', r: 1 }, { t: 'Dəyər', r: 1 }, { t: 'Payı' }],
+      rows.map(r => ({ c: [TYPE_TAG(r.t), nf(r.s.n), nf(r.s.in, 2), nf(r.s.out, 2), money(r.s.val), `<div class="bar"><i style="width:${(r.s.n / DB.movs.length * 100).toFixed(1)}%"></i></div>`] })))}</div></div>`;
+  }
+  else if (k === 'wh') {
+    const rows = DB.whs.map(w => {
+      const b = IX.bal.filter(x => x.w === w), s = IX.byWh.get(w) || { in: 0, out: 0, n: 0 };
+      return { w, pos: b.filter(x => Math.abs(x.q) > 1e-9).length, val: b.reduce((a, x) => a + x.val, 0), in: s.in, out: s.out, n: s.n, neg: b.filter(x => x.q < 0).length };
+    });
+    REP_NAME = 'anbarlar_muqayise'; REP_ROWS = [['Anbar', 'Mövqe', 'Mədaxil', 'Məxaric', 'Dəyər', 'Mənfi qalıq', 'Əməliyyat']].concat(rows.map(r => [r.w, r.pos, r.in, r.out, r.val.toFixed(2), r.neg, r.n]));
+    out.innerHTML = `<div class="card"><div class="tw">${tbl([{ t: 'Anbar' }, { t: 'Aktiv mövqe', r: 1 }, { t: 'Mədaxil', r: 1 }, { t: 'Məxaric', r: 1 }, { t: 'Dövriyyə %', r: 1 }, { t: 'Qalıq dəyəri', r: 1 }, { t: 'Mənfi qalıq', r: 1 }],
+      rows.map(r => ({ c: [`<b>${esc(r.w)}</b>`, nf(r.pos), nf(r.in, 2), nf(r.out, 2), r.in ? (r.out / r.in * 100).toFixed(1) + '%' : '—', money(r.val), r.neg ? `<span class="neg">${nf(r.neg)}</span>` : '0'] })))}</div></div>`;
+  }
+  else if (k === 'per') {
+    const byMonth = new Map();
+    for (const [d, s] of IX.byDate) { const m = d.slice(0, 7); const x = byMonth.get(m) || { in: 0, out: 0, n: 0, val: 0 }; x.in += s.in; x.out += s.out; x.n += s.n; x.val += s.val; byMonth.set(m, x); }
+    const months = Array.from(byMonth.entries()).sort((a, b) => dsort(a[0], b[0]));
+    const days = IX.dates.map(d => ({ k: d, v: IX.byDate.get(d).n }));
+    REP_NAME = 'dovr_uzre'; REP_ROWS = [['Ay', 'Əməliyyat', 'Mədaxil', 'Məxaric', 'Mədaxil dəyəri']].concat(months.map(([m, s]) => [fmtM(m), s.n, s.in, s.out, s.val.toFixed(2)]));
+    out.innerHTML = `<div class="card"><header><h3>Günlük əməliyyat sayı</h3></header><div class="pad">${sparkline(days)}</div></div>
+      <div class="card" style="margin-top:12px"><div class="tw">${tbl([{ t: 'Ay' }, { t: 'Əməliyyat', r: 1 }, { t: 'Mədaxil', r: 1 }, { t: 'Məxaric', r: 1 }, { t: 'Mədaxil dəyəri', r: 1 }],
+      months.map(([m, s]) => ({ c: [esc(fmtM(m)), nf(s.n), nf(s.in, 2), nf(s.out, 2), money(s.val)] })))}</div></div>`;
+  }
+  else if (k === 'abc') {
+    const pos = IX.positions.slice().sort((a, b) => b.val - a.val);
+    const tot = pos.reduce((s, b) => s + b.val, 0) || 1;
+    let cum = 0; const rows = pos.map(b => { cum += b.val; const p = cum / tot; return { b, cum, cls: p <= .8 ? 'A' : p <= .95 ? 'B' : 'C', share: b.val / tot }; });
+    const cnt = c => rows.filter(r => r.cls === c).length, sum = c => rows.filter(r => r.cls === c).reduce((s, r) => s + r.b.val, 0);
+    REP_NAME = 'abc_tehlili'; REP_ROWS = [['Sinif', 'Kod', 'Mal', 'Anbar', 'Qalıq', 'Dəyər', 'Pay %']].concat(rows.map(r => [r.cls, r.b.c, r.b.name, r.b.w, r.b.q, r.b.val.toFixed(2), (r.share * 100).toFixed(2)]));
+    out.innerHTML = `<div class="kpis">${['A', 'B', 'C'].map((c, i) => `<div class="kpi ${['g', '', 'o'][i]}"><div class="eyebrow">${c} sinfi — ${['dəyərin 80%-i', 'növbəti 15%', 'qalan 5%'][i]}</div><div class="v">${nf(cnt(c))}</div><div class="s">${money(sum(c))}</div></div>`).join('')}</div>
+      <p class="hint" style="margin:10px 0">A sinfi mallar üzrə inventarizasiya rüblük, B üzrə yarımillik, C üzrə illik aparılması tövsiyə olunur. Nəzarət səyi dəyərlə mütənasib olmalıdır.</p>
+      <div class="card"><div class="tw">${tbl([{ t: 'Sinif' }, { t: 'Kod' }, { t: 'Mal' }, { t: 'Anbar' }, { t: 'Qalıq', r: 1 }, { t: 'Dəyər', r: 1 }, { t: 'Kumulyativ pay', r: 1 }],
+      cut(rows, 'abc').map(r => ({ _a: `data-card="${esc(r.b.c)}"`, c: [`<span class="tag ${r.cls === 'A' ? 't-in' : r.cls === 'B' ? 't-op' : 't-mut'}">${r.cls}</span>`, `<span class="code">${esc(r.b.c)}</span>`, `<div class="nm">${esc(r.b.name)}</div>`, esc(r.b.w), nf(r.b.q, 2), money(r.b.val), (r.cum / tot * 100).toFixed(1) + '%'] })), { clk: 1 })}</div>
+      <div class="pad hint">İlk 200 sətir göstərilir — tam siyahı üçün CSV ixrac edin.</div></div>`;
+  }
+  else if (k === 'dead') {
+    const last = IX.dates[IX.dates.length - 1] || today();
+    const ref = new Date(last);
+    const rows = IX.positions.map(b => {
+      const days = Math.round((ref - new Date(b.last)) / 86400000);
+      const moved = DB.movs.some(m => m.c === b.c && m.w === b.w && m.o > 0 && m.t !== 'Yerdəyişmə');
+      return { b, days, moved };
+    }).filter(r => r.days >= 30 || !r.moved).sort((a, b) => b.b.val - a.b.val);
+    REP_NAME = 'hereketsiz_qaliq'; REP_ROWS = [['Kod', 'Mal', 'Anbar', 'Qalıq', 'Dəyər', 'Son hərəkət', 'Hərəkətsiz gün', 'Heç vaxt istifadə olunmayıb']]
+      .concat(rows.map(r => [r.b.c, r.b.name, r.b.w, r.b.q, r.b.val.toFixed(2), r.b.last, r.days, r.moved ? '' : 'bəli']));
+    out.innerHTML = `<div class="kpis">
+      <div class="kpi o"><div class="eyebrow">Hərəkətsiz mövqe</div><div class="v">${nf(rows.length)}</div><div class="s">30 gündən çox</div></div>
+      <div class="kpi r"><div class="eyebrow">Dondurulmuş dəyər</div><div class="v" style="font-size:19px">${money(rows.reduce((s, r) => s + r.b.val, 0))}</div><div class="s">dövriyyədən kənar vəsait</div></div>
+      <div class="kpi"><div class="eyebrow">Heç istifadə olunmayıb</div><div class="v">${nf(rows.filter(r => !r.moved).length)}</div><div class="s">yalnız mədaxil olub</div></div></div>
+      <div class="card" style="margin-top:12px"><div class="tw">${tbl([{ t: 'Kod' }, { t: 'Mal' }, { t: 'Anbar' }, { t: 'Qalıq', r: 1 }, { t: 'Dəyər', r: 1 }, { t: 'Son hərəkət' }, { t: 'Gün', r: 1 }, { t: 'Status' }],
+      cut(rows, 'dead').map(r => ({ _a: `data-card="${esc(r.b.c)}"`, c: [`<span class="code">${esc(r.b.c)}</span>`, `<div class="nm">${esc(r.b.name)}</div>`, esc(r.b.w), nf(r.b.q, 2), money(r.b.val), esc(fmtD(r.b.last)), nf(r.days), r.moved ? '<span class="tag t-mut">hərəkətsiz</span>' : '<span class="tag t-rm">istifadəsiz</span>'] })), { clk: 1 })}</div></div>`;
+  }
+  else if (k === 'tr') {
+    const mat = new Map();
+    DB.movs.filter(m => m.t === 'Yerdəyişmə').forEach(m => {
+      const other = DB.whs.find(w => (m.p || '').indexOf(w) === 0);
+      if (!other) return;
+      const from = m.o > 0 ? m.w : other, to = m.o > 0 ? other : m.w;
+      const k2 = from + '→' + to;
+      const x = mat.get(k2) || { from, to, q: 0, n: 0, val: 0 };
+      x.q += (m.i || m.o); x.n++; x.val += (m.i || m.o) * (m.pr || (DB.itemBy.get(m.c) || {}).price || 0);
+      mat.set(k2, x);
+    });
+    const rows = Array.from(mat.values()).sort((a, b) => b.q - a.q);
+    REP_NAME = 'yerdeyisme_matrisi'; REP_ROWS = [['Haradan', 'Hara', 'Əməliyyat', 'Miqdar', 'Dəyər']].concat(rows.map(r => [r.from, r.to, r.n, r.q, r.val.toFixed(2)]));
+    out.innerHTML = `<div class="card"><header><h3>Anbarlararası axın</h3></header><div class="tw">${tbl([{ t: 'Haradan' }, { t: 'Hara' }, { t: 'Əməliyyat', r: 1 }, { t: 'Miqdar', r: 1 }, { t: 'Dəyər', r: 1 }],
+      rows.map(r => ({ c: [`<b>${esc(r.from)}</b>`, `<b>${esc(r.to)}</b>`, nf(r.n), nf(r.q, 2), money(r.val)] })), { empty: 'Yerdəyişmə qeydi tapılmadı.' })}</div>
+      <div class="pad hint">Yerdəyişmə hər iki anbarda cüt qeyd yaratmalıdır. Cütü olmayan qeydlər «Nəzarət və risklər» bölməsində göstərilir.</div></div>`;
+  }
+}
+
+/* ================= FINANCE ================= */
+function rFin() {
+  const purch = DB.movs.filter(m => m.t === 'Satınalma' && m.i > 0);
+  const spend = purch.reduce((s, m) => s + m.i * (m.pr || (DB.itemBy.get(m.c) || {}).price || 0), 0);
+  const priced = purch.filter(m => (m.pr || (DB.itemBy.get(m.c) || {}).price)).length;
+  const noDoc = purch.filter(m => !m.iv && !m.ct).length;
+  const cash = DB.movs.filter(m => (m.p || '').indexOf('Nağd') === 0 || m.p === 'Bazar');
+  const writeoff = DB.movs.filter(m => m.t === 'Silinmə');
+  const woVal = writeoff.reduce((s, m) => s + (m.o || 0) * ((DB.itemBy.get(m.c) || {}).price || 0), 0);
+  $('#fin-kpis').innerHTML = [
+    ['Qalıq dəyəri', money(IX.totVal), 'bütün anbarlar', 'g'],
+    ['Satınalma məbləği', money(spend), nf(purch.length) + ' satınalma sətri', 'v'],
+    ['Qiymətlə örtülmə', (purch.length ? (priced / purch.length * 100).toFixed(0) : 0) + '%', 'qiyməti daxil edilmiş sətirlər', priced / Math.max(1, purch.length) > .8 ? 'g' : 'r'],
+    ['Sənədsiz satınalma', nf(noDoc), 'qaimə/müqavilə göstərilməyib', noDoc ? 'r' : 'g'],
+    ['Nağd əməliyyat', nf(cash.length), 'əlavə nəzarət tələb edir', 'o'],
+    ['Silinmə dəyəri', money(woVal), nf(writeoff.length) + ' silinmə qeydi', woVal ? 'r' : 'g']
+  ].map(k => `<div class="kpi ${k[3]}"><div class="eyebrow">${esc(k[0])}</div><div class="v" style="font-size:19px">${k[1]}</div><div class="s">${esc(k[2])}</div></div>`).join('');
+
+  const sp = new Map();
+  purch.forEach(m => { const k = m.p || '(göstərilməyib)'; sp.set(k, (sp.get(k) || 0) + m.i * (m.pr || (DB.itemBy.get(m.c) || {}).price || 0)); });
+  const spRows = Array.from(sp.entries()).map(([k, v]) => ({ k, v: Math.round(v) })).sort((a, b) => b.v - a.v).slice(0, 12);
+  $('#ch-spend').innerHTML = barChart(spRows, { fmt: money }) + `<div class="hint" style="margin-top:11px">Bir kontragentin payı 30%-i keçdikdə alternativ təchizatçı ilə müqayisəli qiymət sorğusu tövsiyə olunur.</div>`;
+
+  const meth = new Map();
+  DB.movs.forEach(m => {
+    const k = (m.p || '').indexOf('Nağd') === 0 || m.p === 'Bazar' ? 'Nağd' : m.t === 'Əvvələ qalıq' ? 'Əvvəlki qalıq' : m.t === 'Yerdəyişmə' ? 'Daxili köçürmə' : 'Bank / müqavilə';
+    const x = meth.get(k) || { n: 0, val: 0, doc: 0 }; x.n++; x.val += (m.i || 0) * (m.pr || (DB.itemBy.get(m.c) || {}).price || 0); if (m.iv || m.ct) x.doc++; meth.set(k, x);
+  });
+  $('#t-method').innerHTML = tbl([{ t: 'Üsul' }, { t: 'Əməliyyat', r: 1 }, { t: 'Dəyər', r: 1 }, { t: 'Sənədlə örtülmə', r: 1 }],
+    Array.from(meth.entries()).sort((a, b) => b[1].val - a[1].val).map(([k, v]) => ({ c: [esc(k), nf(v.n), money(v.val), (v.n ? (v.doc / v.n * 100).toFixed(0) : 0) + '%'] })));
+
+  const rows = [];
+  IX.priceObs.forEach((arr, c) => {
+    if (arr.length < 2) return;
+    const ps = arr.map(a => a.p), mn = Math.min(...ps), mx = Math.max(...ps);
+    if (mx - mn < 0.005) return;
+    const it = DB.itemBy.get(c) || {};
+    rows.push({ c, name: it.name || c, mn, mx, spread: (mx - mn) / mn, n: arr.length, best: arr.find(a => a.p === mn), worst: arr.find(a => a.p === mx) });
+  });
+  rows.sort((a, b) => b.spread - a.spread);
+  $('#t-price').innerHTML = tbl([{ t: 'Kod' }, { t: 'Mal' }, { t: 'Ən aşağı', r: 1 }, { t: 'Ən yüksək', r: 1 }, { t: 'Fərq', r: 1 }, { t: 'Ən ucuz təchizatçı' }],
+    cut(rows, 'fin').map(r => ({
+      _a: `data-card="${esc(r.c)}"`, c: [`<span class="code">${esc(r.c)}</span>`, `<div class="nm">${esc(r.name)}</div>`,
+      nf(r.mn, 2) + ' ₼', nf(r.mx, 2) + ' ₼', `<b class="${r.spread > .2 ? 'neg' : ''}">${(r.spread * 100).toFixed(0)}%</b>`, esc(r.best ? r.best.k : '—')]
+    })), { clk: 1, empty: 'Eyni mal üzrə birdən çox qiymət müşahidəsi yoxdur.' });
+}
+
+/* ================= CONTROLS / RISK ================= */
+function controlIssues() {
+  const G = [];
+  const neg = IX.bal.filter(b => b.q < -1e-9);
+  if (neg.length) G.push({ id: 'neg', sev: 'high', title: 'Mənfi qalıq', why: 'Məxaric mədaxildən çoxdur — ya mədaxil qeydə alınmayıb, ya da məxaric səhv anbara yazılıb. Maliyyə hesabatını təhrif edir.', cols: ['Anbar', 'Kod', 'Mal', 'Qalıq'], rows: neg.map(b => [b.w, b.c, b.name, nf(b.q, 2)]), codes: neg.map(b => b.c) });
+  const nop = IX.positions.filter(b => !b.price);
+  if (nop.length) G.push({ id: 'nop', sev: 'med', title: 'Qiyməti olmayan qalıq', why: 'Qiymət daxil edilmədən qalığın dəyəri sıfır kimi hesablanır; balans və sığorta dəyəri əskik göstərilir.', cols: ['Anbar', 'Kod', 'Mal', 'Qalıq'], rows: nop.map(b => [b.w, b.c, b.name, nf(b.q, 2)]), codes: nop.map(b => b.c) });
+  const nodoc = DB.movs.filter(m => m.t === 'Satınalma' && !m.iv && !m.ct);
+  if (nodoc.length) G.push({ id: 'doc', sev: 'low', title: 'Sənədsiz satınalma', why: 'Qaimə və ya müqavilə nömrəsi göstərilməyib. Bu, əməliyyatı bloklamır — yalnız xatırlatma üçündür.', cols: ['Tarix', 'Anbar', 'Kod', 'Kontragent'], rows: nodoc.map(m => [fmtD(m.d), m.w, m.c, m.p || '—']), codes: nodoc.map(m => m.c) });
+  const internal = new Set(DB.locs.map(l => l.name).concat(DB.whs).concat(['Bazar', 'Nağd alış', 'Kommersiya şirkəti', 'Sahə üzrə məsul şəxs', 'Əvvələ anbar qalığı', 'Anbar qalığı']));
+  const noVoen = DB.movs.filter(m => m.t === 'Satınalma' && m.p && !internal.has(m.p) && !DB.partners.some(p => p.name === m.p && p.voen));
+  if (noVoen.length) G.push({ id: 'voen', sev: 'low', title: 'VÖEN-siz kontragentdən alış', why: 'Kontragent bazasında VÖEN yoxdur. Bu, əməliyyatı bloklamır — yalnız xatırlatma üçündür.', cols: ['Tarix', 'Kontragent', 'Kod', 'Miqdar'], rows: noVoen.map(m => [fmtD(m.d), m.p, m.c, nf(m.i, 2)]), codes: noVoen.map(m => m.c) });
+  const orphan = DB.movs.filter(m => !DB.itemBy.has(m.c));
+  if (orphan.length) G.push({ id: 'orph', sev: 'high', title: 'Nomenklaturada olmayan mal', why: 'Hərəkət qeydi mövcud olmayan mal koduna istinad edir — hesabatlarda ad görünmür.', cols: ['Tarix', 'Anbar', 'Kod', 'Miqdar'], rows: orphan.map(m => [fmtD(m.d), m.w, m.c, nf(m.i - m.o, 2)]), codes: orphan.map(m => m.c) });
+  // unpaired transfers
+  const tr = DB.movs.filter(m => m.t === 'Yerdəyişmə');
+  const dd = (a, b) => (!a || !b) ? 0 : Math.abs(new Date(a) - new Date(b)) / 86400000;
+  const pair = m => {
+    const other = DB.whs.find(w => (m.p || '').indexOf(w) === 0); if (!other) return null;
+    const cands = tr.filter(x => x !== m && x.c === m.c && x.w === other && ((m.i > 0 && x.o > 0) || (m.o > 0 && x.i > 0)) && Math.abs((x.i || x.o) - (m.i || m.o)) < 1e-6);
+    return cands.find(x => x.d === m.d) || cands[0] || null;
+  };
+  const unp = tr.filter(m => !pair(m));
+  if (unp.length) G.push({ id: 'tr', sev: 'high', title: 'Cütü olmayan yerdəyişmə', why: 'Bir anbardan çıxan mal digərində mədaxil edilməyib — yolda itki və ya uçot boşluğu deməkdir.', cols: ['Tarix', 'Anbar', 'Kod', 'Miqdar', 'Qarşı tərəf'], rows: unp.map(m => [fmtD(m.d), m.w, m.c, nf(m.i || m.o, 2), m.p || '—']), codes: unp.map(m => m.c) });
+  const lag = tr.filter(m => m.o > 0).map(m => ({ m, x: pair(m) })).filter(r => r.x && dd(r.x.d, r.m.d) > 3);
+  if (lag.length) G.push({ id: 'lag', sev: 'med', title: 'Yerdəyişmənin tarixləri uyğun gəlmir', why: 'Malın çıxışı və mədaxili fərqli tarixlərdə qeyd olunub. Ay sonunda qalıq iki anbarda birdən və ya heç birində görünmür — dövr kəsiliş (cut-off) səhvidir.', cols: ['Kod', 'Göndərən anbar', 'Çıxış tarixi', 'Qəbul tarixi', 'Fərq (gün)'], rows: lag.map(r => [r.m.c, r.m.w, fmtD(r.m.d), fmtD(r.x.d), nf(dd(r.x.d, r.m.d))]), codes: lag.map(r => r.m.c) });
+  const norm = s => s.toLowerCase().replace(/[\s/.,"'-]+/g, '');
+  const dupm = new Map(); DB.items.forEach(i => { const k = norm(i.name); if (!dupm.has(k)) dupm.set(k, []); dupm.get(k).push(i); });
+  const dups = Array.from(dupm.values()).filter(v => v.length > 1);
+  if (dups.length) G.push({ id: 'dup', sev: 'med', title: 'Nomenklaturada təkrar', why: 'Eyni mal iki kodla qeydə alınıb — qalıq bölünür, satınalma tələbi səhv hesablanır.', cols: ['Adı', 'Kodlar', 'Qalıqlar'], rows: dups.map(v => [v[0].name, v.map(x => x.code).join(', '), v.map(x => nf((IX.byItem.get(x.code) || { q: 0 }).q, 2)).join(' / ')]), codes: dups.map(v => v[0].code) });
+  const future = DB.movs.filter(m => m.d > today());
+  if (future.length) G.push({ id: 'fut', sev: 'med', title: 'Gələcək tarixli qeyd', why: 'Əməliyyat tarixi bugünkü tarixdən sonradır — yazılış səhvi ehtimalı yüksəkdir.', cols: ['Tarix', 'Anbar', 'Kod', 'Qeyd edən'], rows: future.map(m => [fmtD(m.d), m.w, m.c, m.by || '—']), codes: future.map(m => m.c) });
+  const bigwo = DB.movs.filter(m => m.t === 'Silinmə' && (m.o || 0) * ((DB.itemBy.get(m.c) || {}).price || 0) > 500);
+  if (bigwo.length) G.push({ id: 'wo', sev: 'high', title: 'İri məbləğli silinmə', why: '500 ₼-dən yuxarı silinmə komissiya aktı və rəhbər təsdiqi tələb edir.', cols: ['Tarix', 'Anbar', 'Kod', 'Məbləğ'], rows: bigwo.map(m => [fmtD(m.d), m.w, m.c, money(m.o * ((DB.itemBy.get(m.c) || {}).price || 0))]), codes: bigwo.map(m => m.c) });
+  return G;
+}
+function rCtrl() {
+  const G = controlIssues();
+  const high = G.filter(g => g.sev === 'high').reduce((s, g) => s + g.rows.length, 0);
+  const tot = G.reduce((s, g) => s + g.rows.length, 0);
+  $('#ctrl-kpis').innerHTML = [
+    ['Ümumi hal', nf(tot), nf(G.length) + ' kateqoriya', tot ? 'o' : 'g'],
+    ['Yüksək risk', nf(high), 'təcili baxış tələb edir', high ? 'r' : 'g'],
+    ['Uçotun tamlığı', (DB.movs.length ? (100 - Math.min(100, tot / DB.movs.length * 100)).toFixed(1) : 100) + '%', 'problemsiz qeydlərin payı', 'g'],
+    ['Yoxlama tarixi', today(), 'hər dəyişiklikdə avtomatik', '']
+  ].map(k => `<div class="kpi ${k[3]}"><div class="eyebrow">${esc(k[0])}</div><div class="v" style="font-size:19px">${k[1]}</div><div class="s">${esc(k[2])}</div></div>`).join('');
+  $('#ctrl-out').innerHTML = G.length ? G.map(g => `
+    <div class="card" style="margin-bottom:12px">
+      <header><span class="tag ${g.sev === 'high' ? 't-rm' : g.sev === 'low' ? 't-mut' : 't-out'}">${g.sev === 'high' ? 'yüksək risk' : g.sev === 'low' ? 'xatırlatma' : 'orta risk'}</span><h3>${esc(g.title)}</h3><div class="sp"></div><b class="num">${nf(g.rows.length)}</b></header>
+      <div class="pad hint" style="padding-bottom:0">${esc(g.why)}</div>
+      <div class="tw" style="max-height:320px">${tbl(g.cols.map(c => ({ t: c, r: /Qalıq|Miqdar|Məbləğ/.test(c) })), cut(g.rows, 'ctrl' + g.t).map((r, i) => ({ _a: g.codes[i] ? `data-card="${esc(g.codes[i])}"` : '', c: r.map(esc) })), { clk: 1 })}</div>
+      ${g.rows.length > 100 ? `<div class="pad hint">İlk 100 sətir göstərilir.</div>` : ''}
+    </div>`).join('') : `<div class="card"><div class="empty"><b>Problem aşkarlanmadı</b>Bütün avtomatik nəzarət yoxlamaları uğurla keçdi.</div></div>`;
+  $('#ctrl-print').onclick = () => { printHead('Nəzarət və risklər', ''); setTimeout(() => window.print(), 60); };
+  $('#ctrl-exp').onclick = () => {
+    const rows = [['Kateqoriya', 'Risk', 'Sətir']];
+    G.forEach(g => g.rows.forEach(r => rows.push([g.title, g.sev, r.join(' | ')])));
+    csv(rows, 'nezaret_hesabati');
+  };
+}
+
+/* ================= AUDIT ================= */
+function rLog() {
+  const el = $('#log-filters');
+  if (!el.dataset.done) {
+    el.dataset.done = 1;
+    el.innerHTML = `<input type="search" id="lf-q" placeholder="İstifadəçi, kod, səbəb…"><select id="lf-e"><option value="">Bütün obyektlər</option><option value="mv">Mal hərəkəti</option><option value="item">Nomenklatura</option><option value="partner">Kontragent</option><option value="loc">Anbar/layihə</option></select>`;
+    $('#lf-q').oninput = debounce(rLog, 200); $('#lf-e').onchange = rLog;
+  }
+  const q = ($('#lf-q').value || '').toLowerCase(), ef = $('#lf-e').value;
+  const OPN = { a: 'əlavə', u: 'düzəliş', d: 'ləğv' }, EN = { mv: 'Mal hərəkəti', item: 'Nomenklatura', partner: 'Kontragent', loc: 'Anbar/layihə' };
+  const rows = DB.events.slice().sort((a, b) => b.ts - a.ts).filter(e => {
+    if (ef && e.e !== ef) return false;
+    if (q && (e.un + ' ' + JSON.stringify(e.d) + ' ' + e.note).toLowerCase().indexOf(q) < 0) return false;
+    return true;
+  });
+  $('#t-log').innerHTML = tbl([{ t: 'Vaxt' }, { t: 'İstifadəçi' }, { t: 'Vəzifə' }, { t: 'Obyekt' }, { t: 'Əməliyyat' }, { t: 'Detal' }, { t: 'Səbəb' }],
+    cut(rows, 'log').map(e => ({
+      c: [new Date(e.ts).toLocaleString('az-AZ'), `<b>${esc(e.un)}</b>`, esc(ROLES[e.role] ? ROLES[e.role].name : e.role || '—'),
+      esc(EN[e.e] || e.e), `<span class="tag ${e.op === 'd' ? 't-rm' : e.op === 'u' ? 't-out' : 't-in'}">${OPN[e.op]}</span>`,
+      `<span class="code">${esc(JSON.stringify(e.d).slice(0, 90))}</span>`, esc(e.note || '—')]
+    })), { empty: 'Excel-dən idxal edilmiş ilkin məlumatlardan sonra hələ dəyişiklik olmayıb.' });
+  $('#log-print').onclick = () => { printHead('Audit jurnalı', ''); setTimeout(() => window.print(), 60); };
+  $('#log-exp').onclick = () => xls([['Vaxt', 'İstifadəçi', 'Vəzifə', 'Obyekt', 'Əməliyyat', 'Detal', 'Səbəb']]
+    .concat(rows.map(e => [new Date(e.ts).toISOString(), e.un, e.role, e.e, e.op, JSON.stringify(e.d), e.note])), 'audit_jurnali');
+}
+
+/* ================= SETTINGS ================= */
+function rSet() {
+  $('#t-perm').innerHTML = tbl([{ t: 'Səlahiyyət' }].concat(Object.keys(ROLES).map(r => ({ t: ROLES[r].name }))),
+    [['mv.add', 'Əməliyyat qeyd etmək'], ['mv.edit', 'Qeydə düzəliş'], ['mv.del', 'Qeydi ləğv etmək'], ['item.add', 'Yeni mal'], ['item.edit', 'Mal düzəlişi'], ['partner.edit', 'Kontragent idarəsi'], ['price.edit', 'Qiymət dəyişmək'], ['import', 'Toplu idxal']]
+      .map(([k, t]) => ({ c: [esc(t)].concat(Object.keys(ROLES).map(r => ROLES[r].can.includes(k) ? '<span class="tag t-in">var</span>' : '<span class="tag t-mut">yox</span>')) })));
+  const us = Object.values(DB.users);
+  $('#t-users').innerHTML = tbl([{ t: 'İstifadəçi' }, { t: 'Vəzifə' }, { t: 'Anbar' }, { t: 'Son fəaliyyət' }, { t: 'Qeydlərinin sayı', r: 1 }],
+    us.map(u => ({ c: [`<b>${esc(u.name)}</b>${u.id === ME.id ? ' <span class="tag t-op">siz</span>' : ''}`, esc(ROLES[u.role] ? ROLES[u.role].name : u.role), esc(u.wh || '—'), new Date(u.ts).toLocaleTimeString('az-AZ'), nf(DB.events.filter(e => e.uid === u.id).length)] })),
+    { empty: 'Hazırda yalnız siz sistemdəsiniz.' });
+  $('#set-src').innerHTML = `<div class="hint">
+    Məlumat bazası: Supabase (PostgreSQL). Cari vəziyyət: <b>${nf(DB.items.length)}</b> nomenklatura mövqeyi, <b>${nf(DB.partners.length)}</b> kontragent, <b>${nf(DB.movs.length)}</b> mal hərəkəti qeydi.</div>`;
+  $$('[data-exp]').forEach(b => b.onclick = () => ({ mov: () => { go('mov'); setTimeout(() => $('#mov-exp').click(), 50); }, bal: () => { go('bal'); setTimeout(() => $('#bal-exp').click(), 50); }, nom: () => { go('nom'); setTimeout(() => $('#nom-exp').click(), 50); }, knt: () => xls([['Kontragent', 'VÖEN', 'Müqavilə', 'Tarix']].concat(DB.partners.map(p => [p.name, p.voen, p.contract, p.cdate])), 'kontragentler'), log: () => { go('log'); setTimeout(() => $('#log-exp').click(), 50); } }[b.dataset.exp]()));
+  $('#exp-all').onclick = () => {
+    const blob = new Blob([JSON.stringify({ seed: 'Anar anbar version 1.xlsb', exported: new Date().toISOString(), events: DB.events, movements: DB.movs, items: DB.items, partners: DB.partners }, null, 1)], { type: 'application/json' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'anbar_ehtiyat_' + today() + '.json'; a.click(); toast('Ehtiyat nüsxə yükləndi');
+  };
+  $('#imp-go').onclick = async () => {
+    if (!need('import')) return;
+    const lines = $('#imp-txt').value.split(/\n/).map(l => l.trim()).filter(Boolean);
+    const evs = []; let bad = 0;
+    for (const l of lines) {
+      const p = l.split(/\t|;/).map(s => s.trim());
+      if (p.length < 5) { bad++; continue; }
+      const [d, w, c, gi, go_, t, kn] = p;
+      if (!DB.whs.includes(w) || !/^\d{7}$/.test(c)) { bad++; continue; }
+      evs.push({ e: 'mv', op: 'a', d: { id: uid(), d: d || today(), w, c, i: parseFloat(gi) || 0, o: parseFloat(go_) || 0, t: t || 'Satınalma', p: kn || '', pr: (DB.itemBy.get(c) || {}).price || 0, by: ME.name, ts: Date.now() }, note: 'toplu idxal' });
+    }
+    if (evs.length) await emitMany(evs);
+    $('#imp-res').innerHTML = `<b>${evs.length}</b> sətir yükləndi${bad ? `, <span class="neg">${bad} sətir səhv formatdadır</span>` : ''}.`;
+    renderAll();
+  };
+}
+
+/* ================= BOOT (Supabase) ================= */
+const DEVICE_ID = (() => {
+  try {
+    let d = localStorage.getItem('anbar_device_id');
+    if (!d) { d = 'dev_' + Math.random().toString(36).slice(2, 12); localStorage.setItem('anbar_device_id', d); }
+    return d;
+  } catch (e) { return 'dev_' + Math.random().toString(36).slice(2, 12); }
+})();
+
+async function registerSession(uid) {
+  if (!SB) return;
+  try { await SB.from('sessions').delete().eq('user_id', uid); } catch (e) { }
+  try {
+    const { error } = await SB.from('sessions').insert({ user_id: uid, device_id: DEVICE_ID });
+    if (error) throw error;
+  } catch (err) { console.warn('session register', err); }
+}
+async function unregisterSession() {
+  if (!SB || !ME) return;
+  try { await SB.from('sessions').delete().eq('user_id', ME.id); } catch (e) { }
+}
+const SESSION_STALE_MS = 3 * 60 * 1000;   // 3 dəqiqə siqnal yoxdursa sessiya tərk edilmiş sayılır
+let HEARTBEAT = null;
+
+/* aktiv sessiya yalnız o halda sayılır ki, son 3 dəqiqədə siqnal versin */
+async function checkDuplicate(uid) {
+  if (!SB) return false;
+  try {
+    const { data } = await SB.from('sessions').select('device_id,updated_at').eq('user_id', uid).single();
+    if (!data || data.device_id === DEVICE_ID) return false;
+    const age = Date.now() - new Date(data.updated_at).getTime();
+    if (age > SESSION_STALE_MS) {                 // brauzer bağlanıb, sessiya asılı qalıb
+      await SB.from('sessions').delete().eq('user_id', uid);
+      return false;
+    }
+    return true;
+  } catch (e) { return false; }
+}
+
+function startHeartbeat(uid) {
+  stopHeartbeat();
+  HEARTBEAT = setInterval(async () => {
+    if (!SB) return;
+    try { await SB.from('sessions').update({ updated_at: new Date().toISOString() }).eq('user_id', uid); }
+    catch (e) { }
+  }, 60 * 1000);
+}
+function stopHeartbeat() { if (HEARTBEAT) { clearInterval(HEARTBEAT); HEARTBEAT = null; } }
+
+/* pəncərə bağlananda sessiyanı buraxmağa çalış (zəmanətli deyil, ona görə heartbeat var) */
+window.addEventListener('pagehide', () => {
+  if (!ME || !SB) return;
+  try {
+    const url = SB_URL + '/rest/v1/sessions?user_id=eq.' + ME.sbId;
+    const tok = (window.SB_TOKEN || SB_KEY);
+    fetch(url, { method: 'DELETE', keepalive: true,
+      headers: { apikey: SB_KEY, Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' } });
+  } catch (e) { }
+});
+
+function pwChangeDialog() {
+  modal('Şifrəni dəyiş', `
+    <label class="f"><span>Cari şifrə</span><input id="pw-old" type="password" autocomplete="current-password"></label>
+    <label class="f"><span>Yeni şifrə</span><input id="pw-new" type="password" autocomplete="new-password" placeholder="ən azı 8 simvol"></label>
+    <label class="f"><span>Yeni şifrə (təkrar)</span><input id="pw-new2" type="password" autocomplete="new-password"></label>
+    <p class="hint">Şifrəni unutsanız, rəhbər Supabase panelindən sıfırlaya bilər.</p>`,
+    `<div style="flex:1"></div><button class="btn" data-close>İmtina</button><button class="btn pri" id="pw-go">Dəyiş</button>`);
+  $('#pw-go').onclick = async () => {
+    const o = $('#pw-old').value, n = $('#pw-new').value, n2 = $('#pw-new2').value;
+    if (!o || !n) { toast('Bütün xanaları doldurun', true); return; }
+    if (n.length < 8) { toast('Yeni şifrə ən azı 8 simvol olmalıdır', true); return; }
+    if (n !== n2) { toast('Yeni şifrələr üst-üstə düşmür', true); return; }
+    if (n === o) { toast('Yeni şifrə köhnədən fərqli olmalıdır', true); return; }
+    $('#pw-go').disabled = true; $('#pw-go').textContent = 'Yoxlanılır...';
+    const { error } = await sbChangePassword(ME.email, o, n);
+    if (error) {
+      toast(error.message || 'Şifrə dəyişdirilmədi', true);
+      $('#pw-go').disabled = false; $('#pw-go').textContent = 'Dəyiş';
+      return;
+    }
+    closeModal(); toast('Şifrə dəyişdirildi');
+  };
+  setTimeout(() => $('#pw-old').focus(), 80);
+}
+
+function sessionDialog() {
+  modal('Sessiya',
+    `<p><b>${esc(ME.name)}</b> · ${esc(ROLES[ME.role] ? ROLES[ME.role].name : ME.role)} · ${esc(ME.wh || 'bütün anbarlar')}</p>
+     <p class="hint">${esc(ME.email)}</p>
+     <p class="hint">Səlahiyyətləriniz: ${ROLES[ME.role] ? (ROLES[ME.role].can.length ? esc(ROLES[ME.role].can.join(', ')) : 'yalnız baxış') : '—'}.</p>
+     <p class="hint">Bu cihazda yadda saxlanılıb: <b>${rememberOn() ? 'bəli' : 'xeyr'}</b>.</p>`,
+    `<button class="btn" id="ss-pw">Şifrəni dəyiş</button><div style="flex:1"></div>
+     <button class="btn" id="ss-out">Çıxış</button><button class="btn pri" data-close>Bağla</button>`);
+  $('#ss-pw').onclick = () => { closeModal(); setTimeout(pwChangeDialog, 120); };
+  $('#ss-out').onclick = async () => { stopHeartbeat(); await unregisterSession(); setRemember(false); await sbSignOut(); location.reload(); };
+}
+
+async function enterApp(userId, email) {
+  const { data: profile, error } = await SB.from('users').select('*').eq('id', userId).single();
+  if (error || !profile) throw new Error('İstifadəçi profili tapılmadı. Rəhbər ilə əlaqə saxlayın.');
+  if (!profile.active) throw new Error('Hesabınız deaktiv edilib.');
+  ME = {
+    id: userId, sbId: userId, email: email || profile.email || '',
+    name: profile.name || (email || '').split('@')[0],
+    role: profile.role || 'baxis', wh: profile.warehouse || ''
+  };
+  $('#gate').style.display = 'none';
+  $('#app').style.display = 'block';
+  $('#btn-me').textContent = ME.name.split(' ')[0] + ' · ' + (ROLES[ME.role] ? ROLES[ME.role].name : ME.role);
+  $('#btn-me').onclick = sessionDialog;
+  try { const ss = await SB.auth.getSession(); window.SB_TOKEN = ss.data.session ? ss.data.session.access_token : null; } catch (e) { }
+  await registerSession(userId);
+  startHeartbeat(userId);
+  await loadFromDB();
+  subscribeRealtime();
+  renderAll(); go('dash');
+  setSync(true); renderPresence();
+}
+
+(function boot() {
+  initSB();
+  $('#g-go').textContent = 'Daxil ol';
+  $('#g-name').placeholder = 'E-poçt ünvanı';
+  $('#g-name').type = 'email';
+  $('#g-name').autocomplete = 'username';
+
+  const roleRow = $('#g-role') ? $('#g-role').closest('label') : null;
+  const whRow = $('#g-wh') ? $('#g-wh').closest('label') : null;
+  if (roleRow) roleRow.style.display = 'none';
+  if (whRow) whRow.style.display = 'none';
+
+  const emailLabel = $('#g-name').closest('label');
+  if (emailLabel && !$('#g-pass')) {
+    const pass = document.createElement('label');
+    pass.className = 'f';
+    pass.innerHTML = '<span>Şifrə</span><input id="g-pass" type="password" autocomplete="current-password" placeholder="••••••••">';
+    emailLabel.after(pass);
+    const rem = document.createElement('label');
+    rem.style.cssText = 'display:flex;gap:8px;align-items:center;margin:2px 0 12px';
+    rem.innerHTML = '<input type="checkbox" id="g-rem" style="width:auto"><span class="hint">Məni bu cihazda yadda saxla</span>';
+    pass.after(rem);
+    $('#g-pass').addEventListener('keydown', e => { if (e.key === 'Enter') $('#g-go').click(); });
+  }
+
+  const se = savedEmail();
+  if (se) $('#g-name').value = se;
+  if ($('#g-rem')) $('#g-rem').checked = rememberOn();
+  $('#g-name').addEventListener('keydown', e => { if (e.key === 'Enter') ($('#g-pass') || $('#g-go')).focus(); });
+
+  $('#g-go').onclick = async () => {
+    const email = $('#g-name').value.trim();
+    const pass = $('#g-pass') ? $('#g-pass').value : '';
+    const remember = $('#g-rem') ? $('#g-rem').checked : false;
+    if (!email || !pass) { toast('E-poçt və şifrəni daxil edin', true); return; }
+    $('#g-go').disabled = true; $('#g-go').textContent = 'Yüklənir...';
+    setRemember(remember);
+    try {
+      const { data, error } = await sbSignIn(email, pass);
+      if (error) throw error;
+      const dup = await checkDuplicate(data.user.id);
+      if (dup) { toast('Bu hesab hazırda başqa cihazda açıqdır. Orada «Çıxış» edin və ya 3 dəqiqə gözləyin.', true); await sbSignOut(); $('#g-go').disabled = false; $('#g-go').textContent = 'Daxil ol'; return; }
+      saveEmail(remember ? email : '');
+      await enterApp(data.user.id, data.user.email);
+    } catch (err) {
+      toast(err.message || 'Giriş xətası', true);
+      $('#g-go').disabled = false; $('#g-go').textContent = 'Daxil ol';
+    }
+  };
+
+  (async () => {
+    const s = await sbSession();
+    if (!s || !s.user) return;
+    const dup = await checkDuplicate(s.user.id);
+    if (dup) { await sbSignOut(); toast('Bu hesab başqa cihazda açıqdır. Orada «Çıxış» edin və ya 3 dəqiqə gözləyin.', true); return; }
+    $('#g-go').disabled = true; $('#g-go').textContent = 'Sessiya bərpa olunur...';
+    try { await enterApp(s.user.id, s.user.email); }
+    catch (e) {
+      await sbSignOut();
+      toast(e.message || 'Sessiya bərpa olunmadı', true);
+      $('#g-go').disabled = false; $('#g-go').textContent = 'Daxil ol';
+    }
+  /* ================= FULL EXPORT (все данные одним xlsx) ================= */
+  window.fullExport = function() {
+    if (typeof XLSX === 'undefined') { toast('Excel kitabxanası yüklənmədi', true); return; }
+    const wb = XLSX.utils.book_new();
+    const today_ = today();
+
+    // --- Hərəkət registri ---
+    const movRows = [['Tarix','Anbar','Kod','Malın adı','Ölçü','Növü','Kontragent','Kanal','Giriş','Çıxış','Qiymət','Məbləğ','Müqavilə №','Qaimə №','Qeyd edən']];
+    DB.movs.slice().sort((a,b)=>dsort(a.d,b.d)||(a.ts||0)-(b.ts||0)).forEach(m=>{
+      const it=DB.itemBy.get(m.c)||{}; const pr=m.pr||it.price||0;
+      movRows.push([m.d,m.w,m.c,it.name||'',it.unit||'',m.t,m.p||'',m.ch||'',
+        m.i||'',m.o||'',pr||'',pr?(((m.i||0)+(m.o||0))*pr).toFixed(2):'',
+        m.ct||'',m.iv||'',m.by||'']);
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(movRows.map((r,i)=>i===0?r:r.map(toNum))), 'Hərəkət registri');
+
+    // --- Anbar qalıqları ---
+    const balRows = [['Anbar','Kod','Malın adı','Ölçü','Mədaxil','Məxaric','Qalıq','Qiymət','Dəyər']];
+    IX.bal.slice().sort((a,b)=>a.w.localeCompare(b.w)||(a.name||'').localeCompare(b.name||'')).forEach(b=>{
+      if(Math.abs(b.q)<1e-9) return;
+      balRows.push([b.w,b.c,b.name,b.unit,b.in,b.out,b.q,b.price||'',b.val||'']);
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(balRows.map((r,i)=>i===0?r:r.map(toNum))), 'Anbar qalıqları');
+
+    // --- Satınalmalar (Filtrasiya) ---
+    const filRows = [['Tarix','Malın adı','Kod','Ölçü','Miqdar','Qiymət','Məbləğ','Kanal','Kontragent','Müqavilə №','Qaimə №']];
+    DB.movs.filter(m=>m.t==='Satınalma').slice().sort((a,b)=>dsort(a.d,b.d)).forEach(m=>{
+      const it=DB.itemBy.get(m.c)||{}; const pr=m.pr||it.price||0;
+      filRows.push([m.d,it.name||'',m.c,it.unit||'',m.i||'',pr||'',
+        pr?(m.i||0)*pr:'',m.ch||'',m.p||'',m.ct||'',m.iv||'']);
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(filRows.map((r,i)=>i===0?r:r.map(toNum))), 'Satınalmalar');
+
+    // --- Nomenklatura ---
+    const nomRows = [['Kod','Malın adı','Ölçü vahidi','Son qiymət (₼)','Ümumi qalıq','Dəyər']];
+    DB.items.slice().sort((a,b)=>a.code.localeCompare(b.code)).forEach(it=>{
+      const bi=IX.byItem.get(it.code)||{q:0,val:0};
+      nomRows.push([it.code,it.name,it.unit,it.price||'',bi.q||0,bi.val||'']);
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(nomRows.map((r,i)=>i===0?r:r.map(toNum))), 'Nomenklatura');
+
+    // --- Kontragentlər ---
+    const kntRows = [['Kontragentin adı','VÖEN','Müqavilə №','Müqavilə tarixi']];
+    DB.partners.forEach(p=>kntRows.push([p.name,p.voen||'',p.contract||'',p.cdate||'']));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(kntRows), 'Kontragentlər');
+
+    // --- колонки по ширине ---
+    [movRows,balRows,filRows,nomRows,kntRows].forEach((rows,i)=>{
+      const ws = wb.Sheets[wb.SheetNames[i]];
+      const w = (rows[0]||[]).map((_,ci)=>{
+        let m=6;
+        for(let ri=0;ri<Math.min(rows.length,300);ri++) m=Math.max(m,String(rows[ri][ci]||'').length);
+        return {wch:Math.min(m+2,55)};
+      });
+      ws['!cols']=w;
+      ws['!freeze']={xSplit:0,ySplit:1};
+      ws['!autofilter']={ref:XLSX.utils.encode_range({s:{r:0,c:0},e:{r:rows.length-1,c:(rows[0]||[]).length-1}})};
+    });
+
+    // --- служебные листы в точном формате базы (для пересборки исходного Excel) ---
+    const rawItems = [['code','name','unit','price','price_source']];
+    DB.items.forEach(i=>rawItems.push([i.code,i.name,i.unit,i.price||0,i.psrc||'']));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rawItems), '_items');
+
+    const rawMovs = [['date','warehouse','item_code','in_qty','out_qty','type','partner','channel','contract_num','invoice_num','price','note','doc_num']];
+    DB.movs.forEach(m=>rawMovs.push([m.d,m.w,m.c,m.i||0,m.o||0,m.t,m.p||'',m.ch||'',m.ct||'',m.iv||'',m.pr||0,m.note||'',m.doc||'']));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rawMovs), '_movements');
+
+    const rawParts = [['name','voen','contract','contract_date']];
+    DB.partners.forEach(p=>rawParts.push([p.name,p.voen||'',p.contract||'',p.cdate||'']));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rawParts), '_partners');
+
+    XLSX.writeFile(wb, 'Anbar_'+today_+'.xlsx');
+    toast('Anbar_'+today_+'.xlsx yükləndi — '+nf(DB.movs.length)+' hərəkət, '+nf(DB.items.length)+' mal, '+nf(IX.positions.length)+' aktiv mövqe');
+  };
+
+  document.getElementById('full-exp').onclick = fullExport;
+
+  /* ================= SON FORMAT EXPORT (surgical .xlsx from template) =================
+     Regenerates the original workbook (Filtrasiya, 3 anbar, Nomenklatura, Kontragent)
+     from platform data by editing the template's XML in place. Pivots (Mal hereket,
+     Hesabat) recalc on open via refreshOnLoad. Mirrors scratchpad build_export.py. */
+  /* === DYNAMIC EXPORTER (Phase 2) ===
+     Discovers any number of warehouses by "(Anbar)" sheet-name suffix.
+     Auto-clears filters (Silinmə, Nomenklatura hidden rows).
+     Works for 3, 5, 10+ warehouses seamlessly. */
+
+  function xesc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  function numstr(x) { if (x == null || x === '') return '0'; const f = Number(x); return isFinite(f) ? String(f) : '0'; }
+  function excelSerial(d) {
+    if (!d) return null; let m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d), y, mo, da;
+    if (m) { y = +m[1]; mo = +m[2]; da = +m[3]; } else { m = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(d); if (!m) return null; da = +m[1]; mo = +m[2]; y = +m[3]; }
+    return Math.round((Date.UTC(y, mo - 1, da) - Date.UTC(1899, 11, 30)) / 86400000);
+  }
+  function toDDMM(d) { if (!d) return null; let m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d); if (m) return m[3] + '.' + m[2] + '.' + m[1]; return d; }
+  function toDDMMYYYY(s) { if (!s) return null; let m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s); if (m) return m[3] + '.' + m[2] + '.' + m[1]; return s; }
+
+  class SharedStrings {
+    constructor(xmlText) {
+      this.raw = xmlText; const doc = new DOMParser().parseFromString(xmlText, 'text/xml'), sis = doc.getElementsByTagName('si');
+      this.value = []; this.index = new Map();
+      for (let i = 0; i < sis.length; i++) { const ts = sis[i].getElementsByTagName('t'); let v = '';
+        for (let j = 0; j < ts.length; j++) v += ts[j].textContent || ''; this.value.push(v); if (!this.index.has(v)) this.index.set(v, this.value.length - 1); }
+      this._new = [];
+    }
+    sid(s) { s = s == null ? '' : String(s); if (this.index.has(s)) return this.index.get(s); const idx = this.value.length; this.value.push(s); this.index.set(s, idx);
+      const t = xesc(s); this._new.push((s !== s.trim() || s.includes('  ')) ? '<si><t xml:space="preserve">' + t + '</t></si>' : '<si><t>' + t + '</t></si>'); return idx; }
+    serialize() { const u = this.value.length; let b = this.raw.replace(/<sst\b[^>]*>/, tag => tag.replace(/count="\d+"/, 'count="' + u + '"').replace(/uniqueCount="\d+"/, 'uniqueCount="' + u + '"'));
+      return b.replace('</sst>', this._new.join('') + '</sst>'); }
+  }
+
+  function discover(files) {
+    const wb = files.get('xl/workbook.xml'), wbRels = files.get('xl/_rels/workbook.xml.rels');
+    const rid2t = {}; wbRels.replace(/Id="(rId\d+)"[^>]*Target="([^"]+)"/g, (_, id, t) => (rid2t[id] = t, ''));
+    const sheets = []; wb.replace(/<sheet name="([^"]+)"[^>]*r:id="(rId\d+)"/g, (_, nm, rid) => (sheets.push([nm, 'xl/' + rid2t[rid].replace(/^\//, '')]), ''));
+    function tableOf(sheetFile) {
+      const base = sheetFile.split('/').pop(), rf = 'xl/worksheets/_rels/' + base + '.rels';
+      if (!files.has(rf)) return null; const m = /Target="([^"]*tables\/table\d+\.xml)"/.exec(files.get(rf)); if (!m) return null;
+      const tp = 'xl/' + m[1].replace(/\.\.\//, ''), nm = /name="([^"]+)"/.exec(files.get(tp))[1]; return { file: tp, name: nm };
+    }
+    const byName = {}; for (const [nm, sf] of sheets) byName[nm] = { sheet: sf, table: tableOf(sf) };
+    const warehouses = [];
+    for (const [nm, sf] of sheets) { if (!/\(Anbar\)\s*$/.test(nm)) continue;
+      const whName = nm.replace(/\s*\(Anbar\)\s*$/, '').trim(); warehouses.push({ display: nm, name: whName, sheet: sf, table: tableOf(sf) }); }
+    return { byName, warehouses };
+  }
+
+  function readWhTemplate(sheetXml) {
+    const a = sheetXml.indexOf('<sheetData>'), r4 = /<row r="4"[^>]*>[\s\S]*?<\/row>/.exec(sheetXml.slice(a)), row = r4 ? r4[0] : '';
+    const rowAttrs = (/<row r="4"([^>]*)>/.exec(row) || [, ''])[1].replace(/\s*r="4"/, '').replace(/\s*spans="[^"]*"/, '').replace(/\s*hidden="1"/, '');
+    const sty = {}; row.replace(/<c r="([A-Z]+)4"(?:\s+s="(\d+)")?/g, (_, col, s) => (sty[col] = s != null ? s : null, ''));
+    const ef = /<c r="E4"[^>]*>\s*<f[^>]*>([^<]+)<\/f>/.exec(row);
+    return { rowAttrs: rowAttrs, styles: sty, eformula: ef ? ef[1] : null };
+  }
+
+  const FMT = {
+    elet:   { sty: { B: 26, C: 27, D: 28, E: 29, F: 26, G: 26, H: 26, I: 26 }, gEmpty: '26', rowAttrs: ' x14ac:dyDescent="0.25"' },
+    astara: { sty: { B: 4,  C: 5,  D: 8,  E: 12, F: 4,  G: null, H: 4, I: 4 }, gEmpty: null, rowAttrs: ' ht="15.6" x14ac:dyDescent="0.3"' },
+  };
+  function whFormat(eformula) { return (eformula && /Table4\[Mal/.test(eformula)) ? 'elet' : 'astara'; }
+
+  function patchRefs(x, last) { return x.replace(/ref="([A-Z]+\d+):([A-Z]+)\d+"/g, (m, s, c) => 'ref="' + s + ':' + c + last + '"'); }
+  function patchDim(x, last) { return x.replace(/<dimension ref="([A-Z]+\d+):([A-Z]+)\d+"\/>/, (m, s, c) => '<dimension ref="' + s + ':' + c + last + '"/>'); }
+  function patchTable(t, last) { return t.replace(/ref="([A-Z]+\d+):([A-Z]+)\d+"/g, (_, s, c) => 'ref="' + s + ':' + c + last + '"'); }
+  function clearTableFilter(t) { return t.replace(/<autoFilter\s+([^>]*?)>[\s\S]*?<\/autoFilter>/, '<autoFilter $1/>'); }
+  function split(x) { const a = x.indexOf('<sheetData>') + '<sheetData>'.length, hEnd = x.indexOf('</row>', a) + '</row>'.length, b = x.indexOf('</sheetData>');
+    return { prefix: x.slice(0, hEnd), suffix: x.slice(b) }; }
+
+  const CH2USUL = { 'Əvvələ anbar qalığı': 'Əvvələ qalıq', 'Nağd alış': 'Nağd', 'Kommersiya şirkəti': 'Köçürmə', 'Köçürmə': 'Köçürmə', 'Sahə üzrə məsul şəxs': 'Sahə üzrə məsul şəxs' };
+  const D_F = '_xlfn.XLOOKUP(Table4[[#This Row],[Malın kodu]],Table1[[#All],[Malın kodu]],Table1[[#All],[Malın adı]],"xəta",0)';
+  const I_F = 'Table4[[#This Row],[Malın miqdarı]]*Table4[[#This Row],[Vahidin qiyməti]]';
+  const NOM_VIS = new Set(['0000523', '0000665', '0000763', '0000893', '0000914', '0000933']);
+
+  function buildFiltrasiya(x, SS, movs, itemBy) {
+    const { prefix, suffix } = split(x);
+    const inc = movs.filter(m => m.type === 'Əvvələ qalıq' || m.type === 'Satınalma');
+    const rows = inc.map((m, i) => {
+      const n = i + 1, r = n + 3, it = itemBy.get(m.item_code) || {};
+      const qty = numstr(m.in_qty), pnum = Number(m.price) || 0, hasP = pnum > 0;
+      const total = hasP ? numstr(parseFloat(qty) * pnum) : '0';
+      const usul = CH2USUL[m.channel] || m.channel || '', se = excelSerial(m.date);
+      let c = '<c r="B' + r + '" s="4"><f>ROW()-3</f><v>' + n + '</v></c>';
+      c += se != null ? '<c r="C' + r + '" s="5"><v>' + se + '</v></c>' : '<c r="C' + r + '" s="5"/>';
+      c += '<c r="D' + r + '" s="10" t="str" cm="1"><f t="array" ref="D' + r + '">' + D_F + '</f><v>' + xesc(it.name || '') + '</v></c>';
+      c += '<c r="E' + r + '" s="8" t="s"><v>' + SS.sid(m.item_code) + '</v></c>';
+      c += '<c r="F' + r + '" s="4" t="s"><v>' + SS.sid(it.unit || '') + '</v></c>';
+      c += '<c r="G' + r + '" s="4"><v>' + qty + '</v></c>';
+      c += hasP ? '<c r="H' + r + '" s="4"><v>' + numstr(m.price) + '</v></c>' : '<c r="H' + r + '" s="4"/>';
+      c += '<c r="I' + r + '" s="4"><f>' + I_F + '</f><v>' + total + '</v></c>';
+      c += '<c r="J' + r + '" s="4" t="s"><v>' + SS.sid(usul) + '</v></c>';
+      c += '<c r="K' + r + '" s="4" t="s"><v>' + SS.sid(m.partner || '') + '</v></c>';
+      if (m.contract_num) c += '<c r="L' + r + '" s="4" t="s"><v>' + SS.sid(m.contract_num) + '</v></c>';
+      if (m.invoice_num) c += '<c r="M' + r + '" s="4" t="s"><v>' + SS.sid(m.invoice_num) + '</v></c>';
+      return '<row r="' + r + '" spans="2:13" x14ac:dyDescent="0.3">' + c + '</row>';
+    });
+    return { xml: prefix + rows.join('') + suffix, n: inc.length };
+  }
+
+  function buildNomenklatura(x, SS, items) {
+    const { prefix, suffix } = split(x);
+    const it = items.slice().sort((a, b) => a.code.localeCompare(b.code));
+    for (let i = 0; i < it.length; i++) if (it[i].code !== String(i + 1).padStart(7, '0'))
+      throw new Error('Nomenklatura kod ardıcıllığı pozulub: ' + it[i].code + ' (gözlənilən ' + String(i + 1).padStart(7, '0') + ')');
+    const freq = new Map(); it.forEach(x => freq.set(x.name, (freq.get(x.name) || 0) + 1));
+    const rows = it.map((x, i) => {
+      const n = i + 1, r = n + 2, code = String(n).padStart(7, '0');
+      const hid = '';
+      const c = '<c r="B' + r + '" s="4"><f>ROW()-2</f><v>' + n + '</v></c>' +
+        '<c r="C' + r + '" s="10" t="s"><v>' + SS.sid(x.name) + '</v></c>' +
+        '<c r="D' + r + '" s="4" t="str"><f>TEXT(ROW()-2,"0000000")</f><v>' + code + '</v></c>' +
+        '<c r="E' + r + '" s="4"><f>COUNTIF(Table1[Malın adı],Table1[[#This Row],[Malın adı]])</f><v>' + freq.get(x.name) + '</v></c>';
+      return '<row r="' + r + '" spans="2:5"' + hid + ' x14ac:dyDescent="0.3">' + c + '</row>';
+    });
+    return { xml: prefix + rows.join('') + suffix, n: it.length };
+  }
+
+  function buildKontragent(x, SS, partners) {
+    const { prefix, suffix } = split(x);
+    const N = partners.length, secondLast = N + 1, lastRow = N + 2;
+    const rows = partners.map((p, i) => {
+      const n = i + 1, r = n + 2; let c = '';
+      if (n === 1) c += '<c r="B' + r + '" s="4"><f t="shared" ref="B3:B' + secondLast + '" si="0">ROW()-2</f><v>' + n + '</v></c>';
+      else if (r === lastRow) c += '<c r="B' + r + '" s="4"><f>ROW()-2</f><v>' + n + '</v></c>';
+      else c += '<c r="B' + r + '" s="4"><f t="shared" si="0"/><v>' + n + '</v></c>';
+      if (p.voen) c += '<c r="C' + r + '" s="4" t="s"><v>' + SS.sid(String(p.voen)) + '</v></c>';
+      c += '<c r="D' + r + '" s="4" t="s"><v>' + SS.sid(p.name) + '</v></c>';
+      c += '<c r="E' + r + '"/>';
+      if (p.contract) c += '<c r="F' + r + '" s="4" t="s"><v>' + SS.sid(p.contract) + '</v></c>';
+      const d = toDDMMYYYY(p.contract_date != null ? p.contract_date : p.cdate);
+      c += d ? '<c r="G' + r + '" s="5" t="s"><v>' + SS.sid(d) + '</v></c>' : '<c r="G' + r + '" s="5"/>';
+      return '<row r="' + r + '" spans="2:7" x14ac:dyDescent="0.3">' + c + '</row>';
+    });
+    return { xml: prefix + rows.join('') + suffix, n: N };
+  }
+
+  function buildWarehouse(x, SS, movs, itemBy, wh) {
+    const { prefix, suffix } = split(x);
+    const tpl = readWhTemplate(x);
+    const fmt = FMT[whFormat(tpl.eformula)];
+    const sty = Object.assign({}, fmt.sty, Object.fromEntries(Object.entries(tpl.styles).filter(([k, v]) => v != null)));
+    const eS = sty.E, gEmpty = (sty.G != null) ? sty.G : fmt.gEmpty;
+    const rowAttrs = tpl.rowAttrs || fmt.rowAttrs;
+    const eformula = tpl.eformula;
+    const wm = movs.filter(m => m.warehouse === wh.name);
+    const rows = wm.map((m, i) => {
+      const n = i + 1, r = n + 3, name = (itemBy.get(m.item_code) || {}).name || '';
+      const se = excelSerial(m.date), inq = Number(m.in_qty || 0), outq = Number(m.out_qty || 0);
+      const hidden = '';
+      let c = '<c r="B' + r + '" s="' + sty.B + '"><f>ROW()-3</f><v>' + n + '</v></c>';
+      c += se != null ? '<c r="C' + r + '" s="' + sty.C + '"><v>' + se + '</v></c>' : '<c r="C' + r + '" s="' + sty.C + '"/>';
+      c += '<c r="D' + r + '" s="' + sty.D + '" t="s"><v>' + SS.sid(m.item_code) + '</v></c>';
+      c += '<c r="E' + r + '" s="' + eS + '" t="str"><f>' + eformula + '</f><v>' + xesc(name) + '</v></c>';
+      c += inq > 0 ? '<c r="F' + r + '" s="' + sty.F + '"><v>' + numstr(m.in_qty) + '</v></c>' : '<c r="F' + r + '" s="' + sty.F + '"/>';
+      if (outq > 0) { const gs = gEmpty != null || sty.G != null ? ' s="' + (sty.G != null ? sty.G : gEmpty) + '"' : ''; c += '<c r="G' + r + '"' + (sty.G != null ? ' s="' + sty.G + '"' : '') + '><v>' + numstr(m.out_qty) + '</v></c>'; }
+      else { const gs = gEmpty != null ? ' s="' + gEmpty + '"' : ''; c += '<c r="G' + r + '"' + gs + '/>'; }
+      c += '<c r="H' + r + '" s="' + sty.H + '" t="s"><v>' + SS.sid(m.type || '') + '</v></c>';
+      c += '<c r="I' + r + '" s="' + sty.I + '" t="s"><v>' + SS.sid(m.channel || '') + '</v></c>';
+      return '<row r="' + r + '" spans="2:9"' + rowAttrs + hidden + '>' + c + '</row>';
+    });
+    return { xml: prefix + rows.join('') + suffix, n: wm.length };
+  }
+
+  function cleanCT(x) { return x.replace(/<Override PartName="\/xl\/calcChain\.xml"[^>]*\/>/, ''); }
+  function cleanRels(x) { return x.replace(/<Relationship [^>]*Target="calcChain\.xml"[^>]*\/>/, ''); }
+  function cleanCalcPr(x) { return x.replace(/<calcPr[^>]*\/>/, t => t.includes('fullCalcOnLoad') ? t : t.slice(0, -2) + ' fullCalcOnLoad="1"/>'); }
+
+  async function buildAnbarExport(zip, DB) {
+    const files = new Map();
+    const need = ['xl/workbook.xml', 'xl/_rels/workbook.xml.rels'];
+    for (const n of need) files.set(n, await zip.file(n).async('text'));
+    for (const path of Object.keys(zip.files)) {
+      if (/^xl\/worksheets\/_rels\//.test(path) || /^xl\/tables\/table\d+\.xml$/.test(path))
+        files.set(path, await zip.file(path).async('text'));
+    }
+    const struct = discover(files);
+    const itemBy = new Map(DB.items.map(it => [it.code, it]));
+    const SS = new SharedStrings(await zip.file('xl/sharedStrings.xml').async('text'));
+
+    const tplWh = new Set(struct.warehouses.map(w => w.name));
+    const dataWh = new Set(DB.movements.map(m => m.warehouse));
+    const missing = [...dataWh].filter(w => !tplWh.has(w));
+    if (missing.length) {
+      const counts = missing.map(w => w + ' (' + DB.movements.filter(m => m.warehouse === w).length + ' hərəkət)');
+      throw new Error('Şablonda bu anbar(lar)ın vərəqi yoxdur: ' + counts.join(', ') + '. Əvvəlcə Excel şablonuna həmin anbar vərəqini əlavə edin, yoxsa məlumat itərdi.');
+    }
+
+    for (const w of struct.warehouses) {
+      if (w.table && files.has(w.table.file))
+        w._filterSilinme = /filter val="Silinmə"/.test(files.get(w.table.file));
+    }
+
+    const report = { warehouses: [] };
+
+    const fS = struct.byName['Filtrasiya'], nS = struct.byName['Nomenklatura bazası'], kS = struct.byName['Kontragent bazası'];
+    const filt = buildFiltrasiya(await zip.file(fS.sheet).async('text'), SS, DB.movements, itemBy);
+    const nom = buildNomenklatura(await zip.file(nS.sheet).async('text'), SS, DB.items);
+    const knt = buildKontragent(await zip.file(kS.sheet).async('text'), SS, DB.partners);
+    report.filt = filt.n; report.nom = nom.n; report.knt = knt.n;
+
+    zip.file(fS.sheet, patchDim(filt.xml, filt.n + 3));
+    zip.file(nS.sheet, patchDim(nom.xml, nom.n + 2));
+    zip.file(kS.sheet, patchDim(knt.xml, knt.n + 2));
+    if (fS.table) zip.file(fS.table.file, patchTable(clearTableFilter(files.get(fS.table.file)), filt.n + 3));
+    if (nS.table) zip.file(nS.table.file, patchTable(clearTableFilter(files.get(nS.table.file)), nom.n + 2));
+    if (kS.table) zip.file(kS.table.file, patchTable(clearTableFilter(files.get(kS.table.file)), knt.n + 2));
+
+    for (const w of struct.warehouses) {
+      const wx = await zip.file(w.sheet).async('text');
+      const built = buildWarehouse(wx, SS, DB.movements, itemBy, w);
+      const last = built.n + 3;
+      zip.file(w.sheet, patchDim(built.xml, Math.max(last, 4)));
+      if (w.table) zip.file(w.table.file, patchTable(clearTableFilter(files.get(w.table.file)), Math.max(last, 4)));
+      report.warehouses.push({ name: w.name, n: built.n });
+    }
+
+    zip.file('xl/sharedStrings.xml', SS.serialize());
+    zip.remove('xl/calcChain.xml');
+    zip.file('[Content_Types].xml', cleanCT(await zip.file('[Content_Types].xml').async('text')));
+    zip.file('xl/_rels/workbook.xml.rels', cleanRels(await zip.file('xl/_rels/workbook.xml.rels').async('text')));
+    zip.file('xl/workbook.xml', cleanCalcPr(await zip.file('xl/workbook.xml').async('text')));
+    return report;
+  }
+
+  window.sonExport = async function () {
+    if (typeof JSZip === 'undefined') { toast('JSZip kitabxanası yüklənmədi', true); return; }
+    const btn = document.getElementById('son-exp'); const old = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Hazırlanır...';
+    try {
+      // adapt platform DB to exporter shape
+      const items = DB.items.map(i => ({ code: i.code, name: i.name, unit: i.unit, price: i.price || 0 }));
+      const partners = DB.partners.map(p => ({ name: p.name, voen: p.voen, contract: p.contract, contract_date: p.cdate }));
+      const movements = DB.movs.map(m => ({
+        date: m.d, warehouse: m.w, item_code: m.c, in_qty: m.i || 0, out_qty: m.o || 0,
+        type: m.t, partner: m.p || '', channel: m.ch || '',
+        // price strictly from the movement — no item-card fallback, so opening stock stays priceless
+        contract_num: m.ct || '', invoice_num: m.iv || '', price: m.pr || 0
+      }));
+      const resp = await fetch('./export-template.xlsx');
+      if (!resp.ok) throw new Error('Şablon tapılmadı (export-template.xlsx). Fayl saytda deploy olunmayıb.');
+      const zip = await JSZip.loadAsync(await resp.arrayBuffer());
+      const r = await buildAnbarExport(zip, { items, movements, partners });
+      const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob), a = document.createElement('a');
+      a.href = url; a.download = 'Anbar_' + today() + '.xlsx'; document.body.appendChild(a); a.click();
+      setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 4000);
+      const whSummary = r.warehouses.map(w => w.name + ' ' + w.n).join(', ');
+      toast('Excel (SON formatı) yükləndi — Filtrasiya ' + r.filt + ', Nomenklatura ' + r.nom + ' | ' + whSummary);
+    } catch (e) {
+      toast(e.message || 'İxrac alınmadı', true); console.error(e);
+    } finally { btn.disabled = false; btn.textContent = old; }
+  };
+  document.getElementById('son-exp').onclick = sonExport;
+
+  /* ================= MALİYYƏ HESABATI (rəhbərlik üçün) ================= */
+  window.finExport = function () {
+    if (typeof XLSX === 'undefined') { toast('Excel kitabxanası yüklənmədi', true); return; }
+    const wb = XLSX.utils.book_new();
+    const d_ = today();
+    const P = c => (DB.itemBy.get(c) || {}).price || 0;
+
+    const purch = DB.movs.filter(m => m.t === 'Satınalma' && m.i > 0);
+    const spend = purch.reduce((s, m) => s + m.i * (m.pr || P(m.c)), 0);
+    const priced = purch.filter(m => (m.pr || P(m.c))).length;
+    const noDoc = purch.filter(m => !m.iv && !m.ct).length;
+    const cash = DB.movs.filter(m => (m.p || '').indexOf('Nağd') === 0 || m.p === 'Bazar');
+    const wo = DB.movs.filter(m => m.t === 'Silinmə');
+    const woVal = wo.reduce((s, m) => s + (m.o || 0) * P(m.c), 0);
+
+    // 1. Xülasə
+    const sum = [['MALİYYƏ HESABATI'], ['Hesabat tarixi', d_], ['Hazırlayan', ME.name || ''], [],
+      ['Göstərici', 'Dəyər', 'İzah'],
+      ['Qalıq dəyəri (₼)', r2(IX.totVal), 'Bütün anbarlar üzrə ehtiyatın dəyəri'],
+      ['Satınalma məbləği (₼)', r2(spend), nf(purch.length) + ' satınalma sətri'],
+      ['Qiymətlə örtülmə (%)', purch.length ? r2(priced / purch.length * 100) : 0, 'Qiyməti daxil edilmiş sətirlərin payı'],
+      ['Sənədsiz satınalma (say)', noDoc, 'Qaimə və müqavilə göstərilməyib — vergi riski'],
+      ['Nağd əməliyyat (say)', cash.length, 'Əlavə nəzarət tələb edir'],
+      ['Silinmə dəyəri (₼)', r2(woVal), nf(wo.length) + ' silinmə qeydi'],
+      ['Aktiv mövqe (say)', IX.positions.length, 'Qalığı olan mal mövqeləri'],
+      ['Nomenklatura (say)', DB.items.length, 'Bazadakı mal kartları'],
+      ['Kontragent (say)', DB.partners.length, 'Qeydiyyatdan keçmiş təchizatçılar']];
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sum), 'Xülasə');
+
+    // 2. Anbar üzrə dəyər
+    const byW = new Map();
+    IX.bal.forEach(b => { if (Math.abs(b.q) < 1e-9) return; const x = byW.get(b.w) || { n: 0, q: 0, v: 0 }; x.n++; x.q += b.q; x.v += b.val || 0; byW.set(b.w, x); });
+    const wRows = [['Anbar', 'Mövqe sayı', 'Ümumi miqdar', 'Dəyər (₼)', 'Payı (%)']];
+    const totV = Array.from(byW.values()).reduce((s, x) => s + x.v, 0) || 1;
+    Array.from(byW.entries()).sort((a, b) => b[1].v - a[1].v).forEach(([w, x]) =>
+      wRows.push([w, x.n, r2(x.q), r2(x.v), r2(x.v / totV * 100)]));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(wRows), 'Anbar üzrə dəyər');
+
+    // 3. Kontragent üzrə xərc
+    const sp = new Map();
+    purch.forEach(m => { const k = m.p || '(göstərilməyib)'; const x = sp.get(k) || { v: 0, n: 0, doc: 0 }; x.v += m.i * (m.pr || P(m.c)); x.n++; if (m.iv || m.ct) x.doc++; sp.set(k, x); });
+    const spRows = [['Kontragent', 'Əməliyyat sayı', 'Məbləğ (₼)', 'Payı (%)', 'Sənədlə örtülmə (%)', 'VÖEN']];
+    const tS = Array.from(sp.values()).reduce((s, x) => s + x.v, 0) || 1;
+    Array.from(sp.entries()).sort((a, b) => b[1].v - a[1].v).forEach(([k, x]) => {
+      const pt = DB.partners.find(p => p.name === k);
+      spRows.push([k, x.n, r2(x.v), r2(x.v / tS * 100), x.n ? r2(x.doc / x.n * 100) : 0, pt && pt.voen ? pt.voen : '—']);
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(spRows), 'Kontragent üzrə xərc');
+
+    // 4. Ödəniş üsulu
+    const meth = new Map();
+    DB.movs.forEach(m => {
+      const k = (m.p || '').indexOf('Nağd') === 0 || m.p === 'Bazar' ? 'Nağd' : m.t === 'Əvvələ qalıq' ? 'Əvvəlki qalıq' : m.t === 'Yerdəyişmə' ? 'Daxili köçürmə' : 'Bank / müqavilə';
+      const x = meth.get(k) || { n: 0, v: 0, doc: 0 }; x.n++; x.v += (m.i || 0) * (m.pr || P(m.c)); if (m.iv || m.ct) x.doc++; meth.set(k, x);
+    });
+    const mRows = [['Ödəniş üsulu', 'Əməliyyat sayı', 'Dəyər (₼)', 'Sənədlə örtülmə (%)']];
+    Array.from(meth.entries()).sort((a, b) => b[1].v - a[1].v).forEach(([k, x]) =>
+      mRows.push([k, x.n, r2(x.v), x.n ? r2(x.doc / x.n * 100) : 0]));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(mRows), 'Ödəniş üsulu');
+
+    // 5. Qiymət intizamı
+    const pr = [['Kod', 'Mal', 'Ölçü', 'Ən aşağı (₼)', 'Ən yüksək (₼)', 'Fərq (%)', 'Müşahidə sayı', 'Ən ucuz təchizatçı', 'Ən baha təchizatçı']];
+    const prR = [];
+    IX.priceObs.forEach((arr, c) => {
+      if (arr.length < 2) return;
+      const ps = arr.map(a => a.p), mn = Math.min(...ps), mx = Math.max(...ps);
+      if (mx - mn < 0.005) return;
+      const it = DB.itemBy.get(c) || {};
+      prR.push({ c, name: it.name || c, unit: it.unit || '', mn, mx, sp: (mx - mn) / mn, n: arr.length, b: arr.find(a => a.p === mn), w: arr.find(a => a.p === mx) });
+    });
+    prR.sort((a, b) => b.sp - a.sp).forEach(x =>
+      pr.push([x.c, x.name, x.unit, r2(x.mn), r2(x.mx), r2(x.sp * 100), x.n, x.b ? x.b.k : '—', x.w ? x.w.k : '—']));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(pr), 'Qiymət intizamı');
+
+    // 6. Nəzarət və risklər
+    const gs = controlIssues();
+    const ctl = [['NƏZARƏT VƏ RİSKLƏR'], [], ['Problem', 'Ciddilik', 'Say', 'İzah']];
+    gs.forEach(g => ctl.push([g.title, g.sev === 'high' ? 'Yüksək' : g.sev === 'med' ? 'Orta' : 'Aşağı', g.rows.length, g.why]));
+    ctl.push([]); ctl.push(['TAM SİYAHI']);
+    gs.forEach(g => { ctl.push([]); ctl.push([g.title + ' (' + g.rows.length + ')']); ctl.push(g.cols); g.rows.forEach(r => ctl.push(r)); });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(ctl), 'Nəzarət və risklər');
+
+    // ширина колонок
+    wb.SheetNames.forEach(n => {
+      const ws = wb.Sheets[n], ref = XLSX.utils.decode_range(ws['!ref']);
+      const cols = [];
+      for (let c = ref.s.c; c <= ref.e.c; c++) {
+        let m = 8;
+        for (let r = ref.s.r; r <= Math.min(ref.e.r, 200); r++) {
+          const cell = ws[XLSX.utils.encode_cell({ r, c })];
+          if (cell && cell.v != null) m = Math.max(m, String(cell.v).length);
+        }
+        cols.push({ wch: Math.min(m + 2, 60) });
+      }
+      ws['!cols'] = cols;
+    });
+
+    XLSX.writeFile(wb, 'Maliyye_hesabati_' + d_ + '.xlsx');
+    toast('Maliyyə hesabatı yükləndi — 6 vərəq');
+  };
+  function r2(x) { return Math.round((x || 0) * 100) / 100; }
+  document.getElementById('fin-exp').onclick = finExport;
+
+  })();
+})();
+
+</script>
+</body>
+</html>
