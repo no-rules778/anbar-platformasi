@@ -337,10 +337,11 @@ label.f>span{display:block;font-size:10.5px;text-transform:uppercase;letter-spac
 
       <!-- AUDIT -->
       <section class="page" id="p-log">
-        <div class="phead"><div><h2>Audit jurnalı</h2><p>Kim, nə vaxt, hansı qeydi dəyişdi. Jurnal silinmir.</p></div><div class="sp"></div>
-          <button class="btn" id="log-exp">Excel</button><button class="btn" id="log-print">Çap</button></div>
+        <div class="phead"><div><h2>Audit jurnalı</h2><p>Kim, nə vaxt, hansı qeydi dəyişdi. Supabase-dəki daimi jurnaldan canlı oxunur, jurnal silinmir.</p></div><div class="sp"></div>
+          <span class="hint" id="log-count"></span>
+          <button class="btn" id="log-exp" disabled title="Audit jurnalı üçün Excel ixracı bu mərhələdə deaktivdir">Excel</button><button class="btn" id="log-print">Çap</button></div>
         <div class="filters" id="log-filters"></div>
-        <div class="card"><div class="tw" id="t-log"></div></div>
+        <div class="card"><div class="tw" id="t-log"></div><div class="pad" id="log-pager" style="display:flex;gap:10px;align-items:center;justify-content:flex-end"></div></div>
       </section>
 
       <!-- SETTINGS -->
@@ -354,7 +355,7 @@ label.f>span{display:block;font-size:10.5px;text-transform:uppercase;letter-spac
               <button class="btn" data-exp="bal">Anbar qalıqları</button>
               <button class="btn" data-exp="nom">Nomenklatura</button>
               <button class="btn" data-exp="knt">Kontragentlər</button>
-              <button class="btn" data-exp="log">Audit jurnalı</button>
+              <button class="btn" data-exp="log" disabled title="Audit jurnalı üçün Excel ixracı bu mərhələdə deaktivdir">Audit jurnalı</button>
               <button class="btn pri" id="exp-all">Tam ehtiyat nüsxə (JSON)</button>
             </div>
           </div></div>
@@ -491,6 +492,11 @@ const DB = {
   movs: [], events: [],
   users: {}, dirty: true
 };
+/* Audit jurnalı üçün istifadəçi id → e-poçt xəritəsi (yalnız təsdiqlənmiş users sütunları: id, email).
+   users.name sorğusu YOXDUR — uydurma ad göstərilmir. Xəta baş verərsə UMAIL_ERR qeyd olunur. */
+let UMAIL = new Map(), UMAIL_ERR = false;
+/* audit_log-un ümumi sətir sayı (server tərəfindən); null = hələ yüklənməyib */
+let AUDIT_TOTAL = null, AUDIT_TOTAL_ERR = false;
 
 /* ---------- initial data load from DB ---------- */
 /* PostgREST returns max 1000 rows per request — read in pages until exhausted */
@@ -551,6 +557,35 @@ async function loadFromDB() {
   DB.itemBy = new Map(DB.items.map(i => [i.code, i]));
   DB.events = [];
   index();
+}
+
+/* ---------- Audit jurnalı üçün istifadəçi e-poçtları (yalnız təsdiqlənmiş sütunlar: id, email) ----------
+   users.name sorğusu yoxdur. Xəta səssiz udulmur: UMAIL_ERR qeyd olunur və interfeys bunu göstərir. */
+async function loadAuditUsers() {
+  if (!SB) return;
+  UMAIL = new Map(); UMAIL_ERR = false;
+  try {
+    const { data, error } = await SB.from('users').select('id,email');
+    if (error) throw error;
+    (data || []).forEach(u => { if (u.id) UMAIL.set(u.id, u.email || ''); });
+  } catch (e) {
+    console.error('audit users (id,email) yüklənmədi', e);
+    UMAIL_ERR = true;
+  }
+}
+
+/* ---------- audit_log ümumi sayı (yalnız oxuma, count-only sorğu) ---------- */
+async function loadAuditTotal() {
+  if (!SB) return;
+  try {
+    const { count, error } = await SB.from('audit_log').select('id', { count: 'exact', head: true });
+    if (error) throw error;
+    AUDIT_TOTAL = count || 0; AUDIT_TOTAL_ERR = false;
+  } catch (e) {
+    console.error('audit_log count', e);
+    AUDIT_TOTAL_ERR = true;
+  }
+  const el = $('#c-log'); if (el) el.textContent = AUDIT_TOTAL_ERR ? '!' : nf(AUDIT_TOTAL || 0);
 }
 
 /* ---------- write operations (go straight to Postgres) ---------- */
@@ -881,7 +916,8 @@ function counters() {
   $('#c-nom').textContent = nf(DB.items.length);
   $('#c-knt').textContent = nf(DB.partners.length);
   $('#c-anb').textContent = nf(DB.whs.length + DB.locs.length);
-  $('#c-log').textContent = nf(DB.events.length);
+  /* Audit jurnalı — DB.events (yalnız brauzer yaddaşı) yox, Supabase audit_log-un həqiqi sayı */
+  $('#c-log').textContent = AUDIT_TOTAL === null ? '…' : (AUDIT_TOTAL_ERR ? '!' : nf(AUDIT_TOTAL));
   const ctrl = controlIssues();
   $('#c-ctrl').textContent = nf(ctrl.reduce((s, g) => s + g.rows.length, 0));
 }
@@ -2098,30 +2134,113 @@ function rCtrl() {
   };
 }
 
-/* ================= AUDIT ================= */
-function rLog() {
-  const el = $('#log-filters');
-  if (!el.dataset.done) {
-    el.dataset.done = 1;
-    el.innerHTML = `<input type="search" id="lf-q" placeholder="İstifadəçi, kod, səbəb…"><select id="lf-e"><option value="">Bütün obyektlər</option><option value="mv">Mal hərəkəti</option><option value="item">Nomenklatura</option><option value="partner">Kontragent</option><option value="loc">Anbar/layihə</option></select>`;
-    $('#lf-q').oninput = debounce(rLog, 200); $('#lf-e').onchange = rLog;
+/* ================= AUDIT (yalnız oxuma, canlı Supabase audit_log) =================
+   Bu bölmə DB.events (brauzer yaddaşı, C-01) əvəzinə mövcud `public.audit_log`
+   cədvəlini birbaşa oxuyur. Yeni cədvəl/trigger/RPC yaradılmır; sxem dəyişmir.
+   Bütün filtrlər server tərəfində tətbiq olunur ki, say (count) həmişə göstərilən
+   sətirlərlə uzlaşsın. */
+const AUDIT_TABLE_LABEL = { movements: 'Mal hərəkəti', partners: 'Kontragent' };
+const AUDIT_ACTION_LABEL = { INSERT: 'əlavə', UPDATE: 'düzəliş', DELETE: 'silinmə' };
+const LF = { table: '', action: '', actor: '', d1: '', d2: '', page: 0, size: 50 };
+let LOG_REQ = 0;
+
+// Audit sətrində istifadəçini göstərir: təsdiqlənmiş e-poçt, yoxdursa xam user_id; null → Sistem/naməlum.
+// Heç vaxt uydurma ad qaytarmır (users.name istifadə olunmur).
+function auditActor(userId) {
+  if (!userId) return 'Sistem/naməlum';
+  return UMAIL.get(userId) || userId;
+}
+function logFilters() {
+  const el = $('#log-filters'); if (el.dataset.done) return; el.dataset.done = 1;
+  const actorOpts = ['<option value="">Bütün istifadəçilər</option>', '<option value="__null">Sistem/naməlum</option>']
+    .concat(Array.from(UMAIL.entries()).sort((a, b) => (a[1] || a[0]).localeCompare(b[1] || b[0]))
+      .map(([id, email]) => `<option value="${esc(id)}">${esc(email || id)}</option>`));
+  el.innerHTML = `
+    <select id="lf-table"><option value="">Bütün obyektlər</option>${Object.entries(AUDIT_TABLE_LABEL).map(([k, v]) => `<option value="${esc(k)}">${esc(v)}</option>`).join('')}</select>
+    <select id="lf-action"><option value="">Bütün əməliyyatlar</option>${Object.entries(AUDIT_ACTION_LABEL).map(([k, v]) => `<option value="${esc(k)}">${esc(v)}</option>`).join('')}</select>
+    <select id="lf-actor">${actorOpts.join('')}</select>
+    <input type="date" id="lf-d1" title="Başlanğıc tarix"><input type="date" id="lf-d2" title="Son tarix">
+    <button class="btn" id="lf-reset">Sıfırla</button>`;
+  const upd = () => {
+    LF.table = $('#lf-table').value; LF.action = $('#lf-action').value; LF.actor = $('#lf-actor').value;
+    LF.d1 = $('#lf-d1').value; LF.d2 = $('#lf-d2').value; LF.page = 0; rLog();
+  };
+  ['lf-table', 'lf-action', 'lf-actor', 'lf-d1', 'lf-d2'].forEach(id => $('#' + id).onchange = upd);
+  $('#lf-reset').onclick = () => { ['lf-table', 'lf-action', 'lf-actor', 'lf-d1', 'lf-d2'].forEach(id => $('#' + id).value = ''); upd(); };
+}
+// old_values/new_values-dan qısa, oxunaqlı təsvir — yalnız göstərmə üçün, heç nəyi hesablamır/dəyişmir
+function auditVal(v) {
+  if (v === null || v === undefined) return '—';
+  if (typeof v === 'object') { try { return JSON.stringify(v).slice(0, 40); } catch (e) { return '[obyekt]'; } }
+  return String(v).slice(0, 40);
+}
+function auditSummary(row) {
+  try {
+    if (row.action === 'DELETE') {
+      const o = row.old_values || {}; const keys = Object.keys(o).slice(0, 3);
+      return keys.length ? 'Silindi: ' + keys.map(k => k + '=' + auditVal(o[k])).join(', ') : 'Silindi';
+    }
+    if (row.action === 'INSERT') {
+      const n = row.new_values || {}; const keys = Object.keys(n).slice(0, 4);
+      return keys.length ? 'Yeni: ' + keys.map(k => k + '=' + auditVal(n[k])).join(', ') : 'Yeni qeyd';
+    }
+    if (row.action === 'UPDATE') {
+      const o = row.old_values || {}, n = row.new_values || {};
+      const changed = Object.keys(n).filter(k => JSON.stringify(n[k]) !== JSON.stringify(o[k]));
+      return changed.length ? 'Dəyişdi: ' + changed.slice(0, 6).join(', ') : 'Dəyişiklik detalı yoxdur';
+    }
+  } catch (e) { /* gözlənilməz format — sətri sındırma, sadəcə "—" göstər */ }
+  return '—';
+}
+async function auditFetch() {
+  if (!SB) return { rows: [], total: 0, error: 'Supabase bağlantısı yoxdur' };
+  let q = SB.from('audit_log').select('*', { count: 'exact' });
+  if (LF.table) q = q.eq('table_name', LF.table);
+  if (LF.action) q = q.eq('action', LF.action);
+  if (LF.actor === '__null') q = q.is('user_id', null);
+  else if (LF.actor) q = q.eq('user_id', LF.actor);
+  if (LF.d1) q = q.gte('ts', LF.d1 + 'T00:00:00');
+  if (LF.d2) q = q.lte('ts', LF.d2 + 'T23:59:59');
+  q = q.order('ts', { ascending: false }).range(LF.page * LF.size, LF.page * LF.size + LF.size - 1);
+  const { data, error, count } = await q;
+  if (error) return { rows: [], total: 0, error: error.message || 'Naməlum xəta' };
+  return { rows: data || [], total: count || 0, error: '' };
+}
+async function rLog() {
+  logFilters();
+  const reqId = ++LOG_REQ;
+  const wrap = $('#t-log');
+  wrap.innerHTML = '<div class="empty"><b>Yüklənir…</b>Audit jurnalı Supabase-dən oxunur.</div>';
+  $('#log-pager').innerHTML = '';
+  let res;
+  try { res = await auditFetch(); }
+  catch (e) { res = { rows: [], total: 0, error: (e && e.message) || 'Şəbəkə xətası' }; }
+  if (reqId !== LOG_REQ || PAGE !== 'log') return; // köhnəlmiş sorğu — nəticəni tətbiq etmə
+  if (res.error) {
+    const perm = /permission|denied|rls|401|403/i.test(res.error);
+    wrap.innerHTML = `<div class="empty"><b>${perm ? 'İcazə yoxdur' : 'Yükləmə xətası'}</b>${esc(res.error)}</div>`;
+    $('#log-count').textContent = '';
+    return;
   }
-  const q = ($('#lf-q').value || '').toLowerCase(), ef = $('#lf-e').value;
-  const OPN = { a: 'əlavə', u: 'düzəliş', d: 'ləğv' }, EN = { mv: 'Mal hərəkəti', item: 'Nomenklatura', partner: 'Kontragent', loc: 'Anbar/layihə' };
-  const rows = DB.events.slice().sort((a, b) => b.ts - a.ts).filter(e => {
-    if (ef && e.e !== ef) return false;
-    if (q && (e.un + ' ' + JSON.stringify(e.d) + ' ' + e.note).toLowerCase().indexOf(q) < 0) return false;
-    return true;
-  });
-  $('#t-log').innerHTML = tbl([{ t: 'Vaxt' }, { t: 'İstifadəçi' }, { t: 'Vəzifə' }, { t: 'Obyekt' }, { t: 'Əməliyyat' }, { t: 'Detal' }, { t: 'Səbəb' }],
-    cut(rows, 'log').map(e => ({
-      c: [new Date(e.ts).toLocaleString('az-AZ'), `<b>${esc(e.un)}</b>`, esc(ROLES[e.role] ? ROLES[e.role].name : e.role || '—'),
-      esc(EN[e.e] || e.e), `<span class="tag ${e.op === 'd' ? 't-rm' : e.op === 'u' ? 't-out' : 't-in'}">${OPN[e.op]}</span>`,
-      `<span class="code">${esc(JSON.stringify(e.d).slice(0, 90))}</span>`, esc(e.note || '—')]
-    })), { empty: 'Excel-dən idxal edilmiş ilkin məlumatlardan sonra hələ dəyişiklik olmayıb.' });
+  const umailWarn = UMAIL_ERR ? `<div class="hint" style="padding:8px 4px;color:var(--out)">Diqqət: istifadəçi e-poçtları yüklənə bilmədi — istifadəçilər ID ilə göstərilir.</div>` : '';
+  wrap.innerHTML = umailWarn + tbl([{ t: 'Vaxt' }, { t: 'İstifadəçi' }, { t: 'Əməliyyat' }, { t: 'Obyekt' }, { t: 'Detal' }, { t: 'Səbəb' }],
+    res.rows.map(r => ({
+      c: [new Date(r.ts).toLocaleString('az-AZ'),
+      esc(auditActor(r.user_id)),
+      `<span class="tag ${r.action === 'DELETE' ? 't-rm' : r.action === 'UPDATE' ? 't-out' : 't-in'}">${esc(AUDIT_ACTION_LABEL[r.action] || r.action || '—')}</span>`,
+      esc(AUDIT_TABLE_LABEL[r.table_name] || r.table_name || '—') + `<div class="hint"><span class="code">${esc(r.record_id || '—')}</span></div>`,
+      esc(auditSummary(r)), esc(r.reason || '—')]
+    })), { empty: 'Bu filtrlərə uyğun audit qeydi tapılmadı.' });
+  const from = res.total ? LF.page * LF.size + 1 : 0, to = Math.min(res.total, LF.page * LF.size + res.rows.length);
+  $('#log-count').textContent = res.total ? `${nf(from)}–${nf(to)} / ${nf(res.total)}` : '0';
+  $('#log-pager').innerHTML = `
+    <button class="btn" id="lf-prev" ${LF.page === 0 ? 'disabled' : ''}>← Əvvəlki</button>
+    <span class="hint">${nf(LF.page + 1)} / ${nf(Math.max(1, Math.ceil(res.total / LF.size)))}</span>
+    <button class="btn" id="lf-next" ${to >= res.total ? 'disabled' : ''}>Növbəti →</button>`;
+  if ($('#lf-prev')) $('#lf-prev').onclick = () => { LF.page--; rLog(); };
+  if ($('#lf-next')) $('#lf-next').onclick = () => { LF.page++; rLog(); };
   $('#log-print').onclick = () => { printHead('Audit jurnalı', ''); setTimeout(() => window.print(), 60); };
-  $('#log-exp').onclick = () => xls([['Vaxt', 'İstifadəçi', 'Vəzifə', 'Obyekt', 'Əməliyyat', 'Detal', 'Səbəb']]
-    .concat(rows.map(e => [new Date(e.ts).toISOString(), e.un, e.role, e.e, e.op, JSON.stringify(e.d), e.note])), 'audit_jurnali');
+  // Excel ixracı bu bölmədə qəsdən deaktivdir — audit_log detalları heç bir Excel ixracına daxil edilmir (bax: #log-exp, HTML)
 }
 
 /* ================= SETTINGS ================= */
@@ -2271,6 +2390,8 @@ async function enterApp(userId, email) {
   await registerSession(userId);
   startHeartbeat(userId);
   await loadFromDB();
+  await loadAuditUsers();
+  loadAuditTotal();
   subscribeRealtime();
   renderAll(); go('dash');
   setSync(true); renderPresence();
