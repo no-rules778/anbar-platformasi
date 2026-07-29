@@ -775,6 +775,30 @@ function printHead(title, note) {
 
 /* ---------- derived indexes (instant calculations) ---------- */
 const IX = {};
+/* Operational views intentionally hide a cancelled transaction together with its
+   technical reversal. Immutable rows remain in Supabase/audit for control. */
+function operationalMovements() {
+  const hiddenDocs = new Set(), hiddenLegacyIds = new Set();
+  for (const m of DB.movs) {
+    const note = String(m.note || '').trim();
+    const docMatch = note.match(/^Ləğv(?: \(əks yerdəyişmə\))?:\s*(.+)$/);
+    if (docMatch && m.doc) {
+      hiddenDocs.add(String(m.doc));
+      hiddenDocs.add(docMatch[1].trim());
+    }
+    const legacyOne = note.match(/^Ləğv ID:\s*(.+)$/);
+    if (legacyOne) hiddenLegacyIds.add(legacyOne[1].trim());
+    const legacyPair = note.match(/^Ləğv \(əks yerdəyişmə\) ID:\s*([^:]+):([^:]+)$/);
+    if (legacyPair) { hiddenLegacyIds.add(legacyPair[1].trim()); hiddenLegacyIds.add(legacyPair[2].trim()); }
+  }
+  return DB.movs.filter(m => {
+    const note = String(m.note || '').trim();
+    if (m.doc && hiddenDocs.has(String(m.doc))) return false;
+    if (hiddenLegacyIds.has(String(m.id))) return false;
+    return !/^Ləğv(?: ID:|:| \(əks yerdəyişmə\))/.test(note);
+  });
+}
+function normalMovements() { return IX.movs || operationalMovements(); }
 function index() {
   const bal = new Map();            // "wh|code" -> {w,c,in,out,q,val,last,first,n}
   const byItem = new Map();         // code -> {in,out,q,val}
@@ -783,7 +807,8 @@ function index() {
   const byType = new Map();
   const byDate = new Map();
   const priceObs = new Map();       // code -> [prices]
-  for (const m of DB.movs) {
+  const movs = operationalMovements();
+  for (const m of movs) {
     const it = DB.itemBy.get(m.c);
     const pr = m.pr != null && m.pr > 0 ? m.pr : (it ? it.price : 0);
     if (m.pr > 0) { if (!priceObs.has(m.c)) priceObs.set(m.c, []); priceObs.get(m.c).push({ p: m.pr, d: m.d, k: m.p }); }
@@ -817,6 +842,7 @@ function index() {
     const bw = byWh.get(b.w); if (bw) bw.val += b.val;
   }
   for (const [c, bi] of byItem) { const it = DB.itemBy.get(c); bi.q = +(bi.in - bi.out).toFixed(4); bi.price = it ? it.price : 0; bi.val = bi.q * bi.price; }
+  IX.movs = movs;
   IX.bal = Array.from(bal.values());
   IX.byItem = byItem; IX.byWh = byWh; IX.byPartner = byPartner; IX.byType = byType; IX.byDate = byDate;
   IX.priceObs = priceObs;
@@ -948,7 +974,7 @@ function render(p) {
 }
 function renderAll() { render(PAGE); }
 function counters() {
-  $('#c-mov').textContent = nf(DB.movs.length);
+  $('#c-mov').textContent = nf(normalMovements().length);
   $('#c-bal').textContent = nf(IX.positions.length);
   $('#c-nom').textContent = nf(DB.items.length);
   $('#c-knt').textContent = nf(DB.partners.length);
@@ -968,7 +994,7 @@ function rDash() {
   }
   const w = sel.value;
   const bal = w ? IX.bal.filter(b => b.w === w) : IX.bal;
-  const movs = w ? DB.movs.filter(m => m.w === w) : DB.movs;
+  const movs = w ? normalMovements().filter(m => m.w === w) : normalMovements();
   const pos = bal.filter(b => Math.abs(b.q) > 1e-9);
   const val = bal.reduce((s, b) => s + b.val, 0);
   const tin = movs.reduce((s, m) => s + (m.i || 0), 0), tout = movs.reduce((s, m) => s + (m.o || 0), 0);
@@ -1025,7 +1051,7 @@ function movFilters() {
     <input type="search" id="mf-q" placeholder="Mal adı, kod, kontragent, qaimə…">
     <select id="mf-w"><option value="">Bütün anbarlar</option>${DB.whs.map(w => `<option>${esc(w)}</option>`).join('')}</select>
     <select id="mf-t"><option value="">Bütün növlər</option>${['Əvvələ qalıq','Satınalma','Yerdəyişmə','Silinmə','Sahəyə','Qaytarma'].map(t => `<option>${esc(t)}</option>`).join('')}</select>
-    <select id="mf-p"><option value="">Bütün kontragentlər</option>${Array.from(new Set(DB.movs.map(m => m.p).filter(Boolean))).sort().map(p => `<option>${esc(p)}</option>`).join('')}</select>
+    <select id="mf-p"><option value="">Bütün kontragentlər</option>${Array.from(new Set(normalMovements().map(m => m.p).filter(Boolean))).sort().map(p => `<option>${esc(p)}</option>`).join('')}</select>
     <input type="date" id="mf-d1" title="Başlanğıc tarix"><input type="date" id="mf-d2" title="Son tarix">
     <button class="btn" id="mf-reset">Sıfırla</button>`;
   const upd = () => { MF.q = $('#mf-q').value.trim().toLowerCase(); MF.w = $('#mf-w').value; MF.t = $('#mf-t').value; MF.p = $('#mf-p').value; MF.d1 = $('#mf-d1').value; MF.d2 = $('#mf-d2').value; MF.page = 0; rMov(); };
@@ -1034,7 +1060,7 @@ function movFilters() {
   $('#mf-reset').onclick = () => { ['mf-q', 'mf-w', 'mf-t', 'mf-p', 'mf-d1', 'mf-d2'].forEach(id => $('#' + id).value = ''); upd(); };
 }
 function movFiltered() {
-  return DB.movs.filter(m => {
+  return normalMovements().filter(m => {
     if (MF.w && m.w !== MF.w) return false;
     if (MF.t && m.t !== MF.t) return false;
     if (MF.p && m.p !== MF.p) return false;
@@ -1107,7 +1133,7 @@ document.addEventListener('click', e => {
 /* ================= ITEM CARD (drill-down) ================= */
 function itemCard(code) {
   const it = DB.itemBy.get(code) || { code, name: '(nomenklaturada yoxdur)', unit: '', price: 0 };
-  const movs = DB.movs.filter(m => m.c === code).sort((a, b) => dsort(b.d, a.d));
+  const movs = normalMovements().filter(m => m.c === code).sort((a, b) => dsort(b.d, a.d));
   const bal = IX.bal.filter(b => b.c === code);
   const tot = bal.reduce((s, b) => s + b.q, 0);
   const obs = (IX.priceObs.get(code) || []);
@@ -1278,7 +1304,7 @@ function rAnb() {
     [{ t: 'Anbar' }, { t: 'Mövqe', r: 1 }, { t: 'Qalıq dəyəri', r: 1 }, { t: 'Hərəkət', r: 1 }, { t: 'Son əməliyyat' }],
     DB.whs.map(w => {
       const b = IX.bal.filter(x => x.w === w), st = IX.byWh.get(w) || { n: 0 };
-      const last = DB.movs.filter(m => m.w === w).reduce((s, m) => m.d > s ? m.d : s, '');
+      const last = normalMovements().filter(m => m.w === w).reduce((s, m) => m.d > s ? m.d : s, '');
       return { c: [`<b>${esc(w)}</b>`, nf(b.filter(x => Math.abs(x.q) > 1e-9).length), money(b.reduce((s, x) => s + x.val, 0)), nf(st.n), esc(last || '—')] };
     }));
   $('#t-loc').innerHTML = tbl(
@@ -1298,7 +1324,7 @@ $$('#op-seg button').forEach(b => b.onclick = () => { OP.kind = b.dataset.k; $$(
 
 const CHANNELS = ['Nağd alış', 'Kommersiya şirkəti', 'Köçürmə', 'Sahə üzrə məsul şəxs'];
 function channelOptions() {
-  const used = Array.from(new Set(DB.movs.map(m => m.ch).filter(Boolean)));
+  const used = Array.from(new Set(normalMovements().map(m => m.ch).filter(Boolean)));
   return Array.from(new Set(CHANNELS.concat(used)));
 }
 function partnerOptions(kind) {
@@ -2219,7 +2245,7 @@ function rRep() {
     const rows = Array.from(IX.byType.entries()).map(([t, s]) => ({ t, s })).sort((a, b) => b.s.n - a.s.n);
     REP_NAME = 'novler_uzre'; REP_ROWS = [['Növ', 'Sayı', 'Mədaxil', 'Məxaric', 'Dəyər']].concat(rows.map(r => [r.t, r.s.n, r.s.in, r.s.out, r.s.val.toFixed(2)]));
     out.innerHTML = `<div class="card"><div class="tw">${tbl([{ t: 'Əməliyyat növü' }, { t: 'Qeyd sayı', r: 1 }, { t: 'Mədaxil miqdarı', r: 1 }, { t: 'Məxaric miqdarı', r: 1 }, { t: 'Dəyər', r: 1 }, { t: 'Payı' }],
-      rows.map(r => ({ c: [TYPE_TAG(r.t), nf(r.s.n), nf(r.s.in, 2), nf(r.s.out, 2), money(r.s.val), `<div class="bar"><i style="width:${(r.s.n / DB.movs.length * 100).toFixed(1)}%"></i></div>`] })))}</div></div>`;
+      rows.map(r => ({ c: [TYPE_TAG(r.t), nf(r.s.n), nf(r.s.in, 2), nf(r.s.out, 2), money(r.s.val), `<div class="bar"><i style="width:${(r.s.n / Math.max(1, normalMovements().length) * 100).toFixed(1)}%"></i></div>`] })))}</div></div>`;
   }
   else if (k === 'wh') {
     const rows = DB.whs.map(w => {
@@ -2257,7 +2283,7 @@ function rRep() {
     const ref = new Date(last);
     const rows = IX.positions.map(b => {
       const days = Math.round((ref - new Date(b.last)) / 86400000);
-      const moved = DB.movs.some(m => m.c === b.c && m.w === b.w && m.o > 0 && m.t !== 'Yerdəyişmə');
+      const moved = normalMovements().some(m => m.c === b.c && m.w === b.w && m.o > 0 && m.t !== 'Yerdəyişmə');
       return { b, days, moved };
     }).filter(r => r.days >= 30 || !r.moved).sort((a, b) => b.b.val - a.b.val);
     REP_NAME = 'hereketsiz_qaliq'; REP_ROWS = [['Kod', 'Mal', 'Anbar', 'Qalıq', 'Dəyər', 'Son hərəkət', 'Hərəkətsiz gün', 'Heç vaxt istifadə olunmayıb']]
@@ -2271,7 +2297,7 @@ function rRep() {
   }
   else if (k === 'tr') {
     const mat = new Map();
-    DB.movs.filter(m => m.t === 'Yerdəyişmə').forEach(m => {
+    normalMovements().filter(m => m.t === 'Yerdəyişmə').forEach(m => {
       const other = DB.whs.find(w => (m.p || '').indexOf(w) === 0);
       if (!other) return;
       const from = m.o > 0 ? m.w : other, to = m.o > 0 ? other : m.w;
@@ -2290,12 +2316,12 @@ function rRep() {
 
 /* ================= FINANCE ================= */
 function rFin() {
-  const purch = DB.movs.filter(m => m.t === 'Satınalma' && m.i > 0);
+  const purch = normalMovements().filter(m => m.t === 'Satınalma' && m.i > 0);
   const spend = purch.reduce((s, m) => s + m.i * (m.pr || (DB.itemBy.get(m.c) || {}).price || 0), 0);
   const priced = purch.filter(m => (m.pr || (DB.itemBy.get(m.c) || {}).price)).length;
   const noDoc = purch.filter(m => !m.iv && !m.ct).length;
-  const cash = DB.movs.filter(m => (m.p || '').indexOf('Nağd') === 0 || m.p === 'Bazar');
-  const writeoff = DB.movs.filter(m => m.t === 'Silinmə');
+  const cash = normalMovements().filter(m => (m.p || '').indexOf('Nağd') === 0 || m.p === 'Bazar');
+  const writeoff = normalMovements().filter(m => m.t === 'Silinmə');
   const woVal = writeoff.reduce((s, m) => s + (m.o || 0) * ((DB.itemBy.get(m.c) || {}).price || 0), 0);
   $('#fin-kpis').innerHTML = [
     ['Qalıq dəyəri', money(IX.totVal), 'bütün anbarlar', 'g'],
@@ -2312,7 +2338,7 @@ function rFin() {
   $('#ch-spend').innerHTML = barChart(spRows, { fmt: money }) + `<div class="hint" style="margin-top:11px">Bir kontragentin payı 30%-i keçdikdə alternativ təchizatçı ilə müqayisəli qiymət sorğusu tövsiyə olunur.</div>`;
 
   const meth = new Map();
-  DB.movs.forEach(m => {
+  normalMovements().forEach(m => {
     const k = (m.p || '').indexOf('Nağd') === 0 || m.p === 'Bazar' ? 'Nağd' : m.t === 'Əvvələ qalıq' ? 'Əvvəlki qalıq' : m.t === 'Yerdəyişmə' ? 'Daxili köçürmə' : 'Bank / müqavilə';
     const x = meth.get(k) || { n: 0, val: 0, doc: 0 }; x.n++; x.val += (m.i || 0) * (m.pr || (DB.itemBy.get(m.c) || {}).price || 0); if (m.iv || m.ct) x.doc++; meth.set(k, x);
   });
@@ -2342,15 +2368,15 @@ function controlIssues() {
   if (neg.length) G.push({ id: 'neg', sev: 'high', title: 'Mənfi qalıq', why: 'Məxaric mədaxildən çoxdur — ya mədaxil qeydə alınmayıb, ya da məxaric səhv anbara yazılıb. Maliyyə hesabatını təhrif edir.', cols: ['Anbar', 'Kod', 'Mal', 'Qalıq'], rows: neg.map(b => [b.w, b.c, b.name, nf(b.q, 2)]), codes: neg.map(b => b.c) });
   const nop = IX.positions.filter(b => !b.price);
   if (nop.length) G.push({ id: 'nop', sev: 'med', title: 'Qiyməti olmayan qalıq', why: 'Qiymət daxil edilmədən qalığın dəyəri sıfır kimi hesablanır; balans və sığorta dəyəri əskik göstərilir.', cols: ['Anbar', 'Kod', 'Mal', 'Qalıq'], rows: nop.map(b => [b.w, b.c, b.name, nf(b.q, 2)]), codes: nop.map(b => b.c) });
-  const nodoc = DB.movs.filter(m => m.t === 'Satınalma' && !m.iv && !m.ct);
+  const nodoc = normalMovements().filter(m => m.t === 'Satınalma' && !m.iv && !m.ct);
   if (nodoc.length) G.push({ id: 'doc', sev: 'low', title: 'Sənədsiz satınalma', why: 'Qaimə və ya müqavilə nömrəsi göstərilməyib. Bu, əməliyyatı bloklamır — yalnız xatırlatma üçündür.', cols: ['Tarix', 'Anbar', 'Kod', 'Kontragent'], rows: nodoc.map(m => [fmtD(m.d), m.w, m.c, m.p || '—']), codes: nodoc.map(m => m.c) });
   const internal = new Set(DB.locs.map(l => l.name).concat(DB.whs).concat(['Bazar', 'Nağd alış', 'Kommersiya şirkəti', 'Sahə üzrə məsul şəxs', 'Əvvələ anbar qalığı', 'Anbar qalığı']));
-  const noVoen = DB.movs.filter(m => m.t === 'Satınalma' && m.p && !internal.has(m.p) && !DB.partners.some(p => p.name === m.p && p.voen));
+  const noVoen = normalMovements().filter(m => m.t === 'Satınalma' && m.p && !internal.has(m.p) && !DB.partners.some(p => p.name === m.p && p.voen));
   if (noVoen.length) G.push({ id: 'voen', sev: 'low', title: 'VÖEN-siz kontragentdən alış', why: 'Kontragent bazasında VÖEN yoxdur. Bu, əməliyyatı bloklamır — yalnız xatırlatma üçündür.', cols: ['Tarix', 'Kontragent', 'Kod', 'Miqdar'], rows: noVoen.map(m => [fmtD(m.d), m.p, m.c, nf(m.i, 2)]), codes: noVoen.map(m => m.c) });
-  const orphan = DB.movs.filter(m => !DB.itemBy.has(m.c));
+  const orphan = normalMovements().filter(m => !DB.itemBy.has(m.c));
   if (orphan.length) G.push({ id: 'orph', sev: 'high', title: 'Nomenklaturada olmayan mal', why: 'Hərəkət qeydi mövcud olmayan mal koduna istinad edir — hesabatlarda ad görünmür.', cols: ['Tarix', 'Anbar', 'Kod', 'Miqdar'], rows: orphan.map(m => [fmtD(m.d), m.w, m.c, nf(m.i - m.o, 2)]), codes: orphan.map(m => m.c) });
   // unpaired transfers
-  const tr = DB.movs.filter(m => m.t === 'Yerdəyişmə');
+  const tr = normalMovements().filter(m => m.t === 'Yerdəyişmə');
   const dd = (a, b) => (!a || !b) ? 0 : Math.abs(new Date(a) - new Date(b)) / 86400000;
   const pair = m => {
     const other = DB.whs.find(w => (m.p || '').indexOf(w) === 0); if (!other) return null;
@@ -2365,9 +2391,9 @@ function controlIssues() {
   const dupm = new Map(); DB.items.forEach(i => { const k = norm(i.name); if (!dupm.has(k)) dupm.set(k, []); dupm.get(k).push(i); });
   const dups = Array.from(dupm.values()).filter(v => v.length > 1);
   if (dups.length) G.push({ id: 'dup', sev: 'med', title: 'Nomenklaturada təkrar', why: 'Eyni mal iki kodla qeydə alınıb — qalıq bölünür, satınalma tələbi səhv hesablanır.', cols: ['Adı', 'Kodlar', 'Qalıqlar'], rows: dups.map(v => [v[0].name, v.map(x => x.code).join(', '), v.map(x => nf((IX.byItem.get(x.code) || { q: 0 }).q, 2)).join(' / ')]), codes: dups.map(v => v[0].code) });
-  const future = DB.movs.filter(m => m.d > today());
+  const future = normalMovements().filter(m => m.d > today());
   if (future.length) G.push({ id: 'fut', sev: 'med', title: 'Gələcək tarixli qeyd', why: 'Əməliyyat tarixi bugünkü tarixdən sonradır — yazılış səhvi ehtimalı yüksəkdir.', cols: ['Tarix', 'Anbar', 'Kod', 'Qeyd edən'], rows: future.map(m => [fmtD(m.d), m.w, m.c, m.by || '—']), codes: future.map(m => m.c) });
-  const bigwo = DB.movs.filter(m => m.t === 'Silinmə' && (m.o || 0) * ((DB.itemBy.get(m.c) || {}).price || 0) > 500);
+  const bigwo = normalMovements().filter(m => m.t === 'Silinmə' && (m.o || 0) * ((DB.itemBy.get(m.c) || {}).price || 0) > 500);
   if (bigwo.length) G.push({ id: 'wo', sev: 'high', title: 'İri məbləğli silinmə', why: '500 ₼-dən yuxarı silinmə komissiya aktı və rəhbər təsdiqi tələb edir.', cols: ['Tarix', 'Anbar', 'Kod', 'Məbləğ'], rows: bigwo.map(m => [fmtD(m.d), m.w, m.c, money(m.o * ((DB.itemBy.get(m.c) || {}).price || 0))]), codes: bigwo.map(m => m.c) });
   return G;
 }
@@ -2378,7 +2404,7 @@ function rCtrl() {
   $('#ctrl-kpis').innerHTML = [
     ['Ümumi hal', nf(tot), nf(G.length) + ' kateqoriya', tot ? 'o' : 'g'],
     ['Yüksək risk', nf(high), 'təcili baxış tələb edir', high ? 'r' : 'g'],
-    ['Uçotun tamlığı', (DB.movs.length ? (100 - Math.min(100, tot / DB.movs.length * 100)).toFixed(1) : 100) + '%', 'problemsiz qeydlərin payı', 'g'],
+    ['Uçotun tamlığı', (normalMovements().length ? (100 - Math.min(100, tot / normalMovements().length * 100)).toFixed(1) : 100) + '%', 'problemsiz qeydlərin payı', 'g'],
     ['Yoxlama tarixi', today(), 'hər dəyişiklikdə avtomatik', '']
   ].map(k => `<div class="kpi ${k[3]}"><div class="eyebrow">${esc(k[0])}</div><div class="v" style="font-size:19px">${k[1]}</div><div class="s">${esc(k[2])}</div></div>`).join('');
   $('#ctrl-out').innerHTML = G.length ? G.map(g => `
@@ -2515,7 +2541,7 @@ function rSet() {
     us.map(u => ({ c: [`<b>${esc(u.name)}</b>${u.id === ME.id ? ' <span class="tag t-op">siz</span>' : ''}`, esc(ROLES[u.role] ? ROLES[u.role].name : u.role), esc(u.wh || '—'), new Date(u.ts).toLocaleTimeString('az-AZ'), nf(DB.events.filter(e => e.uid === u.id).length)] })),
     { empty: 'Hazırda yalnız siz sistemdəsiniz.' });
   $('#set-src').innerHTML = `<div class="hint">
-    Məlumat bazası: Supabase (PostgreSQL). Cari vəziyyət: <b>${nf(DB.items.length)}</b> nomenklatura mövqeyi, <b>${nf(DB.partners.length)}</b> kontragent, <b>${nf(DB.movs.length)}</b> mal hərəkəti qeydi.</div>`;
+    Məlumat bazası: Supabase (PostgreSQL). Cari vəziyyət: <b>${nf(DB.items.length)}</b> nomenklatura mövqeyi, <b>${nf(DB.partners.length)}</b> kontragent, <b>${nf(normalMovements().length)}</b> mal hərəkəti qeydi.</div>`;
   $$('[data-exp]').forEach(b => b.onclick = () => ({ mov: () => { go('mov'); setTimeout(() => $('#mov-exp').click(), 50); }, bal: () => { go('bal'); setTimeout(() => $('#bal-exp').click(), 50); }, nom: () => { go('nom'); setTimeout(() => $('#nom-exp').click(), 50); }, knt: () => xls([['Kontragent', 'VÖEN', 'Müqavilə', 'Tarix']].concat(DB.partners.map(p => [p.name, p.voen, p.contract, p.cdate])), 'kontragentler'), log: () => { go('log'); setTimeout(() => $('#log-exp').click(), 50); } }[b.dataset.exp]()));
   $('#exp-all').onclick = () => {
     const blob = new Blob([JSON.stringify({ seed: 'Anar anbar version 1.xlsb', exported: new Date().toISOString(), events: DB.events, movements: DB.movs, items: DB.items, partners: DB.partners }, null, 1)], { type: 'application/json' });
@@ -2729,7 +2755,7 @@ async function enterApp(userId, email) {
 
     // --- Hərəkət registri ---
     const movRows = [['Tarix','Anbar','Kod','Malın adı','Ölçü','Növü','Kontragent','Kanal','Giriş','Çıxış','Qiymət','Məbləğ','Müqavilə №','Qaimə №','Qeyd edən']];
-    DB.movs.slice().sort((a,b)=>dsort(a.d,b.d)||(a.ts||0)-(b.ts||0)).forEach(m=>{
+    normalMovements().slice().sort((a,b)=>dsort(a.d,b.d)||(a.ts||0)-(b.ts||0)).forEach(m=>{
       const it=DB.itemBy.get(m.c)||{}; const pr=m.pr||it.price||0;
       movRows.push([m.d,m.w,m.c,it.name||'',it.unit||'',m.t,m.p||'',m.ch||'',
         m.i||'',m.o||'',pr||'',pr?(((m.i||0)+(m.o||0))*pr).toFixed(2):'',
@@ -2747,7 +2773,7 @@ async function enterApp(userId, email) {
 
     // --- Satınalmalar (Filtrasiya) ---
     const filRows = [['Tarix','Malın adı','Kod','Ölçü','Miqdar','Qiymət','Məbləğ','Kanal','Kontragent','Müqavilə №','Qaimə №']];
-    DB.movs.filter(m=>m.t==='Satınalma').slice().sort((a,b)=>dsort(a.d,b.d)).forEach(m=>{
+    normalMovements().filter(m=>m.t==='Satınalma').slice().sort((a,b)=>dsort(a.d,b.d)).forEach(m=>{
       const it=DB.itemBy.get(m.c)||{}; const pr=m.pr||it.price||0;
       filRows.push([m.d,it.name||'',m.c,it.unit||'',m.i||'',pr||'',
         pr?(m.i||0)*pr:'',m.ch||'',m.p||'',m.ct||'',m.iv||'']);
@@ -2786,7 +2812,7 @@ async function enterApp(userId, email) {
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rawItems), '_items');
 
     const rawMovs = [['date','warehouse','item_code','in_qty','out_qty','type','partner','channel','contract_num','invoice_num','price','note','doc_num']];
-    DB.movs.forEach(m=>rawMovs.push([m.d,m.w,m.c,m.i||0,m.o||0,m.t,m.p||'',m.ch||'',m.ct||'',m.iv||'',m.pr||0,m.note||'',m.doc||'']));
+    normalMovements().forEach(m=>rawMovs.push([m.d,m.w,m.c,m.i||0,m.o||0,m.t,m.p||'',m.ch||'',m.ct||'',m.iv||'',m.pr||0,m.note||'',m.doc||'']));
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rawMovs), '_movements');
 
     const rawParts = [['name','voen','contract','contract_date']];
@@ -2794,7 +2820,7 @@ async function enterApp(userId, email) {
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rawParts), '_partners');
 
     XLSX.writeFile(wb, 'Anbar_'+today_+'.xlsx');
-    toast('Anbar_'+today_+'.xlsx yükləndi — '+nf(DB.movs.length)+' hərəkət, '+nf(DB.items.length)+' mal, '+nf(IX.positions.length)+' aktiv mövqe');
+    toast('Anbar_'+today_+'.xlsx yükləndi — '+nf(normalMovements().length)+' hərəkət, '+nf(DB.items.length)+' mal, '+nf(IX.positions.length)+' aktiv mövqe');
   };
 
   document.getElementById('full-exp').onclick = fullExport;
@@ -3032,7 +3058,7 @@ async function enterApp(userId, email) {
       // adapt platform DB to exporter shape
       const items = DB.items.map(i => ({ code: i.code, name: i.name, unit: i.unit, price: i.price || 0 }));
       const partners = DB.partners.map(p => ({ name: p.name, voen: p.voen, contract: p.contract, contract_date: p.cdate }));
-      const movements = DB.movs.map(m => ({
+      const movements = normalMovements().map(m => ({
         date: m.d, warehouse: m.w, item_code: m.c, in_qty: m.i || 0, out_qty: m.o || 0,
         type: m.t, partner: m.p || '', channel: m.ch || '',
         // price strictly from the movement — no item-card fallback, so opening stock stays priceless
@@ -3061,12 +3087,12 @@ async function enterApp(userId, email) {
     const d_ = today();
     const P = c => (DB.itemBy.get(c) || {}).price || 0;
 
-    const purch = DB.movs.filter(m => m.t === 'Satınalma' && m.i > 0);
+    const purch = normalMovements().filter(m => m.t === 'Satınalma' && m.i > 0);
     const spend = purch.reduce((s, m) => s + m.i * (m.pr || P(m.c)), 0);
     const priced = purch.filter(m => (m.pr || P(m.c))).length;
     const noDoc = purch.filter(m => !m.iv && !m.ct).length;
-    const cash = DB.movs.filter(m => (m.p || '').indexOf('Nağd') === 0 || m.p === 'Bazar');
-    const wo = DB.movs.filter(m => m.t === 'Silinmə');
+    const cash = normalMovements().filter(m => (m.p || '').indexOf('Nağd') === 0 || m.p === 'Bazar');
+    const wo = normalMovements().filter(m => m.t === 'Silinmə');
     const woVal = wo.reduce((s, m) => s + (m.o || 0) * P(m.c), 0);
 
     // 1. Xülasə
@@ -3105,7 +3131,7 @@ async function enterApp(userId, email) {
 
     // 4. Ödəniş üsulu
     const meth = new Map();
-    DB.movs.forEach(m => {
+    normalMovements().forEach(m => {
       const k = (m.p || '').indexOf('Nağd') === 0 || m.p === 'Bazar' ? 'Nağd' : m.t === 'Əvvələ qalıq' ? 'Əvvəlki qalıq' : m.t === 'Yerdəyişmə' ? 'Daxili köçürmə' : 'Bank / müqavilə';
       const x = meth.get(k) || { n: 0, v: 0, doc: 0 }; x.n++; x.v += (m.i || 0) * (m.pr || P(m.c)); if (m.iv || m.ct) x.doc++; meth.set(k, x);
     });
