@@ -413,6 +413,10 @@ const ROLES = {
 let ME = null;
 const can = a => !!(ME && ROLES[ME.role] && ROLES[ME.role].can.includes(a));
 function need(a) { if (can(a)) return true; toast('Bu əməliyyat üçün icazəniz yoxdur (' + ROLES[ME.role].name + ')', true); return false; }
+/* Universal əməliyyat ləğvi yalnız Rəhbər (Admin) üçündür — server də bunu məcbur edir */
+const isAdmin = () => !!(ME && ME.role === 'rehber');
+/* Yerdəyişmədən başqa, atomar əks-yazı ilə ləğv edilə bilən növlər */
+const CANCELLABLE_TYPES = ['Satınalma', 'Əvvələ qalıq', 'Qaytarma', 'Silinmə', 'Sahəyə', 'Satış'];
 
 /* ---------- SUPABASE CONFIG ---------- */
 const SB_URL = 'https://bbjmhaerssakbreykxiw.supabase.co';
@@ -543,7 +547,7 @@ async function loadFromDB() {
     ch: r.channel || '',
     ct: r.contract_num || '', iv: r.invoice_num || '',
     pr: parseFloat(r.price) || 0,
-    note: r.note || '', by: r.created_by || 'sistem',
+    note: r.note || '', doc: r.doc_num || '', by: r.created_by || 'sistem',
     ts: new Date(r.created_at).getTime(), seed: true
   }));
   let uname = new Map();
@@ -890,6 +894,39 @@ const TYPE_TAG = t => {
   const m = { 'Satınalma': 't-in', 'Əvvələ qalıq': 't-op', 'Yerdəyişmə': 't-mv', 'Silinmə': 't-rm', 'Sahəyə': 't-out', 'Qaytarma': 't-mut' };
   return `<span class="tag ${m[t] || 't-mut'}">${esc(t)}</span>`;
 };
+
+/* ---------- Yerdəyişmə marşrutu (yalnız göstərmə üçün) ----------
+   Heç bir saxlanmış sahəni (m.w, m.p) dəyişmir, heç bir yazı/RPC/SQL çağırmır.
+   "anbar/anbarı/anbarına" kimi göstərmə-məqsədli sonşəkilçiləri və hərf
+   registrini normallaşdırır, sonra konfiqurasiya olunmuş DB.whs siyahısı ilə
+   dəqiq uyğunluq axtarır. Uyğunluq tapılmasa, həmin tərəf üçün "—" göstərilir —
+   heç vaxt təxmin edilmiş ad göstərilmir. */
+/* Registri kiçildir, nöqtəsiz "ı"-nı nöqtəli "i"-yə kanonlaşdırır (böyük "I" → "i"
+   fərqini aradan qaldırır), sonra göstərmə-məqsədli sonşəkilçini silir. Kanonlaşdırma
+   hər iki tərəfə (anbar siyahısı və qarşı-tərəf mətni) eyni tətbiq olunur, ona görə
+   uyğunluq pozulmur; DB.whs adlarının heç birində "ı" yoxdur. */
+function normWhName(s) {
+  const t = String(s || '').trim().toLowerCase().replace(/ı/g, 'i');
+  return t.replace(/\s*(anbarina|anbari|anbar)$/, '').trim();
+}
+function resolveWh(raw) {
+  const norm = normWhName(raw);
+  if (!norm) return null;
+  return DB.whs.find(w => normWhName(w) === norm) || null;
+}
+// Yerdəyişmə sətri üçün "Mənbə → Təyinat"; digər növlər üçün null (çağıran mövcud mətni saxlayır)
+function transferRoute(m) {
+  if (m.t !== 'Yerdəyişmə') return null;
+  const own = resolveWh(m.w), other = resolveWh(m.p);
+  let from, to;
+  if ((m.o || 0) > 0) { from = own; to = other; }
+  else if ((m.i || 0) > 0) { from = other; to = own; }
+  else return null; // nə giriş, nə çıxış — marşrut tərtib edilə bilmir
+  if (!from && !to) return null; // heç bir tərəf tanınmayıb — köhnə mətni saxla
+  return (from || '—') + ' → ' + (to || '—');
+}
+// Cədvəl xanası: Yerdəyişmə üçün marşrut, digər bütün növlər üçün mövcud kontragent/layihə mətni — dəyişməz
+function routeOrPartner(m) { return transferRoute(m) || (m.p || '—'); }
 </script>
 <script>
 /* ================= navigation ================= */
@@ -1033,7 +1070,7 @@ function rMov() {
   const sin = all.reduce((s, m) => s + (m.i || 0), 0), sout = all.reduce((s, m) => s + (m.o || 0), 0);
   const sval = all.reduce((s, m) => s + (m.i || 0) * (m.pr || (DB.itemBy.get(m.c) || {}).price || 0), 0);
   $('#t-mov').innerHTML = tbl(
-    [{ t: 'Tarix' }, { t: 'Anbar' }, { t: 'Kod' }, { t: 'Malın adı' }, { t: 'Növü' }, { t: 'Kontragent / Layihə' }, { t: 'Kanal' }, { t: 'Giriş', r: 1 }, { t: 'Çıxış', r: 1 }, { t: 'Qiymət', r: 1 }, { t: 'Məbləğ', r: 1 }, { t: 'Qeyd edən' }, { t: '' }],
+    [{ t: 'Tarix' }, { t: 'Anbar' }, { t: 'Kod' }, { t: 'Malın adı' }, { t: 'Növü' }, { t: 'İstiqamət / Kontragent' }, { t: 'Kanal' }, { t: 'Giriş', r: 1 }, { t: 'Çıxış', r: 1 }, { t: 'Qiymət', r: 1 }, { t: 'Məbləğ', r: 1 }, { t: 'Qeyd edən' }, { t: '' }],
     rows.map(m => {
       const it = DB.itemBy.get(m.c) || {};
       const pr = m.pr || it.price || 0;
@@ -1041,13 +1078,13 @@ function rMov() {
         _a: `data-mv="${esc(m.id)}"`, c: [
           esc(fmtD(m.d)), esc(m.w), `<span class="code">${esc(m.c)}</span>`,
           `<div class="nm">${esc(it.name || '—')}</div>` + (m.iv || m.ct ? `<span class="hint">${esc([m.ct, m.iv].filter(Boolean).join(' · '))}</span>` : ''),
-          TYPE_TAG(m.t), esc(m.p || '—'),
+          TYPE_TAG(m.t), esc(routeOrPartner(m)) + (cancelledDocFor(m) ? ' <span class="tag t-rm">ləğv edilib</span>' : ''),
           m.ch ? `<span class="hint">${esc(m.ch)}</span>` : '<span class="muted">—</span>',
           m.i ? `<span style="color:var(--in)">${nf(m.i, 2)}</span>` : '—',
           m.o ? `<span style="color:var(--out)">${nf(m.o, 2)}</span>` : '—',
           pr ? nf(pr, 2) : '—', pr ? money(((m.i || 0) + (m.o || 0)) * pr) : '—',
           `<span class="hint">${esc(m.by || '—')}</span>`,
-          (m.seed ? '' : `<button class="btn sm" data-edit="${esc(m.id)}">Düzəliş</button>`)
+          `<button class="btn sm" data-edit="${esc(m.id)}">Baxış</button>`
         ]
       };
     }), { clk: 1 });
@@ -1090,8 +1127,8 @@ function itemCard(code) {
     bal.map(b => ({ c: [esc(b.w), nf(b.in, 2), nf(b.out, 2), `<b class="${b.q < 0 ? 'neg' : ''}">${nf(b.q, 2)}</b>`] })))}</div>
       ${obs.length > 1 ? `<h4 style="margin:16px 0 7px;font-size:12px" class="eyebrow">Qiymət tarixçəsi</h4><div class="card">${tbl([{ t: 'Tarix' }, { t: 'Kontragent' }, { t: 'Qiymət', r: 1 }], obs.slice().sort((a, b) => dsort(b.d, a.d)).map(o => ({ c: [esc(fmtD(o.d)), esc(o.k), nf(o.p, 2) + ' ₼'] })))}</div>` : ''}
       <h4 style="margin:16px 0 7px;font-size:12px" class="eyebrow">Hərəkət tarixçəsi</h4>
-      <div class="card">${tbl([{ t: 'Tarix' }, { t: 'Anbar' }, { t: 'Növ' }, { t: 'Kontragent' }, { t: 'Giriş', r: 1 }, { t: 'Çıxış', r: 1 }],
-      movs.map(m => ({ c: [esc(fmtD(m.d)), esc(m.w), TYPE_TAG(m.t), esc(m.p || '—'), m.i ? nf(m.i, 2) : '—', m.o ? nf(m.o, 2) : '—'] })))}</div>
+      <div class="card">${tbl([{ t: 'Tarix' }, { t: 'Anbar' }, { t: 'Növ' }, { t: 'İstiqamət / Kontragent' }, { t: 'Giriş', r: 1 }, { t: 'Çıxış', r: 1 }],
+      movs.map(m => ({ c: [esc(fmtD(m.d)), esc(m.w), TYPE_TAG(m.t), esc(routeOrPartner(m)), m.i ? nf(m.i, 2) : '—', m.o ? nf(m.o, 2) : '—'] })))}</div>
       <div style="display:flex;gap:8px;margin-top:14px">
         <button class="btn pri" data-close onclick="prefillOp('${esc(code)}')">Bu mal üzrə əməliyyat</button>
         ${can('item.edit') ? `<button class="btn" onclick="editItem('${esc(code)}')">Malı redaktə et</button>` : ''}
@@ -1405,34 +1442,257 @@ function renderLines() {
 $('#op-clear').onclick = () => { OP.lines = []; renderLines(); };
 $('#op-post').onclick = async () => {
   if (!need('mv.add') || !OP.lines.length) return;
-  const doc = 'SND-' + Date.now().toString(36).toUpperCase();
-  const evs = [];
-  const priced = new Map();
-  for (const l of OP.lines) {
-    const base = { d: l.d, c: l.c, t: l.t, pr: l.pr || 0, ch: l.ch || '', ct: l.ct, iv: l.iv, note: l.note, by: ME.name, ts: Date.now(), doc };
-    if (l.kind === 'in') {
-      evs.push({ e: 'mv', op: 'a', d: Object.assign({ id: uid(), w: l.w, i: l.q, o: 0, p: l.p }, base) });
-      // mədaxildə göstərilən qiymət malın cari qiyməti olur
-      const it = DB.itemBy.get(l.c);
-      if (l.pr > 0 && it && Math.abs((it.price || 0) - l.pr) > 1e-6) priced.set(l.c, l.pr);
-    }
-    else if (l.kind === 'out') evs.push({ e: 'mv', op: 'a', d: Object.assign({ id: uid(), w: l.w, i: 0, o: l.q, p: l.p }, base) });
-    else {
-      evs.push({ e: 'mv', op: 'a', d: Object.assign({ id: uid(), w: l.w, i: 0, o: l.q, p: l.w2 + ' anbarına' }, base) });
-      evs.push({ e: 'mv', op: 'a', d: Object.assign({ id: uid(), w: l.w2, i: l.q, o: 0, p: l.w + ' anbarı' }, base) });
+  const mvLines = OP.lines.filter(l => l.kind === 'mv');
+  const other = OP.lines.filter(l => l.kind !== 'mv');
+
+  // ---- Yerdəyişmələr: atomar server RPC (mənfi qalıq serverdə bloklanır) ----
+  // Köhnə emitMany yolu (ayrı-ayrı insert, atomar deyil) yerdəyişmə üçün istifadə OLUNMUR.
+  if (mvLines.length) {
+    const p_lines = mvLines.map(l => ({
+      date: l.d, source: l.w, dest: l.w2, code: l.c, qty: l.q,
+      note: l.note || '', channel: l.ch || '', contract: l.ct || '', invoice: l.iv || ''
+    }));
+    try {
+      const { data, error } = await SB.rpc('post_transfer_document', { p_lines });
+      if (error) throw error;
+      // uğur: sətirlər server tərəfindən yazıldı
+    } catch (err) {
+      // sənəd rədd edildi — sətirlər toxunulmadan qalır ki, istifadəçi düzəldə bilsin
+      toast('Yerdəyişmə qeyd edilmədi: ' + (err.message || 'server xətası'), true);
+      return;
     }
   }
-  priced.forEach((pr, code) => evs.push({ e: 'item', op: 'u', d: { code, price: pr, psrc: 'sənəd' }, note: 'qiymət mədaxil sənədindən yeniləndi (' + doc + ')' }));
-  await emitMany(evs);
+
+  // ---- Yerdəyişmə olmayan sətirlər: mövcud yol dəyişmədən ----
+  if (other.length) {
+    const doc = 'SND-' + Date.now().toString(36).toUpperCase();
+    const evs = [];
+    const priced = new Map();
+    for (const l of other) {
+      const base = { d: l.d, c: l.c, t: l.t, pr: l.pr || 0, ch: l.ch || '', ct: l.ct, iv: l.iv, note: l.note, by: ME.name, ts: Date.now(), doc };
+      if (l.kind === 'in') {
+        evs.push({ e: 'mv', op: 'a', d: Object.assign({ id: uid(), w: l.w, i: l.q, o: 0, p: l.p }, base) });
+        const it = DB.itemBy.get(l.c);
+        if (l.pr > 0 && it && Math.abs((it.price || 0) - l.pr) > 1e-6) priced.set(l.c, l.pr);
+      }
+      else evs.push({ e: 'mv', op: 'a', d: Object.assign({ id: uid(), w: l.w, i: 0, o: l.q, p: l.p }, base) });
+    }
+    priced.forEach((pr, code) => evs.push({ e: 'item', op: 'u', d: { code, price: pr, psrc: 'sənəd' }, note: 'qiymət mədaxil sənədindən yeniləndi (' + doc + ')' }));
+    await emitMany(evs);
+  }
+
   const n = OP.lines.length; OP.lines = [];
   captureOpHeader();
   if (OP.hdr) { OP.hdr.iv = ''; OP.hdr.ct = ''; }   // yeni sənəd — yeni qaimə/müqavilə nömrəsi
-  renderAll(); toast(n + ' sətirlik sənəd qeyd edildi (' + doc + ')');
+  // Server RPC ilə yazılan sətirlər lokal state-də yoxdur — bazadan yenidən yüklə
+  if (mvLines.length) await loadFromDB();
+  renderAll(); toast(n + ' sətir qeyd edildi');
 };
 
 /* ================= EDITORS ================= */
+/* Əks yerdəyişmə markeri — SQL cancel_transfer_document ilə eyni olmalıdır */
+const REVERSAL_MARKER = origDoc => 'Ləğv (əks yerdəyişmə): ' + origDoc;
+/* Sənəd artıq ləğv edilibsə, əks-sənədin nömrəsini qaytarır; əks halda null */
+function docReversalDoc(docNum) {
+  if (!docNum) return null;
+  const marker = REVERSAL_MARKER(docNum);
+  const rev = DB.movs.find(m => m.note === marker);
+  return rev ? (rev.doc || '—') : null;
+}
+/* Bu sənəd özü əks yerdəyişmə sənədidirmi? */
+function isReversalDoc(docNum) {
+  if (!docNum) return false;
+  return DB.movs.some(m => m.doc === docNum && /^Ləğv \(əks yerdəyişmə\): /.test(m.note || ''));
+}
+
+/* ---------- Universal Admin ləğvi (Satınalma / Əvvələ qalıq / Qaytarma / Silinmə / Sahəyə) ----------
+   Yerdəyişmə bu yolla YOX — o, cancel_transfer_document ilə yuxarıda idarə olunur.
+   Marker SQL cancel_document ilə eyni olmalıdır. */
+const docCancelMarker = origDoc => 'Ləğv: ' + origDoc;
+/* Sənəd artıq ləğv edilibsə, əks-sənədin nömrəsini qaytarır; əks halda null */
+function docCancelledBy(docNum) {
+  if (!docNum) return null;
+  const marker = docCancelMarker(docNum);
+  const rev = DB.movs.find(m => m.note === marker);
+  return rev ? (rev.doc || '—') : null;
+}
+/* Bu sənəd özü bir ləğv (əks yazı) sənədidirmi? */
+function isCancelDoc(docNum) {
+  if (!docNum) return false;
+  return DB.movs.some(m => m.doc === docNum && /^Ləğv: /.test(m.note || ''));
+}
+/* Hər hansı dəstəklənən növ üçün: bu qeydin sənədi artıq ləğv edilibsə, əks-sənəd nömrəsini qaytarır */
+function cancelledDocFor(m) {
+  if (!m) return null;
+  if (!m.doc) {
+    const rev = m.t === 'Yerdəyişmə'
+      ? DB.movs.find(x => /^Ləğv \(əks yerdəyişmə\) ID: /.test(x.note || '') && (x.note || '').includes(m.id))
+      : DB.movs.find(x => x.note === 'Ləğv ID: ' + m.id);
+    return rev ? (rev.doc || '—') : null;
+  }
+  if (m.t === 'Yerdəyişmə') return docReversalDoc(m.doc);
+  if (CANCELLABLE_TYPES.includes(m.t)) return docCancelledBy(m.doc);
+  return null;
+}
+/* Qeydin sənədinə baxış + universal Admin ləğvi (orijinal sətirlər redaktə OLUNMUR) */
+function documentCancelView(m) {
+  const doc = m.doc || '';
+  const rows = doc ? DB.movs.filter(x => x.doc === doc && x.t === m.t) : [m];
+  const it = DB.itemBy.get(m.c) || {};
+  const revDoc = docCancelledBy(doc);
+  const isRev = isCancelDoc(doc);
+  const inbound = rows.some(r => (r.i || 0) > 0);
+  const preview = rows.map(r => {
+    const ri = DB.itemBy.get(r.c) || {};
+    const dir = (r.i || 0) > 0 ? 'Mədaxil: ' + r.w : 'Məxaric: ' + r.w;
+    return { c: [esc(fmtD(r.d)), `<div class="nm">${esc(ri.name || r.c)}</div><span class="code">${esc(r.c)}</span>`,
+      esc(dir), nf((r.i || r.o) || 0, 2) + ' ' + esc(ri.unit || '')] };
+  });
+  let statusHtml = '', actionsHtml = `<div style="flex:1"></div><button class="btn" data-close>Bağla</button>`;
+  if (isRev) {
+    statusHtml = `<div class="hint" style="padding:9px;background:var(--out-l);border-radius:4px">Bu, ləğv (əks yazı) sənədidir. Yenidən ləğv edilə bilməz.</div>`;
+  } else if (revDoc) {
+    statusHtml = `<div class="hint" style="padding:9px;background:var(--out-l);border-radius:4px"><b>Ləğv edilib</b> · əks sənəd: <span class="code">${esc(revDoc)}</span>. Orijinal sətirlər dəyişməz saxlanılır.</div>`;
+  } else if (!doc) {
+    statusHtml = `<div class="hint" style="padding:9px;background:var(--out-l);border-radius:4px">Bu qeydin etibarlı sənəd nömrəsi yoxdur. Ləğv ayrıca təsdiqlənmiş storno əməliyyatı tələb edir.</div>`;
+  } else if (!isAdmin()) {
+    statusHtml = `<div class="hint" style="padding:9px;background:var(--out-l);border-radius:4px">Bu əməliyyatı yalnız Rəhbər (Admin) ləğv edə bilər.</div>`;
+  } else {
+    statusHtml = `
+      <div class="hint" style="margin:4px 0 8px">Ləğv zamanı ${inbound ? 'əks məxaric' : 'əks mədaxil'} yeni sənəd kimi yazılır. Orijinal sətirlər dəyişmir.${inbound ? ' Qalıq çatmırsa, ləğv baş tutmur.' : ''}</div>
+      <label class="f" style="max-width:220px"><span>Ləğv tarixi</span><input type="date" id="dc-date" value="${today()}"></label>`;
+    actionsHtml = `<div style="flex:1"></div><button class="btn" data-close>İmtina</button><button class="btn dgr" id="dc-go">Əməliyyatı ləğv et</button>`;
+  }
+  modal(m.t + ' sənədi' + (doc ? ' · ' + doc : ''), `
+    <div class="hint" style="margin-bottom:10px">${esc(it.name || '')} · ${nf(rows.length)} sətir · qeyd edən: ${esc(m.by || '—')}</div>
+    <div class="card"><div class="tw">${tbl([{ t: 'Tarix' }, { t: 'Mal' }, { t: 'İstiqamət' }, { t: 'Miqdar', r: 1 }], preview)}</div></div>
+    <div style="margin-top:12px">${statusHtml}</div>`, actionsHtml);
+  if ($('#dc-go')) $('#dc-go').onclick = () => {
+    if (!doc) return;
+    $('#dc-go').disabled = true;
+    const dt = $('#dc-date') ? $('#dc-date').value : '';
+    (async () => {
+      try {
+        const { data, error } = await SB.rpc('cancel_document',
+          dt ? { p_doc_num: doc, p_reversal_date: dt } : { p_doc_num: doc });
+        if (error) throw error;
+        closeModal();
+        await loadFromDB(); if (typeof loadAuditTotal === 'function') loadAuditTotal();
+        renderAll();
+        toast('Əməliyyat ləğv edildi · əks sənəd: ' + (data && data.reversal_doc_num ? data.reversal_doc_num : '—'));
+      } catch (err) {
+        if ($('#dc-go')) $('#dc-go').disabled = false;
+        toast('Ləğv edilmədi: ' + (err.message || 'server xətası'), true);
+      }
+    })();
+  };
+}
+/* Yerdəyişmə sənədinə baxış + ləğv (orijinal sətirlər redaktə OLUNMUR) */
+function transferDocView(m) {
+  const doc = m.doc || '';
+  const rows = doc ? DB.movs.filter(x => x.doc === doc && x.t === 'Yerdəyişmə') : [m];
+  const it = DB.itemBy.get(m.c) || {};
+  const revDoc = docReversalDoc(doc);
+  const isRev = isReversalDoc(doc);
+  // sənədin sətirlərini yalnız çıxış (mənbə) tərəfindən göstər — hər sətir bir yerdəyişmə
+  const outRows = rows.filter(r => (r.o || 0) > 0);
+  const preview = (outRows.length ? outRows : rows).map(r => {
+    const ri = DB.itemBy.get(r.c) || {};
+    return { c: [esc(fmtD(r.d)), `<div class="nm">${esc(ri.name || r.c)}</div><span class="code">${esc(r.c)}</span>`,
+      esc(routeOrPartner(r)), nf((r.o || r.i) || 0, 2) + ' ' + esc(ri.unit || '')] };
+  });
+  let statusHtml = '', actionsHtml = `<div style="flex:1"></div><button class="btn" data-close>Bağla</button>`;
+  if (isRev) {
+    statusHtml = `<div class="hint" style="padding:9px;background:var(--out-l);border-radius:4px">Bu, əks yerdəyişmə (ləğv) sənədidir. Yenidən ləğv edilə bilməz.</div>`;
+  } else if (revDoc) {
+    statusHtml = `<div class="hint" style="padding:9px;background:var(--out-l);border-radius:4px"><b>Ləğv edilib</b> · əks sənəd: <span class="code">${esc(revDoc)}</span>. Orijinal sətirlər dəyişməz saxlanılır.</div>`;
+  } else if (!doc) {
+    statusHtml = `<div class="hint" style="padding:9px;background:var(--out-l);border-radius:4px">Bu köhnə yerdəyişmənin etibarlı sənəd nömrəsi yoxdur. Ləğv ayrıca təsdiqlənmiş storno əməliyyatı tələb edir.</div>`;
+  } else if (!isAdmin()) {
+    statusHtml = `<div class="hint" style="padding:9px;background:var(--out-l);border-radius:4px">Bu əməliyyatı yalnız Rəhbər (Admin) ləğv edə bilər.</div>`;
+  } else {
+    statusHtml = `
+      <div class="hint" style="margin:4px 0 8px">Ləğv zamanı təyinatdan mənbəyə əks yerdəyişmə yeni sənəd kimi yazılır. Orijinal sətirlər dəyişmir. Təyinat anbarında qalıq çatmırsa, ləğv baş tutmur.</div>
+      <label class="f" style="max-width:220px"><span>Əks yerdəyişmə tarixi</span><input type="date" id="rev-date" value="${today()}"></label>`;
+    actionsHtml = `<div style="flex:1"></div><button class="btn" data-close>İmtina</button><button class="btn dgr" id="rev-go">Yerdəyişməni ləğv et</button>`;
+  }
+  modal('Yerdəyişmə sənədi' + (doc ? ' · ' + doc : ''), `
+    <div class="hint" style="margin-bottom:10px">${esc(it.name || '')} · ${nf(rows.length)} sətir · qeyd edən: ${esc(m.by || '—')}</div>
+    <div class="card"><div class="tw">${tbl([{ t: 'Tarix' }, { t: 'Mal' }, { t: 'İstiqamət' }, { t: 'Miqdar', r: 1 }], preview)}</div></div>
+    <div style="margin-top:12px">${statusHtml}</div>`, actionsHtml);
+  if ($('#rev-go')) $('#rev-go').onclick = () => {
+    if (!doc) return;
+    $('#rev-go').disabled = true;
+    // p_reversal_date server default = current_date; icazə varsa istifadəçi seçə bilər
+    const dt = $('#rev-date') ? $('#rev-date').value : '';
+    (async () => {
+      try {
+        const { data, error } = await SB.rpc('cancel_transfer_document',
+          dt ? { p_original_doc_num: doc, p_reversal_date: dt } : { p_original_doc_num: doc });
+        if (error) throw error;
+        closeModal();
+        await loadFromDB(); if (typeof loadAuditTotal === 'function') loadAuditTotal();
+        renderAll();
+        toast('Yerdəyişmə ləğv edildi · əks sənəd: ' + (data && data.reversal_doc_num ? data.reversal_doc_num : '—'));
+      } catch (err) {
+        if ($('#rev-go')) $('#rev-go').disabled = false;
+        toast('Ləğv edilmədi: ' + (err.message || 'server xətası'), true);
+      }
+    })();
+  };
+}
+function legacyCancelView(m) {
+  const it = DB.itemBy.get(m.c) || {}, inbound = (m.i || 0) > 0, revDoc = cancelledDocFor(m), allowed = isAdmin() && !revDoc;
+  const info = revDoc
+    ? `<div class="hint" style="padding:9px;background:var(--out-l);border-radius:4px"><b>Ləğv edilib</b> · əks sənəd: <span class="code">${esc(revDoc)}</span>.</div>`
+    : allowed
+    ? `<div class="hint" style="margin:4px 0 8px">Sənəd nömrəsi olmayan bu köhnə qeyd yalnız əks ${inbound ? 'məxaric' : 'mədaxil'} ilə ləğv edilir. Orijinal qeyd dəyişmir.${inbound ? ' Qalıq çatmırsa, heç nə yazılmır.' : ''}</div><label class="f" style="max-width:220px"><span>Ləğv tarixi</span><input type="date" id="lc-date" value="${today()}"></label>`
+    : `<div class="hint" style="padding:9px;background:var(--out-l);border-radius:4px">Köhnə qeyd yalnız Rəhbər (Admin) tərəfindən ləğv edilə bilər.</div>`;
+  const actions = allowed
+    ? `<div style="flex:1"></div><button class="btn" data-close>İmtina</button><button class="btn dgr" id="lc-go">Əməliyyatı ləğv et</button>`
+    : `<div style="flex:1"></div><button class="btn" data-close>Bağla</button>`;
+  modal('Köhnə əməliyyat · ' + m.c, `<div class="hint" style="margin-bottom:10px">${esc(it.name || '')} · ${esc(fmtD(m.d))} · ${esc(m.w)} · ${nf((m.i || m.o) || 0, 2)} ${esc(it.unit || '')}</div>${info}`, actions);
+  if ($('#lc-go')) $('#lc-go').onclick = async () => {
+    $('#lc-go').disabled = true;
+    try {
+      const { data, error } = await SB.rpc('cancel_legacy_movement', { p_movement_id: m.id, p_reversal_date: $('#lc-date').value });
+      if (error) throw error;
+      closeModal(); await loadFromDB(); if (typeof loadAuditTotal === 'function') loadAuditTotal(); renderAll();
+      toast('Köhnə əməliyyat ləğv edildi · əks sənəd: ' + (data && data.reversal_doc_num ? data.reversal_doc_num : '—'));
+    } catch (err) { if ($('#lc-go')) $('#lc-go').disabled = false; toast('Ləğv edilmədi: ' + (err.message || 'server xətası'), true); }
+  };
+}
+function legacyTransferCancelView(m) {
+  const it = DB.itemBy.get(m.c) || {}, revDoc = cancelledDocFor(m), allowed = isAdmin() && !revDoc, route = transferRoute(m) || m.w;
+  const info = revDoc
+    ? `<div class="hint" style="padding:9px;background:var(--out-l);border-radius:4px"><b>Ləğv edilib</b> · əks sənəd: <span class="code">${esc(revDoc)}</span>.</div>`
+    : allowed
+    ? `<div class="hint" style="margin:4px 0 8px">Server yalnız bir etibarlı qarşı cüt taparsa ${esc(route)} üzrə əks yerdəyişmə yaradır. Cüt qeyri-müəyyəndirsə və ya qalıq çatmırsa, heç nə yazılmır.</div><label class="f" style="max-width:220px"><span>Əks yerdəyişmə tarixi</span><input type="date" id="lt-date" value="${today()}"></label>`
+    : `<div class="hint" style="padding:9px;background:var(--out-l);border-radius:4px">Köhnə yerdəyişmə yalnız Rəhbər (Admin) tərəfindən ləğv edilə bilər.</div>`;
+  const actions = allowed
+    ? `<div style="flex:1"></div><button class="btn" data-close>İmtina</button><button class="btn dgr" id="lt-go">Yerdəyişməni ləğv et</button>`
+    : `<div style="flex:1"></div><button class="btn" data-close>Bağla</button>`;
+  modal('Köhnə yerdəyişmə · ' + m.c, `<div class="hint" style="margin-bottom:10px">${esc(it.name || '')} · ${esc(fmtD(m.d))} · ${esc(route)} · ${nf((m.i || m.o) || 0, 2)} ${esc(it.unit || '')}</div>${info}`, actions);
+  if ($('#lt-go')) $('#lt-go').onclick = async () => {
+    $('#lt-go').disabled = true;
+    try {
+      const { data, error } = await SB.rpc('cancel_legacy_transfer', { p_movement_id: m.id, p_reversal_date: $('#lt-date').value });
+      if (error) throw error;
+      closeModal(); await loadFromDB(); if (typeof loadAuditTotal === 'function') loadAuditTotal(); renderAll();
+      toast('Köhnə yerdəyişmə ləğv edildi · əks sənəd: ' + (data && data.reversal_doc_num ? data.reversal_doc_num : '—'));
+    } catch (err) { if ($('#lt-go')) $('#lt-go').disabled = false; toast('Ləğv edilmədi: ' + (err.message || 'server xətası'), true); }
+  };
+}
 function editMov(id) {
   const m = DB.movs.find(x => x.id === id); if (!m) return;
+  // Yerdəyişmə sətirləri redaktə/silinmə ilə deyil, yalnız atomar əks yerdəyişmə ilə ləğv olunur
+  if (m.t === 'Yerdəyişmə') return m.doc ? transferDocView(m) : legacyTransferCancelView(m);
+  // Keçirilmiş bütün dəstəklənən əməliyyatlar dəyişdirilmir və silinmir.
+  // Sənəd varsa Admin yalnız əks-yazı ilə ləğv edir; köhnə sənədsiz qeyd storno izahını göstərir.
+  if (CANCELLABLE_TYPES.includes(m.t)) return m.doc ? documentCancelView(m) : legacyCancelView(m);
+  // Naməlum tarixi növlər üçün də düzəliş/silmə yolu açılmır.
+  return toast('Keçirilmiş qeyd dəyişdirilmir və silinmir. Düzəliş üçün ayrıca storno əməliyyatı tələb olunur.', true);
+  /* Legacy direct edit/delete flow intentionally disabled: posted movements are immutable.
   if (!can('mv.edit') && !can('mv.del')) return need('mv.edit');
   const it = DB.itemBy.get(m.c) || {};
   modal('Qeydin düzəlişi · ' + m.c, `
@@ -1456,8 +1716,9 @@ function editMov(id) {
       <label class="f"><span>Qaimə №</span><input type="text" id="e-iv" value="${esc(m.iv || '')}"></label>
     </div>
     <label class="f"><span>Düzəlişin səbəbi (audit üçün məcburi)</span><input type="text" id="e-why" placeholder="məs. qaimədə miqdar səhv yazılıb"></label>`,
-    `${can('mv.del') ? '<button class="btn dgr" id="e-del">Qeydi ləğv et</button>' : ''}<div style="flex:1"></div>
+    `${isAdmin() && m.doc && CANCELLABLE_TYPES.includes(m.t) && !isCancelDoc(m.doc) ? '<button class="btn dgr" id="e-cancel-op">Əməliyyatı ləğv et</button>' : ''}${can('mv.del') ? '<button class="btn dgr" id="e-del">Qeydi ləğv et</button>' : ''}<div style="flex:1"></div>
      <button class="btn" data-close>İmtina</button><button class="btn pri" id="e-save">Yadda saxla</button>`);
+  if ($('#e-cancel-op')) $('#e-cancel-op').onclick = () => { closeModal(); documentCancelView(m); };
   $('#e-save').onclick = async () => {
     const why = $('#e-why').value.trim();
     if (!why) return toast('Düzəlişin səbəbini yazın', true);
@@ -1475,6 +1736,7 @@ function editMov(id) {
     if (!why) return toast('Ləğv etmənin səbəbini yazın', true);
     await emit('mv', 'd', { id: m.id }, why); closeModal(); renderAll(); toast('Qeyd ləğv edildi');
   };
+  */
 }
 function nextCode() {
   let max = 0; DB.items.forEach(i => { const n = parseInt(i.code, 10); if (n > max) max = n; });
