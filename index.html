@@ -275,7 +275,7 @@ label.f>span{display:block;font-size:10.5px;text-transform:uppercase;letter-spac
       <!-- NOMENCLATURE -->
       <section class="page" id="p-nom">
         <div class="phead"><div><h2>Nomenklatura bazası</h2><p>Malın kodu 7 rəqəmli və unikaldır. Yeni mal əlavə edərkən sistem oxşar adları yoxlayır.</p></div><div class="sp"></div>
-          <button class="btn" id="nom-exp">Excel</button><button class="btn" id="nom-print">Çap</button><button class="btn" id="nom-bulk">Siyahı əlavə et</button><button class="btn pri" id="nom-add">Yeni mal</button></div>
+          <button class="btn" id="nom-exp">Excel</button><button class="btn" id="nom-print">Çap</button><button class="btn" id="nom-import">Excel-dən yeni mallar idxalı</button><button class="btn" id="nom-bulk">Siyahı əlavə et</button><button class="btn pri" id="nom-add">Yeni mal</button></div>
         <div class="filters" id="nom-filters"></div>
         <div class="card"><div class="tw" id="t-nom"></div><div class="pad" id="nom-pager" style="border-top:1px solid var(--line-2);display:flex;align-items:center;gap:10px"></div></div>
       </section>
@@ -1178,6 +1178,8 @@ function rNom() {
   $('#nom-add').disabled = !can('item.add');
   $('#nom-bulk').onclick = () => bulkItems();
   $('#nom-bulk').disabled = !can('item.add');
+  $('#nom-import').onclick = () => importNewItems();
+  $('#nom-import').disabled = !can('item.add');
 }
 
 /* ================= PARTNERS ================= */
@@ -1590,6 +1592,217 @@ function bulkItems() {
     toast(nf(add) + ' yeni mal əlavə edildi' + (up ? ', ' + nf(up) + ' mal yeniləndi' : ''));
   };
   setTimeout(() => $('#b-txt').focus(), 80);
+}
+
+/* ---------- Excel-dən yeni mallar idxalı (yalnız yeni mallar) ---------- */
+/* Bu funksiya mövcud malları YENİLƏMİR. Yalnız yeni malları yaradır.
+   Kodları server (Supabase RPC) atomar şəkildə verir; brauzer yalnız proqnoz göstərir. */
+let NIMPORT = [];
+const NAME_KEYS = ['malın adı', 'malin adi', 'ad', 'adı', 'adi', 'name', 'наименование'];
+const UNIT_KEYS = ['ölçü vahidi', 'olcu vahidi', 'ölçü', 'olcu', 'unit', 'ölçü vahid'];
+function nrmHdr(s) { return String(s || '').toLowerCase().trim().replace(/\s+/g, ' '); }
+function pickCol(headers, keys) {
+  for (let i = 0; i < headers.length; i++) { if (keys.includes(nrmHdr(headers[i]))) return i; }
+  return -1;
+}
+// Mətn / cədvəldən {name, unit} qeydlərini çıxarır (başlıq sətrinə görə sütun seçir)
+function extractNewRecords(rows2d) {
+  if (!rows2d.length) return [];
+  let hdrIx = -1, nameCol = -1, unitCol = -1;
+  for (let i = 0; i < Math.min(rows2d.length, 5); i++) {
+    const nc = pickCol(rows2d[i], NAME_KEYS);
+    if (nc >= 0) { hdrIx = i; nameCol = nc; unitCol = pickCol(rows2d[i], UNIT_KEYS); break; }
+  }
+  const recs = [];
+  if (hdrIx >= 0) {
+    for (let i = hdrIx + 1; i < rows2d.length; i++) {
+      const r = rows2d[i]; if (!r) continue;
+      const name = String(r[nameCol] == null ? '' : r[nameCol]).trim();
+      const unit = unitCol >= 0 ? String(r[unitCol] == null ? '' : r[unitCol]).trim() : '';
+      if (!name && !unit) continue;
+      recs.push({ name, unit });
+    }
+  } else {
+    // başlıq tapılmadı: birinci sütun ad, ikinci sütun ölçü kimi qəbul edilir
+    for (let i = 0; i < rows2d.length; i++) {
+      const r = rows2d[i]; if (!r || !r.length) continue;
+      const name = String(r[0] == null ? '' : r[0]).trim();
+      if (!name) continue;
+      recs.push({ name, unit: String(r[1] == null ? '' : r[1]).trim() });
+    }
+  }
+  return recs;
+}
+function parseNewText(txt) {
+  const lines = txt.split(/\r?\n/).filter(l => l.trim().length);
+  return lines.map(l => l.split(/\t|;|\|/).map(s => s.trim()));
+}
+// Təsnifat: yeni / mövcud (dəqiq təkrar) / oxşar ad / səhv
+function classifyNewRecords(records) {
+  const byName = new Map(); DB.items.forEach(i => { const k = NORM(i.name); if (!byName.has(k)) byName.set(k, i); });
+  let maxCode = 0; DB.items.forEach(i => { const n = parseInt(i.code, 10); if (n > maxCode) maxCode = n; });
+  const seen = new Set();
+  const out = [];
+  records.forEach((rec, ix) => {
+    const name = String(rec.name || '').trim();
+    const unit = String(rec.unit || '').trim().replace(/\.$/, '') || 'ədəd';
+    const r = { n: ix + 1, name, unit, use: false };
+    const key = NORM(name);
+    if (!name || name.length < 3) { r.st = 'err'; r.msg = 'Ad boşdur və ya 3 simvoldan qısadır'; }
+    else if (byName.has(key)) { const ex = byName.get(key); r.st = 'dup'; r.msg = 'Bazada dəqiq uyğunluq: ' + ex.code + ' — ' + ex.name; }
+    else if (seen.has(key)) { r.st = 'dup'; r.msg = 'Bu fayl içində təkrarlanır — bir dəfə yaradılır'; }
+    else {
+      seen.add(key);
+      // oxşarlıq (yalnız xəbərdarlıq, blok deyil). İki sadə, izahlı qayda:
+      //   (1) tam daxilolma: normallaşdırılmış ad mövcud adın əsasını daxil edir və ya əksinə;
+      //   (2) uzun ortaq prefiks (≥7 simvol) — fərqli artikul/sonluğu olan yaxın adları tutur.
+      let sim = null;
+      if (key.length >= 4) {
+        for (const it of DB.items) {
+          const ek = NORM(it.name); if (!ek || ek.length < 4) continue;
+          const contains = key.indexOf(ek) >= 0 || ek.indexOf(key) >= 0;
+          let shared = 0; const lim = Math.min(key.length, ek.length);
+          while (shared < lim && key[shared] === ek[shared]) shared++;
+          if (contains || shared >= 7) { sim = it; break; }
+        }
+      }
+      if (sim) { r.st = 'sim'; r.simCode = sim.code; r.simName = sim.name; r.use = true; r.msg = 'Oxşar ad mövcuddur: ' + sim.code + ' — ' + sim.name + ' (istəsəniz yenə də yarada bilərsiniz)'; }
+      else { r.st = 'new'; r.use = true; r.msg = 'Yeni mal'; }
+    }
+    out.push(r);
+  });
+  // brauzer proqnoz kodları (yalnız göstərmə üçün — son kodu server verir)
+  let pc = maxCode;
+  out.forEach(r => { if ((r.st === 'new' || r.st === 'sim') && r.use) { pc++; r.predCode = String(pc).padStart(7, '0'); } });
+  return out;
+}
+function niRecompute() {
+  // yalnız proqnoz kodlarını yenilə (seçim dəyişəndə)
+  let maxCode = 0; DB.items.forEach(i => { const n = parseInt(i.code, 10); if (n > maxCode) maxCode = n; });
+  let pc = maxCode;
+  NIMPORT.forEach(r => { r.predCode = ''; if ((r.st === 'new' || r.st === 'sim') && r.use) { pc++; r.predCode = String(pc).padStart(7, '0'); } });
+}
+function niPreview(records) {
+  NIMPORT = classifyNewRecords(records);
+  const c = st => NIMPORT.filter(r => r.st === st).length;
+  const TAG = {
+    new: '<span class="tag t-in">yeni</span>', dup: '<span class="tag t-mut">mövcud</span>',
+    sim: '<span class="tag t-out">oxşar ad</span>', err: '<span class="tag t-rm">səhv</span>'
+  };
+  const show = NIMPORT.slice(0, 250);
+  $('#ni-prev').innerHTML = !NIMPORT.length ? '<div class="empty"><b>Sətir tapılmadı</b>Fayl seçin və ya mətni yapışdırın.</div>' : `
+    <div class="pill-row" style="margin:10px 0">
+      <span class="tag t-in">yeni: ${nf(c('new'))}</span>
+      <span class="tag t-mut">mövcud: ${nf(c('dup'))}</span>
+      <span class="tag t-out">oxşar ad: ${nf(c('sim'))}</span>
+      ${c('err') ? `<span class="tag t-rm">səhv: ${nf(c('err'))}</span>` : ''}
+    </div>
+    <div class="card"><div class="tw" style="max-height:340px">${tbl(
+    [{ t: '' }, { t: '#', r: 1 }, { t: 'Proqnoz kod' }, { t: 'Malın adı' }, { t: 'Ölçü' }, { t: 'Status' }],
+    show.map((r, i) => ({
+      c: [`<input type="checkbox" data-ni="${i}" ${r.use ? 'checked' : ''} ${(r.st === 'err' || r.st === 'dup') ? 'disabled' : ''} style="width:auto">`,
+      nf(r.n), `<span class="code">${esc(r.predCode || '—')}</span><span class="hint"> proqnoz</span>`,
+      `<div class="nm">${esc(r.name)}</div>`, esc(r.unit),
+      TAG[r.st] + `<div class="hint">${esc(r.msg)}</div>`]
+    })))}</div>${NIMPORT.length > 250 ? `<div class="pad hint">İlk 250 sətir göstərilir, idxal bütün sətirlərə tətbiq olunur.</div>` : ''}</div>
+    <div class="hint" style="margin-top:6px">Son kodlar yazılma anında server tərəfindən verilir. Yuxarıdakı kodlar yalnız proqnozdur.</div>`;
+  $$('#ni-prev [data-ni]').forEach(cb => cb.onchange = () => { NIMPORT[+cb.dataset.ni].use = cb.checked; niRecompute(); niRefreshCodes(); niCount(); });
+  niCount();
+}
+function niRefreshCodes() {
+  $$('#ni-prev [data-ni]').forEach(cb => {
+    const r = NIMPORT[+cb.dataset.ni];
+    const cell = cb.closest('tr') ? cb.closest('tr').querySelector('.code') : null;
+    if (cell) cell.textContent = r.predCode || '—';
+  });
+}
+function niCount() {
+  // I-14: səhv formatlı sətir varsa idxal düyməsi tam bloklanır
+  const errs = NIMPORT.filter(r => r.st === 'err').length;
+  const n = NIMPORT.filter(r => r.use && (r.st === 'new' || r.st === 'sim')).length;
+  const btn = $('#ni-go'); if (!btn) return;
+  btn.disabled = !n || errs > 0;
+  btn.textContent = errs
+    ? ('Səhv sətirləri düzəldin (' + nf(errs) + ')')
+    : (n ? 'Yeni malları yarat (' + nf(n) + ')' : 'Yeni malları yarat');
+}
+async function niImport() {
+  const rows = NIMPORT.filter(r => r.use && (r.st === 'new' || r.st === 'sim'));
+  if (!rows.length) return;
+  if (!SB || !ME) { toast('Baza bağlantısı yoxdur', true); return; }
+  const btn = $('#ni-go'); if (btn) { btn.disabled = true; btn.textContent = 'Yazılır…'; }
+  const payload = rows.map(r => ({ name: r.name, unit: r.unit || 'ədəd' }));
+  try {
+    const { data, error } = await SB.rpc('import_new_items', { p_items: payload });
+    if (error) throw error;
+    const res = data || {};
+    const created = res.created || [];
+    const skipped = res.skipped || [];
+    // yerli DB-ni serverin verdiyi kodlarla yenilə
+    created.forEach(it => {
+      if (!DB.itemBy.has(it.code)) {
+        const rec = { code: it.code, name: it.name, unit: it.unit || 'ədəd', price: 0 };
+        DB.items.push(rec); DB.itemBy.set(it.code, rec);
+      }
+    });
+    index(); renderAll(); closeModal();
+    toast(nf(created.length) + ' yeni mal yaradıldı' + (skipped.length ? ', ' + nf(skipped.length) + ' sətir ötürüldü' : ''));
+  } catch (err) {
+    console.error('niImport error', err);
+    toast('Xəta: ' + (err.message || 'idxal alınmadı'), true);
+    if (btn) { btn.disabled = false; niCount(); }
+  }
+}
+function importNewItems() {
+  if (!need('item.add')) return;
+  NIMPORT = [];
+  modal('Excel-dən yeni mallar idxalı', `
+    <p class="hint" style="margin-top:0">Yalnız <b>yeni</b> mallar yaradılır. Mövcud malların adı, ölçüsü və qiyməti dəyişdirilmir. Qiymət bu idxalda alınmır.</p>
+    <div class="card" style="margin-bottom:12px"><div class="pad" style="padding:10px 12px">
+      <div class="eyebrow" style="margin-bottom:5px">Fayl formatı</div>
+      <div class="hint" style="line-height:1.7">
+        Sütunlar: <b>Malın adı</b> (məcburi, ən azı 3 simvol) və <b>Ölçü vahidi</b> (seçimlik, boşdursa <b>ədəd</b>).<br>
+        <code>.xlsx</code> faylı və ya Excel-dən birbaşa yapışdırma qəbul edilir. CSV/TSV də mümkündür.
+      </div>
+    </div></div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+      <input type="file" id="ni-file" accept=".xlsx,.xls,.csv,.tsv,.txt" style="width:auto">
+      <div style="flex:1"></div>
+    </div>
+    <label class="f"><span>Və ya Excel-dən yapışdırın (birinci sətir başlıq ola bilər)</span><textarea id="ni-txt" rows="6" placeholder="Malın adı	Ölçü vahidi&#10;Sement M400	kq&#10;Armatur d12	metr"></textarea></label>
+    <div style="display:flex;gap:10px;align-items:center;margin:6px 0 2px">
+      <div style="flex:1"></div><button class="btn" id="ni-chk">Yoxla</button>
+    </div>
+    <div id="ni-prev"></div>`,
+    `<div style="flex:1"></div><button class="btn" data-close>İmtina</button><button class="btn pri" id="ni-go" disabled>Yeni malları yarat</button>`);
+  $('#ni-chk').onclick = () => {
+    const txt = $('#ni-txt').value;
+    if (txt.trim().length) niPreview(extractNewRecords(parseNewText(txt)));
+    else niPreview([]);
+  };
+  $('#ni-file').onchange = e => {
+    const f = e.target.files[0]; if (!f) return;
+    const isXlsx = /\.(xlsx|xls)$/i.test(f.name);
+    const rd = new FileReader();
+    rd.onload = () => {
+      try {
+        if (isXlsx) {
+          if (typeof XLSX === 'undefined') { toast('Excel kitabxanası yüklənmədi', true); return; }
+          const wb = XLSX.read(rd.result, { type: 'array' });
+          const ws = wb.Sheets[wb.SheetNames[0]];
+          const rows2d = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
+          niPreview(extractNewRecords(rows2d));
+        } else {
+          const txt = String(rd.result).replace(/^﻿/, '');
+          $('#ni-txt').value = txt;
+          niPreview(extractNewRecords(parseNewText(txt)));
+        }
+      } catch (err) { console.error(err); toast('Fayl oxunmadı: ' + (err.message || ''), true); }
+    };
+    if (isXlsx) rd.readAsArrayBuffer(f); else rd.readAsText(f, 'utf-8');
+  };
+  $('#ni-go').onclick = niImport;
+  setTimeout(() => $('#ni-txt').focus(), 80);
 }
 
 function editPartner(id) {
