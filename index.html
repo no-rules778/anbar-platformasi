@@ -1597,6 +1597,73 @@ function bulkItems() {
 /* ---------- Excel-dən yeni mallar idxalı (yalnız yeni mallar) ---------- */
 /* Bu funksiya mövcud malları YENİLƏMİR. Yalnız yeni malları yaradır.
    Kodları server (Supabase RPC) atomar şəkildə verir; brauzer yalnız proqnoz göstərir. */
+
+/* ---- oxşarlıq köməkçiləri (yalnız bu modul üçün; NORM-u dəyişmir) ----
+   NORM dəqiq təkrar üçün istifadə olunur (dəyişilmir).
+   Oxşarlıq ayrı token-əsaslı alqoritmlə həyata keçirilir.
+   Qayda: ümumi kateqoriya sözünə (generator, yağ, filtr, kabel, nasos...) görə
+   oxşar işarəsi vurulmur; ən azı 2 mənalı token uyğun gəlməlidir, YA DA
+   bir güclü token (rəqəm saxlayan əşya kodu / ≥5 simvollu brand).         */
+const SIM_GENERIC = new Set([
+  // Azərbaycan funksional sözləri / qualifierlər
+  'üçün','ilə','olan','olaraq','da','də','bir','bu','o','həm','artıq',
+  'yeni','köhnə','digər','başqa','əlavə','normal','standart','hər',
+  'kiçik','böyük','orta','uzun','qısa','çox','az',
+  'parti','lot','seriya',
+  // Rəng adları
+  'ağ','qara','qırmızı','sarı','mavi','yaşıl','narıncı','boz',
+  // Material deskriptorları (brand deyil, kateqoriya əlamətidir)
+  'plastik','rezin','rezini','metal','metalik',
+  'dəmir','dəmiri','polad','poladı','mis','misi',
+  'alüminium','alüminiumlu','paslanmayan',
+  'taxta','ağac','şüşə','şüşəli','keramika',
+  // Kateqoriya sözləri — Azərbaycan + tez-tez işlədilən alinan sözlər
+  // yağlar
+  'yağ','yağı','yağın','yağla','oil',
+  // filtrlər
+  'filtr','filtri','filtrin','filter',
+  // kabellər / məftillər
+  'kabel','kabeli','kabelin','cable','məftil','məftili','sim','simi',
+  // generatorlar / mühərriklər
+  'generator','generatoru','generatorun',
+  'mühərrik','mühərriki','mühərrikin',
+  'motor','motoru','motorun','engine',
+  // nasoslar
+  'nasos','nasosun','nasosa','pump',
+  // ventillər / kranlar
+  'ventil','ventili','kran','kranı','valve',
+  // şlanqlar / borular
+  'şlang','şlanqı','hose','boru','borusu','borunun','pipe',
+  // iri avadanlıq
+  'transformator','kompressor','kondisioner','aggregat',
+  // bərkidici elementlər
+  'bolt','boltu','vida','vidası','qayka','qaykası','pərçim',
+  // ümumi hissə / ehtiyat
+  'hissə','hissəsi','part','spare','ehtiyat','ehtiyatı',
+  // dəst / komplekt
+  'komplekt','set','kit','dəst','dəsti',
+  // ümumi təsnifat sözləri
+  'tip','type','növ','model','ölçü','ölçüsü','size',
+]);
+// Adı mənalı tokenləre ayırır: qısa (<3 simvol) və kateqoriya sözlərini çıxarır.
+function simTokenize(name) {
+  return String(name || '').toLowerCase()
+    .split(/[^a-z0-9əıöşüçğ]+/)
+    .filter(t => t.length >= 3 && !SIM_GENERIC.has(t));
+}
+// Güclü token: model/kod (rəqəm saxlayır) YA DA uzun brand adı (≥5 simvol).
+function isStrongToken(t) { return /[0-9]/.test(t) || t.length >= 5; }
+// İki mal adı semantik cəhətdən oxşardırmı?
+// — hər iki tərəfdə ən azı 1 mənalı token olmalıdır;
+// — ≥2 uyğun token, YA DA 1 güclü uyğun token.
+function isSimilar(a, b) {
+  const ta = new Set(simTokenize(a));
+  const tb = new Set(simTokenize(b));
+  if (!ta.size || !tb.size) return false;
+  const common = [...ta].filter(t => tb.has(t));
+  return common.length >= 2 || (common.length === 1 && isStrongToken(common[0]));
+}
+
 let NIMPORT = [];
 const NAME_KEYS = ['malın adı', 'malin adi', 'ad', 'adı', 'adi', 'name', 'наименование'];
 const UNIT_KEYS = ['ölçü vahidi', 'olcu vahidi', 'ölçü', 'olcu', 'unit', 'ölçü vahid'];
@@ -1653,19 +1720,10 @@ function classifyNewRecords(records) {
     else if (seen.has(key)) { r.st = 'dup'; r.msg = 'Bu fayl içində təkrarlanır — bir dəfə yaradılır'; }
     else {
       seen.add(key);
-      // oxşarlıq (yalnız xəbərdarlıq, blok deyil). İki sadə, izahlı qayda:
-      //   (1) tam daxilolma: normallaşdırılmış ad mövcud adın əsasını daxil edir və ya əksinə;
-      //   (2) uzun ortaq prefiks (≥7 simvol) — fərqli artikul/sonluğu olan yaxın adları tutur.
-      let sim = null;
-      if (key.length >= 4) {
-        for (const it of DB.items) {
-          const ek = NORM(it.name); if (!ek || ek.length < 4) continue;
-          const contains = key.indexOf(ek) >= 0 || ek.indexOf(key) >= 0;
-          let shared = 0; const lim = Math.min(key.length, ek.length);
-          while (shared < lim && key[shared] === ek[shared]) shared++;
-          if (contains || shared >= 7) { sim = it; break; }
-        }
-      }
+      // oxşarlıq: token-əsaslı (isSimilar). Yalnız xəbərdarlıq; seçimi dəyişmir.
+      // Kateqoriya sözləri (generator, yağ, filtr...) SIM_GENERIC-dən çıxarılır,
+      // buna görə bu sözlərə görə saxta oxşarlıq vurulmur.
+      const sim = DB.items.find(it => isSimilar(name, it.name)) || null;
       if (sim) { r.st = 'sim'; r.simCode = sim.code; r.simName = sim.name; r.use = true; r.msg = 'Oxşar ad mövcuddur: ' + sim.code + ' — ' + sim.name + ' (istəsəniz yenə də yarada bilərsiniz)'; }
       else { r.st = 'new'; r.use = true; r.msg = 'Yeni mal'; }
     }
