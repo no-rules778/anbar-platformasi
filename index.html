@@ -201,6 +201,7 @@ label.f>span{display:block;font-size:10.5px;text-transform:uppercase;letter-spac
       <a data-p="bal">Anbar qalıqları <b id="c-bal"></b></a>
       <div class="grp">Bazalar</div>
       <a data-p="nom">Nomenklatura <b id="c-nom"></b></a>
+      <a data-p="grp">Mal qrupları</a>
       <a data-p="knt">Kontragentlər <b id="c-knt"></b></a>
       <a data-p="anb">Anbar və layihələr <b id="c-anb"></b></a>
       <div class="grp">Təhlil</div>
@@ -275,9 +276,18 @@ label.f>span{display:block;font-size:10.5px;text-transform:uppercase;letter-spac
       <!-- NOMENCLATURE -->
       <section class="page" id="p-nom">
         <div class="phead"><div><h2>Nomenklatura bazası</h2><p>Malın kodu 7 rəqəmli və unikaldır. Yeni mal əlavə edərkən sistem oxşar adları yoxlayır.</p></div><div class="sp"></div>
-          <button class="btn" id="nom-exp">Excel</button><button class="btn" id="nom-print">Çap</button><button class="btn" id="nom-import">Excel-dən yeni mallar idxalı</button><button class="btn" id="nom-bulk">Siyahı əlavə et</button><button class="btn pri" id="nom-add">Yeni mal</button></div>
+          <button class="btn" id="nom-exp">Excel</button><button class="btn" id="nom-print">Çap</button><button class="btn" id="nom-catimp" title="Yalnız Rəhbər: nəzərdən keçirilmiş CSV-dən kateqoriyaları idxal et">Kateqoriya idxalı (CSV)</button><button class="btn" id="nom-import">Excel-dən yeni mallar idxalı</button><button class="btn" id="nom-bulk">Siyahı əlavə et</button><button class="btn pri" id="nom-add">Yeni mal</button></div>
         <div class="filters" id="nom-filters"></div>
         <div class="card"><div class="tw" id="t-nom"></div><div class="pad" id="nom-pager" style="border-top:1px solid var(--line-2);display:flex;align-items:center;gap:10px"></div></div>
+      </section>
+
+      <!-- ITEM GROUPS (read-only selection + dedicated XLSX export) -->
+      <section class="page" id="p-grp">
+        <div class="phead"><div><h2>Mal qrupları</h2><p>Kateqoriya, anbar və qiymət üzrə süzgəc. Yalnız müsbət qalıqlar. Seçilmiş sətirləri ayrıca sadə Excel-ə ixrac edin (SON şablonu ilə əlaqəsizdir).</p></div><div class="sp"></div>
+          <span class="hint" id="grp-selcnt" style="margin-right:8px"></span>
+          <button class="btn pri" id="grp-exp" disabled>⬇ Seçilənləri Excel-ə ixrac et</button></div>
+        <div class="pad" id="grp-filters" style="border:1px solid var(--line-2);border-radius:6px;margin-bottom:12px"></div>
+        <div class="card"><div class="tw" id="t-grp"></div><div class="pad" id="grp-pager" style="border-top:1px solid var(--line-2);display:flex;align-items:center;gap:10px"></div></div>
       </section>
 
       <!-- PARTNERS -->
@@ -418,6 +428,70 @@ const isAdmin = () => !!(ME && ME.role === 'rehber');
 /* Yerdəyişmədən başqa, atomar əks-yazı ilə ləğv edilə bilən növlər */
 const CANCELLABLE_TYPES = ['Satınalma', 'Əvvələ qalıq', 'Qaytarma', 'Silinmə', 'Sahəyə', 'Satış'];
 
+/* ---------- Mal kateqoriyaları (MVP: bir malın bir əsas kateqoriyası) ----------
+   SQL migration 004_items_category.sql + 006_items_category_extend_and_rpc.sql ilə
+   eyni siyahı olmalıdır (004: ilk 12 + Təyin edilməyib; 006: +3 yeni kateqoriya). */
+const CAT_UNSET = 'Təyin edilməyib';
+const ITEM_CATEGORIES = ['Generatorlar', 'Nasoslar', 'Konteynerlər', 'Xüsusi texnika',
+  'Kanselyariya və ofis ləvazimatları', 'İT və ofis texnikası', 'Mebel',
+  'Əməyin mühafizəsi və təhlükəsizlik vasitələri', 'Filtrlər', 'Yağlar',
+  'Laboratoriya malları', 'Alətlər və cihazlar',
+  'Ehtiyat hissələri və fitinqlər', 'Tikinti materialları və sərfiyyat malları',
+  'Məişət və təsərrüfat malları'];
+/* Yalnız Rəhbər və Təchizatçı kateqoriyanı redaktə edə bilər (server trigger də bunu tələb edir) */
+const canEditCategory = () => !!(ME && (ME.role === 'rehber' || ME.role === 'techizat'));
+/* Açar sözə görə TƏKLİF — heç vaxt avtomatik yadda saxlamır, yalnız istifadəçiyə göstərir */
+const CAT_KEYWORDS = {
+  'Generatorlar': ['generator', 'jenerator'],
+  'Nasoslar': ['nasos', 'pump', 'насос'],
+  'Konteynerlər': ['konteyner', 'container'],
+  'Xüsusi texnika': ['ekskavator', 'buldozer', 'kran', 'yükləyici', 'pogruzchik'],
+  'Kanselyariya və ofis ləvazimatları': ['kağız', 'qələm', 'stapler', 'kanselyariya', 'qovluq', 'marker', 'skrep'],
+  'İT və ofis texnikası': ['kompüter', 'komputer', 'noutbuk', 'printer', 'monitor', 'server', 'router', 'switch', 'skaner'],
+  'Mebel': ['stol', 'stul', 'kreslo', 'şkaf', 'mebel', ' rəf', 'divan'],
+  'Əməyin mühafizəsi və təhlükəsizlik vasitələri': ['dəbilqə', 'əlcək', 'respirator', 'jilet', 'təhlükəsizlik', 'qoruyucu', 'kaska'],
+  'Filtrlər': ['filtr', 'filter', 'фильтр'],
+  'Yağlar': ['yağ', ' oil', 'масло', 'sürtkü', 'antifriz'],
+  'Laboratoriya malları': ['laborator', 'reagent', 'kolba', 'probirka', 'mikroskop'],
+  'Alətlər və cihazlar': ['alət', 'cihaz', 'açar', 'çəkic', 'burğu', 'multimetr', 'ölçü cihazı']
+};
+function suggestCategory(name) {
+  const n = ' ' + String(name || '').toLowerCase() + ' ';
+  for (const cat of ITEM_CATEGORIES) { if ((CAT_KEYWORDS[cat] || []).some(k => n.indexOf(k) >= 0)) return cat; }
+  return '';
+}
+/* İxrac üçün icazəli anbarlar — anbardar yalnız öz anbarını görür, digərləri hamısını */
+function allowedWarehouses() {
+  if (ME && ME.role === 'anbardar' && ME.wh) return DB.whs.filter(w => w === ME.wh);
+  return DB.whs.slice();
+}
+/* Hər mal üçün QLOBAL sonuncu etibarlı Satınalma qiyməti (anbardan asılı olmayaraq).
+   Ləğv edilmiş hərəkətlər normalMovements() ilə çıxarılır. Qiymət yoxdursa — boş.
+   Determinist sıralama: (1) hərəkət tarixi, (2) etibarlı created_at, (3) son fallback: id.
+   items.price fallback kimi İSTİFADƏ OLUNMUR. */
+function laterPurchase(m, prev) {
+  if (m.d !== prev.d) return m.d > prev.d;                 // 1) tarix
+  const a = Number.isFinite(m.ts) ? m.ts : null;           // 2) etibarlı created_at
+  const b = Number.isFinite(prev.ts) ? prev.ts : null;
+  if (a !== b) {
+    if (a === null) return false;                          // prev-in etibarlı vaxtı var, m-in yox
+    if (b === null) return true;                           // m-in etibarlı vaxtı var, prev-in yox
+    return a > b;
+  }
+  return String(m.id) > String(prev.id);                   // 3) determinist son fallback: id
+}
+function buildLastPurchaseMap() {
+  const map = new Map(); // code -> { price, d, ts, id }
+  for (const m of normalMovements()) {
+    if (m.t !== 'Satınalma') continue;
+    const pr = +m.pr; if (!(pr > 0)) continue;             // qiymət <= 0 və ya rəqəm deyil — xaric
+    const prev = map.get(m.c);
+    if (!prev || laterPurchase(m, prev))
+      map.set(m.c, { price: pr, d: m.d, ts: m.ts, id: m.id });
+  }
+  return map;
+}
+
 /* ---------- SUPABASE CONFIG ---------- */
 const SB_URL = 'https://bbjmhaerssakbreykxiw.supabase.co';
 const SB_KEY = 'sb_publishable_DIBx0-l-Eh7sGbePXIekBw_MEy1mycV';
@@ -501,6 +575,9 @@ const DB = {
 let UMAIL = new Map(), UMAIL_ERR = false;
 /* audit_log-un ümumi sətir sayı (server tərəfindən); null = hələ yüklənməyib */
 let AUDIT_TOTAL = null, AUDIT_TOTAL_ERR = false;
+/* Sonuncu loadFromDB yeniləməsində baş vermiş fetch xətası (yoxdursa null).
+   İxracdan əvvəl təhlükəsiz yeniləmə üçün istifadə olunur. */
+let LOAD_ERR = null;
 
 /* ---------- initial data load from DB ---------- */
 /* PostgREST returns max 1000 rows per request — read in pages until exhausted */
@@ -511,7 +588,7 @@ async function fetchAll(table, orderCols) {
     let q = SB.from(table).select('*');
     (orderCols || []).forEach(c => { q = q.order(c); });
     const { data, error } = await q.range(from, from + PAGE_SIZE - 1);
-    if (error) { console.error('fetchAll ' + table, error); toast('Yükləmə xətası: ' + table, true); break; }
+    if (error) { console.error('fetchAll ' + table, error); toast('Yükləmə xətası: ' + table, true); LOAD_ERR = error; break; }
     const batch = data || [];
     out = out.concat(batch);
     if (batch.length < PAGE_SIZE) break;
@@ -521,7 +598,8 @@ async function fetchAll(table, orderCols) {
 }
 
 async function loadFromDB() {
-  if (!SB) return;
+  if (!SB) return { ok: false, error: { message: 'Supabase bağlantısı yoxdur' } };
+  LOAD_ERR = null;
   const [itemRows, partnerRows, whRows, mvRows] = await Promise.all([
     fetchAll('items', ['code']),
     fetchAll('partners', ['name']),
@@ -532,7 +610,8 @@ async function loadFromDB() {
         warehouses = { data: whRows }, movements = { data: mvRows };
   DB.items = (items.data || []).map(r => ({
     code: r.code, name: r.name, unit: r.unit || 'ədəd',
-    price: parseFloat(r.price) || 0, price_source: r.price_source || '', seed: true
+    price: parseFloat(r.price) || 0, price_source: r.price_source || '',
+    category: r.category || '', seed: true
   }));
   DB.partners = (partners.data || []).map(r => ({
     id: r.id, name: r.name, voen: r.voen || '', contract: r.contract || '',
@@ -561,6 +640,7 @@ async function loadFromDB() {
   DB.itemBy = new Map(DB.items.map(i => [i.code, i]));
   DB.events = [];
   index();
+  return { ok: !LOAD_ERR, error: LOAD_ERR };
 }
 
 /* ---------- Audit jurnalı üçün istifadəçi e-poçtları (yalnız təsdiqlənmiş sütunlar: id, email) ----------
@@ -633,6 +713,7 @@ async function emit(e, op, d, note) {
     } else if (e === 'item') {
       if (op === 'a') {
         const row = { code: d.code, name: d.name, unit: d.unit || 'ədəd', price: d.price || 0, price_source: d.psrc || '', created_by: ME.sbId };
+        if (d.category !== undefined) row.category = d.category || null;
         const { error } = await SB.from('items').insert(row);
         if (error) throw error;
         DB.items.push(d);
@@ -643,6 +724,7 @@ async function emit(e, op, d, note) {
         if (d.unit !== undefined) upd.unit = d.unit;
         if (d.price !== undefined) upd.price = d.price;
         if (d.psrc !== undefined) upd.price_source = d.psrc;
+        if (d.category !== undefined) upd.category = d.category || null;
         if (Object.keys(upd).length) {
           const { error } = await SB.from('items').update(upd).eq('code', d.code);
           if (error) throw error;
@@ -969,7 +1051,7 @@ $$('.rail a').forEach(a => a.onclick = () => go(a.dataset.p));
 $('#burger').onclick = () => $('#rail').classList.toggle('open');
 
 function render(p) {
-  ({ dash: rDash, op: rOp, mov: rMov, bal: rBal, nom: rNom, knt: rKnt, anb: rAnb, rep: rRep, fin: rFin, ctrl: rCtrl, log: rLog, set: rSet }[p] || (() => { }))();
+  ({ dash: rDash, op: rOp, mov: rMov, bal: rBal, nom: rNom, grp: rGroups, knt: rKnt, anb: rAnb, rep: rRep, fin: rFin, ctrl: rCtrl, log: rLog, set: rSet }[p] || (() => { }))();
   counters();
 }
 function renderAll() { render(PAGE); }
@@ -1279,6 +1361,177 @@ function rNom() {
   $('#nom-bulk').disabled = !can('item.add');
   $('#nom-import').onclick = () => importNewItems();
   $('#nom-import').disabled = !can('item.add');
+  const catimpBtn = $('#nom-catimp');
+  if (catimpBtn) { catimpBtn.onclick = () => categoryImport(); catimpBtn.style.display = isAdmin() ? '' : 'none'; }
+}
+
+/* ================= ITEM GROUPS (read-only selection + xlsGroups) =================
+   Yalnız oxuma/seçim. Balansı, qiyməti, nomenklaturanı, hərəkətləri DƏYİŞMİR.
+   Paylaşılan xls(), SON ixracı, Tam ixrac TOXUNULMUR. */
+const GRP = { whs: new Set(), cats: new Set(), min: '', max: '', q: '', sel: new Set() };
+/* Min/Max doğrulaması: boş icazəlidir; mənfi/qeyri-sonlu rədd edilir; Min > Max rədd edilir.
+   Sərhədlər daxildir. Uğurda { ok:true, min, max } (null = boş), xətada { ok:false, msg } qaytarır. */
+function grpPriceRange() {
+  const min = GRP.min === '' ? null : parseFloat(GRP.min);
+  const max = GRP.max === '' ? null : parseFloat(GRP.max);
+  if (min !== null && (!Number.isFinite(min) || min < 0)) return { ok: false, msg: 'Min qiymət mənfi olmayan düzgün ədəd olmalıdır' };
+  if (max !== null && (!Number.isFinite(max) || max < 0)) return { ok: false, msg: 'Max qiymət mənfi olmayan düzgün ədəd olmalıdır' };
+  if (min !== null && max !== null && min > max) return { ok: false, msg: 'Min qiymət Max qiymətdən böyük ola bilməz' };
+  return { ok: true, min, max };
+}
+/* Uğurda sətir massivi, süzgəc xətasında { error: msg } qaytarır. */
+function grpRows() {
+  const range = grpPriceRange();
+  if (!range.ok) return { error: range.msg };
+  const allowed = allowedWarehouses();
+  const lastP = buildLastPurchaseMap();
+  const wSel = GRP.whs.size ? GRP.whs : null;
+  const cSel = GRP.cats.size ? GRP.cats : null;
+  const min = range.min, max = range.max;      // artıq doğrulanıb (sonlu, >= 0 və ya null)
+  const q = GRP.q;
+  const out = [];
+  for (const b of IX.bal) {
+    if (!(b.q > 1e-9)) continue;                 // yalnız müsbət qalıq (sıfır/mənfi xaric)
+    if (allowed.indexOf(b.w) < 0) continue;      // icazəli anbar (anbardar yalnız öz anbarı)
+    if (wSel && !wSel.has(b.w)) continue;        // anbar süzgəci (OR daxildə)
+    const it = DB.itemBy.get(b.c) || {};
+    const cat = it.category || CAT_UNSET;
+    if (cSel && !cSel.has(cat)) continue;        // kateqoriya süzgəci (OR daxildə)
+    const lp = lastP.get(b.c);
+    const price = lp ? lp.price : null;
+    if (min !== null || max !== null) {
+      if (price == null) continue;               // qiymətsiz mal Min/Max süzgəcində iştirak etmir
+      if (min !== null && price < min) continue;  // daxildir
+      if (max !== null && price > max) continue;  // daxildir
+    }
+    if (q && (b.c + ' ' + (it.name || b.name || '')).toLowerCase().indexOf(q) < 0) continue;  // AND, kateqoriyadan asılı deyil
+    out.push({ code: b.c, name: it.name || b.name || '', qty: b.q, unit: b.unit || it.unit || '', wh: b.w, cat, price });
+  }
+  out.sort((a, b2) => a.wh.localeCompare(b2.wh, 'az') || a.name.localeCompare(b2.name, 'az'));
+  return out;
+}
+function rGroups() {
+  const el = $('#grp-filters');
+  const allowed = allowedWarehouses();
+  if (!el.dataset.done) {
+    el.dataset.done = 1;
+    el.innerHTML = `
+      <div style="display:flex;flex-wrap:wrap;gap:16px">
+        <div style="min-width:170px">
+          <div class="eyebrow" style="margin-bottom:5px">Anbar (bir və ya bir neçə)</div>
+          <div id="grp-whs" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+        </div>
+        <div style="min-width:260px;flex:1">
+          <div class="eyebrow" style="margin-bottom:5px">Kateqoriya (bir və ya bir neçə)</div>
+          <div id="grp-cats" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+        </div>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:end;margin-top:12px">
+        <label class="f" style="max-width:150px"><span>Min qiymət (₼)</span><input type="number" step="0.01" id="grp-min" placeholder="—"></label>
+        <label class="f" style="max-width:150px"><span>Max qiymət (₼)</span><input type="number" step="0.01" id="grp-max" placeholder="—"></label>
+        <label class="f" style="flex:1;min-width:200px"><span>Axtarış (kod və ya ad)</span><input type="search" id="grp-q" placeholder="məs. 0000152 və ya nasos"></label>
+        <button class="btn" id="grp-reset">Süzgəcləri sıfırla</button>
+      </div>
+      <div class="hint" style="margin-top:7px">Süzgəclər arasında VƏ (AND); eyni süzgəc daxilində VƏ YA (OR). Min/Max sərhədləri daxildir. Qiymətsiz mal Min/Max seçiləndə siyahıya düşmür. Yalnız müsbət qalıqlar göstərilir.</div>`;
+    $('#grp-whs').innerHTML = allowed.length
+      ? allowed.map(w => `<label class="tag t-mut" style="cursor:pointer;user-select:none"><input type="checkbox" class="grp-wh" value="${esc(w)}" style="margin-right:5px">${esc(w)}</label>`).join('')
+      : '<span class="hint">İcazəli anbar yoxdur</span>';
+    $('#grp-cats').innerHTML = [CAT_UNSET].concat(ITEM_CATEGORIES).map(c => `<label class="tag t-mut" style="cursor:pointer;user-select:none"><input type="checkbox" class="grp-cat" value="${esc(c)}" style="margin-right:5px">${esc(c)}</label>`).join('');
+    $$('#grp-whs .grp-wh').forEach(cb => cb.onchange = () => { cb.checked ? GRP.whs.add(cb.value) : GRP.whs.delete(cb.value); rGroups(); });
+    $$('#grp-cats .grp-cat').forEach(cb => cb.onchange = () => { cb.checked ? GRP.cats.add(cb.value) : GRP.cats.delete(cb.value); rGroups(); });
+    $('#grp-min').oninput = debounce(() => { GRP.min = $('#grp-min').value.trim(); rGroups(); }, 200);
+    $('#grp-max').oninput = debounce(() => { GRP.max = $('#grp-max').value.trim(); rGroups(); }, 200);
+    $('#grp-q').oninput = debounce(() => { GRP.q = $('#grp-q').value.trim().toLowerCase(); rGroups(); }, 200);
+    $('#grp-reset').onclick = () => { GRP.whs.clear(); GRP.cats.clear(); GRP.min = ''; GRP.max = ''; GRP.q = ''; GRP.sel.clear(); el.dataset.done = ''; rGroups(); };
+  }
+  const rr = grpRows();
+  if (!Array.isArray(rr)) {                       // Min/Max doğrulama xətası — süzgəc/ixrac dayandırılır
+    $('#t-grp').innerHTML = `<div class="empty"><b>Süzgəc xətası</b>${esc(rr.error)}</div>`;
+    $('#grp-pager').innerHTML = `<span class="hint" style="color:var(--alarm)">${esc(rr.error)}</span>`;
+    grpUpdateSel();                               // düymə hələ aktiv ola bilər, amma ixrac özü də yoxlayır
+    return;
+  }
+  const rows = rr;
+  const visible = new Set(rows.map(r => r.code + '|' + r.wh));
+  for (const k of Array.from(GRP.sel)) if (!visible.has(k)) GRP.sel.delete(k);  // görünməyən seçimləri təmizlə
+  const page = cut(rows, 'grp');
+  $('#t-grp').innerHTML = tbl(
+    [{ t: '' }, { t: 'Kod' }, { t: 'Malın adı' }, { t: 'Kateqoriya' }, { t: 'Anbar' }, { t: 'Miqdar', r: 1 }, { t: 'Son alış qiyməti', r: 1 }],
+    page.map(r => {
+      const k = r.code + '|' + r.wh;
+      return { c: [
+        `<input type="checkbox" class="grp-row" data-k="${esc(k)}" ${GRP.sel.has(k) ? 'checked' : ''}>`,
+        `<span class="code">${esc(r.code)}</span>`, `<div class="nm">${esc(r.name)}</div>`,
+        r.cat === CAT_UNSET ? `<span class="muted">${esc(CAT_UNSET)}</span>` : esc(r.cat),
+        esc(r.wh), nf(r.qty, 2) + ' ' + esc(r.unit),
+        r.price != null ? nf(r.price, 2) : '<span class="muted">—</span>'] };
+    }), { empty: 'Bu süzgəclərə uyğun müsbət qalıq yoxdur.' });
+  $$('#t-grp .grp-row').forEach(cb => cb.onchange = () => { cb.checked ? GRP.sel.add(cb.dataset.k) : GRP.sel.delete(cb.dataset.k); grpUpdateSel(); });
+  $('#grp-pager').innerHTML = `<span class="hint">${nf(rows.length)} sətir (müsbət qalıq)` + cutNote(rows, 'grp', rGroups) + `</span>`;
+  grpUpdateSel();
+}
+function grpUpdateSel() {
+  const n = GRP.sel.size;
+  const c = $('#grp-selcnt'); if (c) c.textContent = n ? nf(n) + ' sətir seçilib' : 'Sətir seçilməyib';
+  const btn = $('#grp-exp'); if (btn) { btn.disabled = !n; btn.onclick = () => grpExport(); }
+}
+async function grpExport() {
+  if (!GRP.sel.size) return;
+  // Min/Max doğrulaması ixracdan əvvəl — yanlışdırsa nə yeniləmə, nə ixrac
+  const pre = grpPriceRange();
+  if (!pre.ok) { toast(pre.msg, true); return; }
+  const btn = $('#grp-exp'); if (btn) btn.disabled = true;
+  try {
+    // İxracdan DƏRHAL ƏVVƏL məlumatı yenilə. Yeniləmə uğursuzdursa — ixrac YOX,
+    // əsl xəta göstərilir və heç vaxt "sıfır qalıq" kimi təqdim edilmir.
+    let res;
+    try { res = await loadFromDB(); }
+    catch (e) { console.error('grpExport refresh', e); toast('Məlumat yenilənmədi — ixrac dayandırıldı: ' + (e.message || 'şəbəkə xətası'), true); return; }
+    if (!res || res.ok === false) {
+      const msg = (res && res.error && res.error.message) ? res.error.message : 'natamam məlumat / şəbəkə xətası';
+      toast('Məlumat yenilənmədi — ixrac dayandırıldı: ' + msg, true);
+      return;
+    }
+    const snapTs = Date.now();          // yalnız uğurlu yeniləmədən sonra snapshot vaxtı
+    const rr = grpRows();
+    if (!Array.isArray(rr)) { toast(rr.error, true); return; }  // doğrulama (təhlükəsizlik üçün təkrar)
+    const byKey = new Map(rr.map(r => [r.code + '|' + r.wh, r]));  // yeni balanslar
+    // Seçim saxlanılır; yalnız müsbət qalığı qalmayan sətirlər çıxarılır
+    const chosen = []; let dropped = 0;
+    for (const k of GRP.sel) { const r = byKey.get(k); if (r) chosen.push(r); else dropped++; }
+    if (!chosen.length) { toast('Seçilmiş sətirlərin müsbət qalığı qalmayıb — ixrac dayandırıldı', true); rGroups(); return; }
+    xlsGroups(chosen, snapTs);
+    if (dropped) toast(dropped + ' sətir qalıqsız olduğu üçün ixracdan çıxarıldı', true);
+    rGroups();
+  } catch (e) {
+    console.error('group export', e); toast('İxrac xətası: ' + (e.message || 'bilinmir'), true);
+  } finally { const b = $('#grp-exp'); if (b) b.disabled = !GRP.sel.size; }
+}
+/* Yalnız bu funksiya üçün ayrıca XLSX strukturu. Paylaşılan xls() TOXUNULMUR.
+   Statik dəyərlər: düstur/PowerQuery/makro yoxdur, SON şablonu ilə əlaqə yoxdur.
+   Kod mətn kimi yazılır (leading zero qorunur); qiymətsiz xana boş qalır. */
+function xlsGroups(rows, snapTs) {
+  if (typeof XLSX === 'undefined') { toast('Excel kitabxanası yüklənmədi', true); return; }
+  const stampStr = new Date(snapTs).toLocaleString('az-AZ', { timeZone: 'Asia/Baku' });
+  const header = ['Kod', 'Malın adı', 'Miqdar', 'Son alış qiyməti', 'Anbar', 'İxrac tarixi'];
+  const ws = {};
+  header.forEach((h, c) => { ws[XLSX.utils.encode_cell({ r: 0, c })] = { t: 's', v: h }; });
+  rows.forEach((row, i) => {
+    const r = i + 1;
+    ws[XLSX.utils.encode_cell({ r, c: 0 })] = { t: 's', v: String(row.code), z: '@' };  // mətn — leading zero qorunur
+    ws[XLSX.utils.encode_cell({ r, c: 1 })] = { t: 's', v: String(row.name || '') };
+    ws[XLSX.utils.encode_cell({ r, c: 2 })] = { t: 'n', v: +row.qty };
+    if (row.price != null && !isNaN(+row.price)) ws[XLSX.utils.encode_cell({ r, c: 3 })] = { t: 'n', v: +row.price };
+    // qiymət yoxdursa — xana yaradılmır (boş qalır)
+    ws[XLSX.utils.encode_cell({ r, c: 4 })] = { t: 's', v: String(row.wh || '') };
+    ws[XLSX.utils.encode_cell({ r, c: 5 })] = { t: 's', v: stampStr };
+  });
+  ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: rows.length, c: 5 } });
+  ws['!cols'] = [{ wch: 12 }, { wch: 42 }, { wch: 12 }, { wch: 16 }, { wch: 16 }, { wch: 22 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Mal qrupları');
+  XLSX.writeFile(wb, 'mal_qruplari_' + today() + '.xlsx');
+  toast('mal_qruplari.xlsx yükləndi (' + rows.length + ' sətir)');
 }
 
 /* ================= PARTNERS ================= */
@@ -1781,21 +2034,46 @@ function editItem(code, presetName) {
         <datalist id="unitlist">${['ədəd','kq','metr','litr','m²','m³','ton','cüt','dəst','bağlama','qutu','çanta','rulon'].map(u => `<option>${esc(u)}</option>`).join('')}</datalist></label>
       <label class="f"><span>Son vahid qiyməti (₼)</span><input type="number" step="0.01" id="i-price" value="${it && it.price ? it.price : ''}" ${can('price.edit') ? '' : 'disabled'}></label>
     </div>
+    ${canEditCategory() ? `<div class="row" style="grid-template-columns:1fr auto">
+      <label class="f"><span>Kateqoriya${it ? '' : ' <b style="color:var(--alarm)">*</b>'}</span><select id="i-cat">
+        <option value="" ${it ? '' : 'disabled'}>${it ? esc(CAT_UNSET) : 'Seçin…'}</option>
+        ${ITEM_CATEGORIES.map(c => `<option ${it && it.category === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}
+      </select></label>
+      <div id="i-cat-sug" style="align-self:end;padding-bottom:6px"></div>
+    </div>${it ? '' : '<div class="hint">Yeni mal üçün kateqoriya seçilməlidir.</div>'}` : ''}
     <div id="i-warn"></div>`,
     `<div style="flex:1"></div><button class="btn" data-close>İmtina</button><button class="btn pri" id="i-save">Yadda saxla</button>`);
+  /* Kateqoriya TƏKLİFİ — yalnız göstərir, avtomatik seçmir/yadda saxlamır */
+  const catSug = () => {
+    const box = $('#i-cat-sug'); if (!box) return;
+    const sel = $('#i-cat'); const cur = sel ? sel.value : '';
+    if (cur) { box.innerHTML = ''; return; }   // istifadəçi artıq seçib
+    const sug = suggestCategory($('#i-name').value);
+    box.innerHTML = sug ? `<button type="button" class="btn sm" id="i-cat-apply">Təklif: ${esc(sug)} — seç</button>` : '';
+    if ($('#i-cat-apply')) $('#i-cat-apply').onclick = () => { if (sel) sel.value = sug; box.innerHTML = ''; };
+  };
   const chk = () => {
     const v = $('#i-name').value.trim().toLowerCase().replace(/[\s/.,"'-]+/g, '');
+    catSug();
     if (v.length < 4) return $('#i-warn').innerHTML = '';
     const sim = DB.items.filter(x => x.code !== $('#i-code').value && x.name.toLowerCase().replace(/[\s/.,"'-]+/g, '').indexOf(v.slice(0, Math.max(8, v.length - 6))) >= 0).slice(0, 4);
     $('#i-warn').innerHTML = sim.length ? `<div class="hint" style="background:var(--out-l);padding:8px;border-radius:4px"><b>Oxşar mallar mövcuddur — təkrar yaratmayın:</b><br>${sim.map(s => esc(s.code + ' — ' + s.name)).join('<br>')}</div>` : '';
   };
   $('#i-name').oninput = debounce(chk, 250); chk();
+  if ($('#i-cat')) $('#i-cat').onchange = catSug;
   $('#i-save').onclick = async () => {
     const c = $('#i-code').value.trim(), n = $('#i-name').value.trim();
     if (!/^\d{7}$/.test(c)) return toast('Kod 7 rəqəmli olmalıdır', true);
     if (n.length < 3) return toast('Malın adını yazın', true);
     if (!it && DB.itemBy.has(c)) return toast('Bu kod artıq mövcuddur', true);
-    await emit('item', it ? 'u' : 'a', { code: c, name: n, unit: $('#i-unit').value.trim() || 'ədəd', price: parseFloat($('#i-price').value) || 0, by: ME.name });
+    // Codex audit #6: yeni əl ilə yaradılan mal üçün kateqoriya redaktə icazəsi olan istifadəçi
+    // kateqoriya seçmədən yadda saxlaya bilməz. Mövcud malın düzəlişinə bu qayda TƏTBİQ OLUNMUR
+    // (Təyin edilməyib saxlamaq olar); toplu/Excel idxalı da bu qaydadan kənardır (ayrı yol).
+    if (!it && canEditCategory() && $('#i-cat') && !$('#i-cat').value) return toast('Yeni mal üçün kateqoriya seçin', true);
+    const payload = { code: c, name: n, unit: $('#i-unit').value.trim() || 'ədəd', price: parseFloat($('#i-price').value) || 0, by: ME.name };
+    // Kateqoriya yalnız Rəhbər/Təchizatçı üçün göndərilir; boş = Təyin edilməyib (NULL, yalnız düzəlişdə mümkündür)
+    if (canEditCategory() && $('#i-cat')) payload.category = $('#i-cat').value || '';
+    await emit('item', it ? 'u' : 'a', payload);
     closeModal(); renderAll(); toast(it ? 'Mal yeniləndi' : 'Yeni mal əlavə edildi: ' + c);
   };
 }
@@ -1916,6 +2194,145 @@ function bulkItems() {
     toast(nf(add) + ' yeni mal əlavə edildi' + (up ? ', ' + nf(up) + ' mal yeniləndi' : ''));
   };
   setTimeout(() => $('#b-txt').focus(), 80);
+}
+
+/* ---------- Admin: CSV-dən kateqoriya idxalı (önizləmə + təsdiq → atomar RPC) ----------
+   Yalnız Rəhbər. Yalnız {code, category} göndərilir. Yazma serverdə all-or-none RPC ilə.
+   Mövcud ixracları/hərəkətləri/qiymətləri DƏYİŞMİR; yalnız items.category yenilənir. */
+let CATIMP = [];
+let CATIMP_CONFIRM = false;
+/* Minimal CSV parser (dırnaqlı sahələr, ikiqat dırnaq) — classify_items ilə eyni məntiq */
+function parseCsvText(text) {
+  const rows = []; let i = 0, field = '', row = [], inQ = false;
+  const pushF = () => { row.push(field); field = ''; };
+  const pushR = () => { rows.push(row); row = []; };
+  while (i < text.length) {
+    const c = text[i];
+    if (inQ) { if (c === '"') { if (text[i + 1] === '"') { field += '"'; i += 2; continue; } inQ = false; i++; continue; } field += c; i++; continue; }
+    if (c === '"') { inQ = true; i++; continue; }
+    if (c === ',') { pushF(); i++; continue; }
+    if (c === '\r') { i++; continue; }
+    if (c === '\n') { pushF(); pushR(); i++; continue; }
+    field += c; i++;
+  }
+  if (field.length || row.length) { pushF(); pushR(); }
+  return rows.filter(r => r.length && r.some(c => String(c).trim() !== ''));
+}
+function categoryImport() {
+  if (!isAdmin()) { toast('Yalnız Rəhbər kateqoriya idxal edə bilər', true); return; }
+  CATIMP = []; CATIMP_CONFIRM = false;
+  modal('Kateqoriya idxalı (CSV) — yalnız Rəhbər', `
+    <p class="hint" style="margin-top:0">Nəzərdən keçirilmiş CSV-ni yapışdırın və ya faylı seçin. Sütunlar: <b>code</b> və <b>category</b> (və ya <b>proposed_category</b>). Sistem hər sətri yoxlayır; yalnız təsdiqinizdən sonra serverə (atomar RPC) yazılır — ya hamısı, ya heç biri. Kodların əvvəlindəki sıfırlar qorunur.</p>
+    <label class="f"><span>CSV mətni</span><textarea id="ci-txt" rows="7" placeholder="code,category&#10;0000001,Filtrlər&#10;0000003,Ehtiyat hissələri və fitinqlər"></textarea></label>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
+      <input type="file" id="ci-file" accept=".csv,.txt" style="width:auto">
+      <div style="flex:1"></div><button class="btn" id="ci-chk">Yoxla</button>
+    </div>
+    <div id="ci-prev"></div>`,
+    `<div style="flex:1"></div><button class="btn" data-close>İmtina</button><button class="btn pri" id="ci-go" disabled>Bazaya yaz (RPC)</button>`);
+  $('#ci-chk').onclick = catImpPreview;
+  $('#ci-file').onchange = e => {
+    const f = e.target.files[0]; if (!f) return;
+    const rd = new FileReader();
+    rd.onload = () => { $('#ci-txt').value = String(rd.result).replace(/^﻿/, ''); catImpPreview(); };
+    rd.readAsText(f, 'utf-8');
+  };
+  $('#ci-go').onclick = catImpApply;
+  setTimeout(() => $('#ci-txt').focus(), 80);
+}
+function catImpPreview() {
+  const raw = ($('#ci-txt').value || '').replace(/^﻿/, '');
+  const catSet = new Set(ITEM_CATEGORIES.concat([CAT_UNSET]));
+  const rows = parseCsvText(raw);
+  CATIMP = [];
+  if (!rows.length) { $('#ci-prev').innerHTML = '<div class="hint">Məlumat yoxdur.</div>'; catImpCount(); return; }
+  // başlıq aşkarlanması: code + category/proposed_category
+  let iCode = 0, iCat = 1, start = 0;
+  const h = rows[0].map(c => String(c).trim().toLowerCase());
+  const ci = h.indexOf('code'), cci = (h.indexOf('category') >= 0 ? h.indexOf('category') : h.indexOf('proposed_category'));
+  if (ci >= 0 && cci >= 0) { iCode = ci; iCat = cci; start = 1; }
+  const seen = new Map(); // code -> ilk sətir nömrəsi
+  for (let r = start; r < rows.length; r++) {
+    const cols = rows[r];
+    const code = String(cols[iCode] == null ? '' : cols[iCode]).trim();
+    const cat = String(cols[iCat] == null ? '' : cols[iCat]).trim();
+    let bucket = 'ok', reason = '';
+    if (!/^\d{7}$/.test(code)) { bucket = 'err'; reason = 'Kod 7 rəqəm olmalıdır'; }
+    else if (!DB.itemBy.has(code)) { bucket = 'err'; reason = 'Bazada yoxdur'; }
+    else if (!cat) { bucket = 'err'; reason = 'Kateqoriya boşdur'; }
+    else if (!catSet.has(cat)) { bucket = 'err'; reason = 'Yanlış kateqoriya'; }
+    else if (seen.has(code)) { bucket = 'err'; reason = 'Təkrar kod (sətir ' + (seen.get(code) + 1) + ')'; }
+    else { seen.set(code, r); bucket = (cat === CAT_UNSET ? 'unset' : 'ok'); }
+    CATIMP.push({ code, cat, name: (DB.itemBy.get(code) || {}).name || '', bucket, reason });
+  }
+  const errs = CATIMP.filter(x => x.bucket === 'err');
+  const unset = CATIMP.filter(x => x.bucket === 'unset');
+  const ok = CATIMP.filter(x => x.bucket === 'ok');
+  const mini = (arr, withReason) => tbl(
+    withReason ? [{ t: 'Kod' }, { t: 'Ad' }, { t: 'Kateqoriya' }, { t: 'Səbəb' }] : [{ t: 'Kod' }, { t: 'Ad' }],
+    arr.slice(0, 300).map(x => ({
+      c: withReason
+        ? [`<span class="code">${esc(x.code)}</span>`, `<div class="nm">${esc(x.name)}</div>`, esc(x.cat), `<span class="tag t-rm">${esc(x.reason)}</span>`]
+        : [`<span class="code">${esc(x.code)}</span>`, `<div class="nm">${esc(x.name)}</div>`]
+    })), { empty: 'Yoxdur' });
+  $('#ci-prev').innerHTML = `
+    <div class="kpis" style="margin:8px 0">
+      <div class="kpi g"><div class="eyebrow">Yazılacaq (kateqoriyalı)</div><div class="v">${nf(ok.length)}</div><div class="s">təsdiqdən sonra RPC</div></div>
+      <div class="kpi"><div class="eyebrow">Təyin edilməyib</div><div class="v">${nf(unset.length)}</div><div class="s">yazılmır — əl ilə nəzərdən keçirin</div></div>
+      <div class="kpi ${errs.length ? 'r' : ''}"><div class="eyebrow">Səhv</div><div class="v">${nf(errs.length)}</div><div class="s">yazılmır</div></div>
+    </div>
+    ${errs.length ? `<div class="hint" style="color:var(--alarm);margin:6px 0"><b>Səhv sətirlər (yazılmayacaq):</b></div>${mini(errs, true)}` : ''}
+    ${unset.length ? `<div class="hint" style="margin:10px 0 4px"><b>Təyin edilməyib (${nf(unset.length)}) — yazılmayacaq, sonra əl ilə təsnif edin:</b></div>${mini(unset, false)}` : ''}`;
+  catImpCount();
+}
+/* Bloklayıcı qayda (Codex audit #2): CSV-də HƏR HANSI "err" sətir varsa, yazma düyməsi
+   deaktiv qalır və RPC HEÇ ÇAĞIRILMIR — nə qədər "ok" sətir olsa belə. Yalnız bütün fayl
+   səhvsiz olduqda (err=0) "ok" sətirlər yazıla bilər. "unset" (Təyin edilməyib) sətirlər
+   məlumat xarakterlidir və yazılmır, lakin bloklamır. */
+function catImpCount() {
+  const ok = CATIMP.filter(x => x.bucket === 'ok');
+  const errs = CATIMP.filter(x => x.bucket === 'err');
+  const btn = $('#ci-go'); if (!btn) return;
+  CATIMP_CONFIRM = false; btn.classList.remove('dgr');
+  if (errs.length) {
+    btn.disabled = true;
+    btn.textContent = 'Səhv sətirləri düzəldin (' + nf(errs.length) + ')';
+    return;
+  }
+  btn.disabled = !ok.length;
+  btn.textContent = ok.length ? ('Bazaya yaz (RPC): ' + nf(ok.length)) : 'Bazaya yaz (RPC)';
+}
+async function catImpApply() {
+  if (!isAdmin()) { toast('Yalnız Rəhbər', true); return; }
+  const ok = CATIMP.filter(x => x.bucket === 'ok');
+  const errs = CATIMP.filter(x => x.bucket === 'err');
+  // Təhlükəsizlik üçün ikinci sədd: səhv sətir varsa RPC heç vaxt çağırılmır (yalnız düymə
+  // deaktivliyinə güvənmirik — DOM manipulyasiyasına qarşı müdafiə).
+  if (errs.length) { toast('Səhv sətirlər var (' + nf(errs.length) + ') — əvvəlcə düzəldin', true); return; }
+  if (!ok.length) return;
+  const btn = $('#ci-go');
+  if (!CATIMP_CONFIRM) {   // iki mərhələli təsdiq — yazmadan əvvəl açıq təsdiq
+    CATIMP_CONFIRM = true;
+    btn.classList.add('dgr');
+    btn.textContent = 'TƏSDİQ: ' + nf(ok.length) + ' mal yazılacaq — yenidən klikləyin';
+    return;
+  }
+  if (!SB || !ME) { toast('Baza bağlantısı yoxdur', true); return; }
+  btn.disabled = true; btn.textContent = 'Yazılır…';
+  const mappings = ok.map(x => ({ code: x.code, category: x.cat }));
+  try {
+    const { data, error } = await SB.rpc('set_item_categories', { p_mappings: mappings });
+    if (error) throw error;
+    const upd = (data && data.updated) || 0;
+    ok.forEach(x => { const it = DB.itemBy.get(x.code); if (it) it.category = (x.cat === CAT_UNSET ? '' : x.cat); });
+    index(); renderAll(); closeModal();
+    toast(nf(upd) + ' malın kateqoriyası yeniləndi');
+  } catch (err) {
+    console.error('set_item_categories', err);
+    toast('Xəta: ' + (err.message || 'idxal alınmadı'), true);
+    CATIMP_CONFIRM = false;
+    if (btn) { btn.disabled = false; btn.classList.remove('dgr'); catImpCount(); }
+  }
 }
 
 /* ---------- Excel-dən yeni mallar idxalı (yalnız yeni mallar) ---------- */
