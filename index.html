@@ -1761,12 +1761,23 @@ function addLine() {
     note: $('#o-note').value.trim()
   };
   if (OP.kind === 'mv' && line.w === line.w2) return err.textContent = 'Mənbə və təyinat anbarı eyni ola bilməz.';
+  // Stok azaldan əməliyyatlar (Məxaric və Yerdəyişmə) üçün sətir-səviyyəli
+  // validasiya ƏLAVƏ ANINDA aparılır (əvvəlki eyni anbar+mal sətirləri nəzərə
+  // alınmaqla mövcud qalıq hesablanır):
+  //   · mövcud qalıq <= 0  → sətir ƏLAVƏ EDİLMİR, malın həmin anbarda olmadığı bildirilir;
+  //   · tələb > qalıq       → miqdar dərhal mövcud maksimuma endirilir və sətir belə əlavə olunur;
+  //   · tələb <= qalıq      → dəyişmədən əlavə olunur.
   if (OP.kind !== 'in') {
     const b = IX.bal.find(x => x.w === w && x.c === it.code);
     const have = b ? b.q : 0;
     const pending = OP.lines.filter(l => l.c === it.code && l.w === w && l.kind !== 'in').reduce((s, l) => s + l.q, 0);
-    if (have - pending < qty) {
-      err.innerHTML = `<span style="color:var(--alarm)">Diqqət: ${esc(w)} anbarında qalıq ${nf(have - pending, 2)} ${esc(it.unit)} — mənfi qalıq yaranacaq.</span>`;
+    const avail = have - pending;
+    if (avail <= 0) {
+      return err.innerHTML = `<span style="color:var(--alarm)">${esc(w)} anbarında "${esc(it.name)}" üzrə mövcud qalıq yoxdur — sətir əlavə edilmədi.</span>`;
+    }
+    if (qty > avail) {
+      line.q = avail;
+      err.innerHTML = `<span style="color:var(--alarm)">${esc(w)} anbarında maksimum ${nf(avail, 2)} ${esc(it.unit)} mövcuddur — miqdar bu maksimuma endirildi.</span>`;
     }
   }
   OP.lines.push(line);
@@ -1791,6 +1802,40 @@ function renderLines() {
 $('#op-clear').onclick = () => { OP.lines = []; renderLines(); };
 $('#op-post').onclick = async () => {
   if (!need('mv.add') || !OP.lines.length) return;
+
+  // ---- Minimal təsdiq-zamanı təhlükəsizlik yoxlaması (yalnız köhnəlmiş/race
+  // halları üçün) ----
+  // Əsas validasiya artıq sətir əlavə edilərkən (addLine) aparılıb, ona görə
+  // normal istifadədə burada heç nə dəyişmir və sənəd BİR kliklə yazılır. Lakin
+  // sətir əlavə edildikdən sonra qalıq başqa istifadəçi tərəfindən dəyişdirilə
+  // bilər — bu halda köhnəlmiş sətir səssizcə düzəlişlə (qalıqsız → çıxarılır,
+  // artıq → maksimuma kəsilir) həmin klik ərzində yazılır; ikinci klik tələb
+  // olunmur. Server RPC yekun atomar qorunmanı təmin edir.
+  {
+    const remain = new Map();
+    const kept = [];
+    const msgs = [];
+    for (const l of OP.lines) {
+      if (l.kind === 'in') { kept.push(l); continue; }
+      const k = l.w + '|' + l.c;
+      if (!remain.has(k)) {
+        const b = IX.bal.find(x => x.w === l.w && x.c === l.c);
+        remain.set(k, b ? b.q : 0);
+      }
+      const avail = remain.get(k);
+      if (avail <= 0) { msgs.push(`${l.name} (${l.w}): qalıq dəyişib, mövcud deyil — sətir çıxarıldı`); continue; }
+      if (l.q > avail) { msgs.push(`${l.name} (${l.w}): qalıq dəyişib, miqdar ${nf(l.q, 2)} → ${nf(avail, 2)} endirildi`); l.q = avail; }
+      remain.set(k, avail - l.q);
+      kept.push(l);
+    }
+    if (kept.length !== OP.lines.length || msgs.length) {
+      OP.lines = kept;
+      renderLines();
+      if (msgs.length) toast(msgs.join(' · '), true);
+    }
+    if (!OP.lines.length) { toast('Yazılacaq etibarlı sətir yoxdur.', true); return; }
+  }
+
   const mvLines = OP.lines.filter(l => l.kind === 'mv');
   const other = OP.lines.filter(l => l.kind !== 'mv');
 
