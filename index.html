@@ -654,6 +654,7 @@ async function loadFromDB() {
     cdate: r.contract_date || '', seed: true
   }));
   DB.whs = (warehouses.data || []).filter(r => r.active && r.type === 'anbar').map(r => r.name);
+  DB.transferDests = DB.whs.slice();
   DB.locs = (warehouses.data || []).map(r => ({ id: r.id, name: r.name, kind: r.type, seed: true }));
   DB.movs = (movements.data || []).map(r => ({
     id: r.id, w: r.warehouse, d: r.date, c: r.item_code,
@@ -676,6 +677,14 @@ async function loadFromDB() {
   DB.movs.forEach(m => {
     m.by = !m.by || m.by === 'sistem' ? 'Excel idxalı' : (uname.get(m.by) || (ME && m.by === ME.sbId ? ME.name : 'digər istifadəçi'));
   });
+  // Load transfer destination names via SECURITY DEFINER RPC — bypasses warehouses
+  // RLS so anbardar sees Ofis as a valid destination without exposing Ofis stock/metadata.
+  if (isAdmin() || isAnbardar()) {
+    try {
+      const td = await SB.rpc('get_transfer_destinations');
+      if (td.data && Array.isArray(td.data) && td.data.length) DB.transferDests = td.data;
+    } catch (e) { /* fallback: DB.transferDests stays as DB.whs (set above) */ }
+  }
   DB.itemBy = new Map(DB.items.map(i => [i.code, i]));
   DB.events = [];
   index();
@@ -1673,7 +1682,7 @@ function rOp() {
     </div>
     ${k === 'mv' ? `<div class="row" style="grid-template-columns:1fr 1fr">
         <label class="f"><span>Haradan (anbar)</span><select id="o-wh">${sourceWarehouses().map(w => `<option ${w === (H.w || ME.wh) ? 'selected' : ''}>${esc(w)}</option>`).join('')}</select></label>
-        <label class="f"><span>Hara (anbar)</span><select id="o-wh2">${DB.whs.map(w => `<option ${H.w2 ? (w === H.w2 ? 'selected' : '') : (w !== ME.wh ? 'selected' : '')}>${esc(w)}</option>`).join('')}</select></label>
+        <label class="f"><span>Hara (anbar)</span><select id="o-wh2">${(DB.transferDests || DB.whs).map(w => `<option ${H.w2 ? (w === H.w2 ? 'selected' : '') : (w !== ME.wh ? 'selected' : '')}>${esc(w)}</option>`).join('')}</select></label>
       </div>`
       : `<div class="row" style="grid-template-columns:1fr 1fr">
         <label class="f"><span>Anbar</span><select id="o-wh">${allowedWarehouses().map(w => `<option ${w === (H.w || ME.wh) ? 'selected' : ''}>${esc(w)}</option>`).join('')}</select></label>
