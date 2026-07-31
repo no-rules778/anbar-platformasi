@@ -332,8 +332,9 @@ label.f>span{display:block;font-size:10.5px;text-transform:uppercase;letter-spac
         <div class="kpis" id="fin-kpis"></div>
         <div class="grid" style="grid-template-columns:1fr 1fr;margin-top:12px">
           <div class="card"><header><h3>Satınalma xərcinin kontragentlər üzrə bölgüsü</h3></header><div class="pad" id="ch-spend"></div></div>
-          <div class="card"><header><h3>Ödəniş üsulu və sənədləşmə</h3></header><div class="tw" id="t-method"></div></div>
+          <div class="card"><header><h3>Ödəniş üsulu və sənədləşmə</h3><div class="sp"></div><span class="hint">yalnız satınalma</span></header><div class="tw" id="t-method"></div></div>
         </div>
+        <div class="card" style="margin-top:12px"><header><h3>Anbar hərəkəti (ödənişsiz əməliyyatlar)</h3><div class="sp"></div><span class="hint">yerdəyişmə, qalıq, silinmə, satış və s. — ödəniş statistikasına daxil deyil</span></header><div class="tw" id="t-flow"></div></div>
         <div class="card" style="margin-top:12px"><header><h3>Qiymət intizamı — eyni malın müxtəlif qiymətləri</h3><div class="sp"></div><span class="hint">Təchizat şöbəsi üçün danışıq bazası</span></header><div class="tw" id="t-price"></div></div>
       </section>
 
@@ -483,9 +484,21 @@ function suggestCategory(name) {
   for (const cat of ITEM_CATEGORIES) { if ((CAT_KEYWORDS[cat] || []).some(k => n.indexOf(k) >= 0)) return cat; }
   return '';
 }
-/* İxrac üçün icazəli anbarlar — anbardar yalnız öz anbarını görür, digərləri hamısını */
+/* Mənbə qrup anbarları — Astara/Harmony paylaşır, digərləri təkdir.
+   Mirrors source_group_warehouses() in sql/007_role_security_migration.sql. */
+function sourceGroupWarehouses(wh) {
+  if (wh === 'Astara' || wh === 'Harmony') return ['Astara', 'Harmony'];
+  return wh ? [wh] : [];
+}
+/* İxrac / qeyri-yerdəyişmə əməliyyatlar üçün icazəli anbarlar — anbardar
+   yalnız öz təyin olunmuş anbarını görür (mənbə qrupu deyil). */
 function allowedWarehouses() {
   if (isAnbardar() && ME.wh) return DB.whs.filter(w => w === ME.wh);
+  return DB.whs.slice();
+}
+/* Yerdəyişmə mənbə seçimləri — anbardar mənbə qrupundakı anbarları görür. */
+function sourceWarehouses() {
+  if (isAnbardar() && ME.wh) return DB.whs.filter(w => sourceGroupWarehouses(ME.wh).includes(w));
   return DB.whs.slice();
 }
 /* Hər mal üçün QLOBAL sonuncu etibarlı Satınalma qiyməti (anbardan asılı olmayaraq).
@@ -1659,11 +1672,11 @@ function rOp() {
       <label class="f"><span>Əməliyyatın növü</span><select id="o-type">${typeOpts.map(t => `<option ${t === H.t ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></label>
     </div>
     ${k === 'mv' ? `<div class="row" style="grid-template-columns:1fr 1fr">
-        <label class="f"><span>Haradan (anbar)</span><select id="o-wh">${DB.whs.map(w => `<option ${w === (H.w || ME.wh) ? 'selected' : ''}>${esc(w)}</option>`).join('')}</select></label>
+        <label class="f"><span>Haradan (anbar)</span><select id="o-wh">${sourceWarehouses().map(w => `<option ${w === (H.w || ME.wh) ? 'selected' : ''}>${esc(w)}</option>`).join('')}</select></label>
         <label class="f"><span>Hara (anbar)</span><select id="o-wh2">${DB.whs.map(w => `<option ${H.w2 ? (w === H.w2 ? 'selected' : '') : (w !== ME.wh ? 'selected' : '')}>${esc(w)}</option>`).join('')}</select></label>
       </div>`
       : `<div class="row" style="grid-template-columns:1fr 1fr">
-        <label class="f"><span>Anbar</span><select id="o-wh">${DB.whs.map(w => `<option ${w === (H.w || ME.wh) ? 'selected' : ''}>${esc(w)}</option>`).join('')}</select></label>
+        <label class="f"><span>Anbar</span><select id="o-wh">${allowedWarehouses().map(w => `<option ${w === (H.w || ME.wh) ? 'selected' : ''}>${esc(w)}</option>`).join('')}</select></label>
         <label class="f"><span>${k === 'in' ? 'Kontragent' : 'Təhvil alan / layihə'}</span><select id="o-p">${partnerOptions(k).map(p => `<option ${p === H.p ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select></label>
       </div>`}
     <label class="f"><span>Mal (ad və ya kod yazın)</span>
@@ -2782,34 +2795,51 @@ function rRep() {
 
 /* ================= FINANCE ================= */
 function rFin() {
+  // Only purchases with a positive incoming quantity feed the financial payment statistics.
   const purch = normalMovements().filter(m => m.t === 'Satınalma' && m.i > 0);
-  const spend = purch.reduce((s, m) => s + m.i * (m.pr || (DB.itemBy.get(m.c) || {}).price || 0), 0);
-  const priced = purch.filter(m => (m.pr || (DB.itemBy.get(m.c) || {}).price)).length;
+  // Confirmed spend/coverage use only the recorded transaction price m.pr > 0 — never the current item card price.
+  const spend = purch.reduce((s, m) => s + (m.pr > 0 ? m.i * m.pr : 0), 0);
+  const priced = purch.filter(m => m.pr > 0).length;
   const noDoc = purch.filter(m => !m.iv && !m.ct).length;
-  const cash = normalMovements().filter(m => (m.p || '').indexOf('Nağd') === 0 || m.p === 'Bazar');
+  // Cash is read from the real payment/channel field (m.ch), not from partner-name text.
+  const cash = purch.filter(m => (m.ch || '').indexOf('Nağd') === 0);
   const writeoff = normalMovements().filter(m => m.t === 'Silinmə');
+  // Write-off valuation is an ESTIMATE from the current item price — kept separate and labelled.
   const woVal = writeoff.reduce((s, m) => s + (m.o || 0) * ((DB.itemBy.get(m.c) || {}).price || 0), 0);
   $('#fin-kpis').innerHTML = [
     ['Qalıq dəyəri', money(IX.totVal), 'bütün anbarlar', 'g'],
-    ['Satınalma məbləği', money(spend), nf(purch.length) + ' satınalma sətri', 'v'],
-    ['Qiymətlə örtülmə', (purch.length ? (priced / purch.length * 100).toFixed(0) : 0) + '%', 'qiyməti daxil edilmiş sətirlər', priced / Math.max(1, purch.length) > .8 ? 'g' : 'r'],
+    ['Satınalma məbləği', money(spend), nf(priced) + '/' + nf(purch.length) + ' sətir qiymətli', 'v'],
+    ['Qiymətlə örtülmə', (purch.length ? (priced / purch.length * 100).toFixed(0) : 0) + '%', 'qiyməti (m.pr>0) daxil edilmiş sətirlər', priced / Math.max(1, purch.length) > .8 ? 'g' : 'r'],
     ['Sənədsiz satınalma', nf(noDoc), 'qaimə/müqavilə göstərilməyib', noDoc ? 'r' : 'g'],
-    ['Nağd əməliyyat', nf(cash.length), 'əlavə nəzarət tələb edir', 'o'],
-    ['Silinmə dəyəri', money(woVal), nf(writeoff.length) + ' silinmə qeydi', woVal ? 'r' : 'g']
+    ['Nağd satınalma', nf(cash.length), 'kanal = Nağd, əlavə nəzarət', 'o'],
+    ['Silinmə dəyəri (təxmini)', money(woVal), nf(writeoff.length) + ' qeyd · cari qiymətlə', woVal ? 'r' : 'g']
   ].map(k => `<div class="kpi ${k[3]}"><div class="eyebrow">${esc(k[0])}</div><div class="v" style="font-size:19px">${k[1]}</div><div class="s">${esc(k[2])}</div></div>`).join('');
 
   const sp = new Map();
-  purch.forEach(m => { const k = m.p || '(göstərilməyib)'; sp.set(k, (sp.get(k) || 0) + m.i * (m.pr || (DB.itemBy.get(m.c) || {}).price || 0)); });
+  purch.forEach(m => { const k = m.p || '(göstərilməyib)'; sp.set(k, (sp.get(k) || 0) + (m.pr > 0 ? m.i * m.pr : 0)); });
   const spRows = Array.from(sp.entries()).map(([k, v]) => ({ k, v: Math.round(v) })).sort((a, b) => b.v - a.v).slice(0, 12);
-  $('#ch-spend').innerHTML = barChart(spRows, { fmt: money }) + `<div class="hint" style="margin-top:11px">Bir kontragentin payı 30%-i keçdikdə alternativ təchizatçı ilə müqayisəli qiymət sorğusu tövsiyə olunur.</div>`;
+  $('#ch-spend').innerHTML = barChart(spRows, { fmt: money }) + `<div class="hint" style="margin-top:11px">Yalnız qeyd olunmuş satınalma qiyməti (m.pr) əsasında. Bir kontragentin payı 30%-i keçdikdə alternativ təchizatçı ilə müqayisəli qiymət sorğusu tövsiyə olunur.</div>`;
 
+  // Payment-method table: purchases only, bucketed by the real channel field (m.ch).
   const meth = new Map();
-  normalMovements().forEach(m => {
-    const k = (m.p || '').indexOf('Nağd') === 0 || m.p === 'Bazar' ? 'Nağd' : m.t === 'Əvvələ qalıq' ? 'Əvvəlki qalıq' : m.t === 'Yerdəyişmə' ? 'Daxili köçürmə' : 'Bank / müqavilə';
-    const x = meth.get(k) || { n: 0, val: 0, doc: 0 }; x.n++; x.val += (m.i || 0) * (m.pr || (DB.itemBy.get(m.c) || {}).price || 0); if (m.iv || m.ct) x.doc++; meth.set(k, x);
+  purch.forEach(m => {
+    const k = (m.ch && m.ch.trim()) ? m.ch.trim() : '(kanal göstərilməyib)';
+    const x = meth.get(k) || { n: 0, val: 0, doc: 0 }; x.n++; x.val += (m.pr > 0 ? m.i * m.pr : 0); if (m.iv || m.ct) x.doc++; meth.set(k, x);
   });
-  $('#t-method').innerHTML = tbl([{ t: 'Üsul' }, { t: 'Əməliyyat', r: 1 }, { t: 'Dəyər', r: 1 }, { t: 'Sənədlə örtülmə', r: 1 }],
-    Array.from(meth.entries()).sort((a, b) => b[1].val - a[1].val).map(([k, v]) => ({ c: [esc(k), nf(v.n), money(v.val), (v.n ? (v.doc / v.n * 100).toFixed(0) : 0) + '%'] })));
+  $('#t-method').innerHTML = tbl([{ t: 'Ödəniş kanalı' }, { t: 'Əməliyyat', r: 1 }, { t: 'Dəyər', r: 1 }, { t: 'Sənədlə örtülmə', r: 1 }],
+    Array.from(meth.entries()).sort((a, b) => b[1].val - a[1].val).map(([k, v]) => ({ c: [esc(k), nf(v.n), money(v.val), (v.n ? (v.doc / v.n * 100).toFixed(0) : 0) + '%'] })),
+    { empty: 'Satınalma qeydi yoxdur.' });
+
+  // Inventory-flow table: every non-purchase movement type, grouped by type. Document coverage is N/A here.
+  const flow = new Map();
+  normalMovements().forEach(m => {
+    if (m.t === 'Satınalma') return;
+    const k = m.t || '(növ göstərilməyib)';
+    const x = flow.get(k) || { n: 0, i: 0, o: 0 }; x.n++; x.i += (m.i || 0); x.o += (m.o || 0); flow.set(k, x);
+  });
+  $('#t-flow').innerHTML = tbl([{ t: 'Əməliyyat növü' }, { t: 'Say', r: 1 }, { t: 'Giriş miqdarı', r: 1 }, { t: 'Çıxış miqdarı', r: 1 }, { t: 'Sənədlə örtülmə', r: 1 }],
+    Array.from(flow.entries()).sort((a, b) => b[1].n - a[1].n).map(([k, v]) => ({ c: [esc(k), nf(v.n), nf(v.i, 2), nf(v.o, 2), 'N/A'] })),
+    { empty: 'Ödənişsiz hərəkət qeydi yoxdur.' });
 
   const rows = [];
   IX.priceObs.forEach((arr, c) => {
@@ -2860,7 +2890,7 @@ function controlIssues() {
   const future = normalMovements().filter(m => m.d > today());
   if (future.length) G.push({ id: 'fut', sev: 'med', title: 'Gələcək tarixli qeyd', why: 'Əməliyyat tarixi bugünkü tarixdən sonradır — yazılış səhvi ehtimalı yüksəkdir.', cols: ['Tarix', 'Anbar', 'Kod', 'Qeyd edən'], rows: future.map(m => [fmtD(m.d), m.w, m.c, m.by || '—']), codes: future.map(m => m.c) });
   const bigwo = normalMovements().filter(m => m.t === 'Silinmə' && (m.o || 0) * ((DB.itemBy.get(m.c) || {}).price || 0) > 500);
-  if (bigwo.length) G.push({ id: 'wo', sev: 'high', title: 'İri məbləğli silinmə', why: '500 ₼-dən yuxarı silinmə komissiya aktı və rəhbər təsdiqi tələb edir.', cols: ['Tarix', 'Anbar', 'Kod', 'Məbləğ'], rows: bigwo.map(m => [fmtD(m.d), m.w, m.c, money(m.o * ((DB.itemBy.get(m.c) || {}).price || 0))]), codes: bigwo.map(m => m.c) });
+  if (bigwo.length) G.push({ id: 'wo', sev: 'high', title: 'İri məbləğli silinmə', why: '500 ₼-dən yuxarı silinmə komissiya aktı və rəhbər təsdiqi tələb edir. Məbləğ cari mal qiyməti ilə təxmini hesablanıb.', cols: ['Tarix', 'Anbar', 'Kod', 'Məbləğ (təxmini)'], rows: bigwo.map(m => [fmtD(m.d), m.w, m.c, money(m.o * ((DB.itemBy.get(m.c) || {}).price || 0))]), codes: bigwo.map(m => m.c) });
   return G;
 }
 function rCtrl() {
@@ -3635,22 +3665,25 @@ async function enterApp(userId, email) {
     const P = c => (DB.itemBy.get(c) || {}).price || 0;
 
     const purch = normalMovements().filter(m => m.t === 'Satınalma' && m.i > 0);
-    const spend = purch.reduce((s, m) => s + m.i * (m.pr || P(m.c)), 0);
-    const priced = purch.filter(m => (m.pr || P(m.c))).length;
+    // Confirmed spend/coverage use only the recorded transaction price m.pr > 0 — never the current item card price.
+    const spend = purch.reduce((s, m) => s + (m.pr > 0 ? m.i * m.pr : 0), 0);
+    const priced = purch.filter(m => m.pr > 0).length;
     const noDoc = purch.filter(m => !m.iv && !m.ct).length;
-    const cash = normalMovements().filter(m => (m.p || '').indexOf('Nağd') === 0 || m.p === 'Bazar');
+    // Cash is read from the real payment/channel field (m.ch), not from partner-name text.
+    const cash = purch.filter(m => (m.ch || '').indexOf('Nağd') === 0);
     const wo = normalMovements().filter(m => m.t === 'Silinmə');
+    // Write-off valuation is an ESTIMATE from the current item price — labelled as such.
     const woVal = wo.reduce((s, m) => s + (m.o || 0) * P(m.c), 0);
 
     // 1. Xülasə
     const sum = [['MALİYYƏ HESABATI'], ['Hesabat tarixi', d_], ['Hazırlayan', ME.name || ''], [],
       ['Göstərici', 'Dəyər', 'İzah'],
       ['Qalıq dəyəri (₼)', r2(IX.totVal), 'Bütün anbarlar üzrə ehtiyatın dəyəri'],
-      ['Satınalma məbləği (₼)', r2(spend), nf(purch.length) + ' satınalma sətri'],
-      ['Qiymətlə örtülmə (%)', purch.length ? r2(priced / purch.length * 100) : 0, 'Qiyməti daxil edilmiş sətirlərin payı'],
+      ['Satınalma məbləği (₼)', r2(spend), nf(priced) + '/' + nf(purch.length) + ' sətir qiymətli (m.pr>0)'],
+      ['Qiymətlə örtülmə (%)', purch.length ? r2(priced / purch.length * 100) : 0, 'Qiyməti (m.pr>0) daxil edilmiş sətirlərin payı'],
       ['Sənədsiz satınalma (say)', noDoc, 'Qaimə və müqavilə göstərilməyib — vergi riski'],
-      ['Nağd əməliyyat (say)', cash.length, 'Əlavə nəzarət tələb edir'],
-      ['Silinmə dəyəri (₼)', r2(woVal), nf(wo.length) + ' silinmə qeydi'],
+      ['Nağd satınalma (say)', cash.length, 'Kanal = Nağd, əlavə nəzarət tələb edir'],
+      ['Silinmə dəyəri — təxmini (₼)', r2(woVal), nf(wo.length) + ' silinmə qeydi · cari mal qiyməti ilə təxmini'],
       ['Aktiv mövqe (say)', IX.positions.length, 'Qalığı olan mal mövqeləri'],
       ['Nomenklatura (say)', DB.items.length, 'Bazadakı mal kartları'],
       ['Kontragent (say)', DB.partners.length, 'Qeydiyyatdan keçmiş təchizatçılar']];
@@ -3667,7 +3700,7 @@ async function enterApp(userId, email) {
 
     // 3. Kontragent üzrə xərc
     const sp = new Map();
-    purch.forEach(m => { const k = m.p || '(göstərilməyib)'; const x = sp.get(k) || { v: 0, n: 0, doc: 0 }; x.v += m.i * (m.pr || P(m.c)); x.n++; if (m.iv || m.ct) x.doc++; sp.set(k, x); });
+    purch.forEach(m => { const k = m.p || '(göstərilməyib)'; const x = sp.get(k) || { v: 0, n: 0, doc: 0 }; x.v += (m.pr > 0 ? m.i * m.pr : 0); x.n++; if (m.iv || m.ct) x.doc++; sp.set(k, x); });
     const spRows = [['Kontragent', 'Əməliyyat sayı', 'Məbləğ (₼)', 'Payı (%)', 'Sənədlə örtülmə (%)', 'VÖEN']];
     const tS = Array.from(sp.values()).reduce((s, x) => s + x.v, 0) || 1;
     Array.from(sp.entries()).sort((a, b) => b[1].v - a[1].v).forEach(([k, x]) => {
@@ -3676,16 +3709,28 @@ async function enterApp(userId, email) {
     });
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(spRows), 'Kontragent üzrə xərc');
 
-    // 4. Ödəniş üsulu
+    // 4. Ödəniş üsulu — yalnız satınalma, real kanal sahəsi (m.ch) üzrə
     const meth = new Map();
-    normalMovements().forEach(m => {
-      const k = (m.p || '').indexOf('Nağd') === 0 || m.p === 'Bazar' ? 'Nağd' : m.t === 'Əvvələ qalıq' ? 'Əvvəlki qalıq' : m.t === 'Yerdəyişmə' ? 'Daxili köçürmə' : 'Bank / müqavilə';
-      const x = meth.get(k) || { n: 0, v: 0, doc: 0 }; x.n++; x.v += (m.i || 0) * (m.pr || P(m.c)); if (m.iv || m.ct) x.doc++; meth.set(k, x);
+    purch.forEach(m => {
+      const k = (m.ch && m.ch.trim()) ? m.ch.trim() : '(kanal göstərilməyib)';
+      const x = meth.get(k) || { n: 0, v: 0, doc: 0 }; x.n++; x.v += (m.pr > 0 ? m.i * m.pr : 0); if (m.iv || m.ct) x.doc++; meth.set(k, x);
     });
-    const mRows = [['Ödəniş üsulu', 'Əməliyyat sayı', 'Dəyər (₼)', 'Sənədlə örtülmə (%)']];
+    const mRows = [['Ödəniş kanalı (yalnız satınalma)', 'Əməliyyat sayı', 'Dəyər (₼)', 'Sənədlə örtülmə (%)']];
     Array.from(meth.entries()).sort((a, b) => b[1].v - a[1].v).forEach(([k, x]) =>
       mRows.push([k, x.n, r2(x.v), x.n ? r2(x.doc / x.n * 100) : 0]));
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(mRows), 'Ödəniş üsulu');
+
+    // 4b. Anbar hərəkəti — ödənişsiz əməliyyat növləri, sənəd örtülməsi N/A
+    const flow = new Map();
+    normalMovements().forEach(m => {
+      if (m.t === 'Satınalma') return;
+      const k = m.t || '(növ göstərilməyib)';
+      const x = flow.get(k) || { n: 0, i: 0, o: 0 }; x.n++; x.i += (m.i || 0); x.o += (m.o || 0); flow.set(k, x);
+    });
+    const fRows = [['Əməliyyat növü', 'Say', 'Giriş miqdarı', 'Çıxış miqdarı', 'Sənədlə örtülmə']];
+    Array.from(flow.entries()).sort((a, b) => b[1].n - a[1].n).forEach(([k, x]) =>
+      fRows.push([k, x.n, r2(x.i), r2(x.o), 'N/A']));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(fRows), 'Anbar hərəkəti');
 
     // 5. Qiymət intizamı
     const pr = [['Kod', 'Mal', 'Ölçü', 'Ən aşağı (₼)', 'Ən yüksək (₼)', 'Fərq (%)', 'Müşahidə sayı', 'Ən ucuz təchizatçı', 'Ən baha təchizatçı']];
