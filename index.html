@@ -412,19 +412,42 @@ function toast(msg, bad) { const t = $('#toast'); t.textContent = msg; t.classNa
 function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms || 220); }; }
 function initials(n) { return n.trim().split(/\s+/).slice(0, 2).map(x => x[0] || '').join('').toUpperCase() || '?'; }
 
-/* ---------- roles ---------- */
+/* ---------- roles ----------
+   Approved model has exactly 3 enforced roles: admin, rehber (read-only,
+   all warehouses incl. Ofis), anbardar (single assigned warehouse, never
+   Ofis). Legacy DB role values (techizat, muhasib, baxis) are NOT deleted or
+   silently promoted — they are treated as read-only (rehber-equivalent) by
+   effectiveRole(), mirroring effective_role() in
+   sql/007_role_security_migration.sql. The server enforces the same mapping
+   independently via RLS/RPCs — this client-side table only drives the UI;
+   it is not itself a security boundary. */
 const ROLES = {
-  rehber: { name: 'Rəhbər', can: ['mv.add', 'mv.edit', 'mv.del', 'item.add', 'item.edit', 'partner.edit', 'loc.edit', 'price.edit', 'import'] },
-  anbardar: { name: 'Anbardar', can: ['mv.add', 'mv.edit', 'item.add', 'import'] },
-  techizat: { name: 'Təchizatçı', can: ['mv.add', 'item.add', 'item.edit', 'partner.edit', 'price.edit'] },
-  muhasib: { name: 'Mühasib', can: ['mv.edit', 'mv.del', 'item.edit', 'price.edit', 'loc.edit'] },
-  baxis: { name: 'Müşahidəçi', can: [] }
+  admin: { name: 'Admin' },
+  rehber: { name: 'Rəhbər' },
+  anbardar: { name: 'Anbardar' },
+  techizat: { name: 'Təchizatçı' },
+  muhasib: { name: 'Mühasib' },
+  baxis: { name: 'Müşahidəçi' }
 };
+/* Permission sets are keyed by EFFECTIVE role only (admin/rehber/anbardar) */
+const ROLE_PERMS = {
+  admin: ['mv.add', 'mv.edit', 'mv.del', 'item.add', 'item.edit', 'partner.edit', 'loc.edit', 'price.edit', 'import', 'category.edit', 'user.manage', 'cancel'],
+  rehber: [],
+  anbardar: ['mv.add']
+};
+function effectiveRole(role) {
+  if (role === 'admin') return 'admin';
+  if (role === 'anbardar') return 'anbardar';
+  return 'rehber'; // rehber, techizat, muhasib, baxis, null/unknown → read-only
+}
 let ME = null;
-const can = a => !!(ME && ROLES[ME.role] && ROLES[ME.role].can.includes(a));
-function need(a) { if (can(a)) return true; toast('Bu əməliyyat üçün icazəniz yoxdur (' + ROLES[ME.role].name + ')', true); return false; }
-/* Universal əməliyyat ləğvi yalnız Rəhbər (Admin) üçündür — server də bunu məcbur edir */
-const isAdmin = () => !!(ME && ME.role === 'rehber');
+const can = a => !!(ME && ROLE_PERMS[effectiveRole(ME.role)] && ROLE_PERMS[effectiveRole(ME.role)].includes(a));
+function need(a) { if (can(a)) return true; toast('Bu əməliyyat üçün icazəniz yoxdur (' + (ROLES[ME.role] ? ROLES[ME.role].name : ME.role) + ')', true); return false; }
+/* Explicit, non-overlapping role checks — never conflate rehber with admin */
+const isAdmin = () => !!(ME && effectiveRole(ME.role) === 'admin');
+const isRehber = () => !!(ME && effectiveRole(ME.role) === 'rehber');
+const isAnbardar = () => !!(ME && effectiveRole(ME.role) === 'anbardar');
+/* Universal əməliyyat ləğvi yalnız Admin üçündür — server də bunu məcbur edir */
 /* Yerdəyişmədən başqa, atomar əks-yazı ilə ləğv edilə bilən növlər */
 const CANCELLABLE_TYPES = ['Satınalma', 'Əvvələ qalıq', 'Qaytarma', 'Silinmə', 'Sahəyə', 'Satış'];
 
@@ -438,8 +461,8 @@ const ITEM_CATEGORIES = ['Generatorlar', 'Nasoslar', 'Konteynerlər', 'Xüsusi t
   'Laboratoriya malları', 'Alətlər və cihazlar',
   'Ehtiyat hissələri və fitinqlər', 'Tikinti materialları və sərfiyyat malları',
   'Məişət və təsərrüfat malları'];
-/* Yalnız Rəhbər və Təchizatçı kateqoriyanı redaktə edə bilər (server trigger də bunu tələb edir) */
-const canEditCategory = () => !!(ME && (ME.role === 'rehber' || ME.role === 'techizat'));
+/* Yalnız Admin kateqoriyanı redaktə edə bilər (server RPC də bunu tələb edir) */
+const canEditCategory = () => isAdmin();
 /* Açar sözə görə TƏKLİF — heç vaxt avtomatik yadda saxlamır, yalnız istifadəçiyə göstərir */
 const CAT_KEYWORDS = {
   'Generatorlar': ['generator', 'jenerator'],
@@ -462,7 +485,7 @@ function suggestCategory(name) {
 }
 /* İxrac üçün icazəli anbarlar — anbardar yalnız öz anbarını görür, digərləri hamısını */
 function allowedWarehouses() {
-  if (ME && ME.role === 'anbardar' && ME.wh) return DB.whs.filter(w => w === ME.wh);
+  if (isAnbardar() && ME.wh) return DB.whs.filter(w => w === ME.wh);
   return DB.whs.slice();
 }
 /* Hər mal üçün QLOBAL sonuncu etibarlı Satınalma qiyməti (anbardan asılı olmayaraq).
@@ -631,8 +654,11 @@ async function loadFromDB() {
   }));
   let uname = new Map();
   try {
-    const us = await SB.from('users').select('id,name');
-    (us.data || []).forEach(u => uname.set(u.id, u.name));
+    // users table SELECT is RLS-restricted to own row for non-admins; the
+    // safe get_user_directory() RPC returns id+email (confirmed columns only —
+    // never users.name) for every active user regardless of caller's role.
+    const us = await SB.rpc('get_user_directory');
+    (us.data || []).forEach(u => uname.set(u.id, u.email));
   } catch (e) { }
   DB.movs.forEach(m => {
     m.by = !m.by || m.by === 'sistem' ? 'Excel idxalı' : (uname.get(m.by) || (ME && m.by === ME.sbId ? ME.name : 'digər istifadəçi'));
@@ -643,18 +669,40 @@ async function loadFromDB() {
   return { ok: !LOAD_ERR, error: LOAD_ERR };
 }
 
-/* ---------- Audit jurnalı üçün istifadəçi e-poçtları (yalnız təsdiqlənmiş sütunlar: id, email) ----------
-   users.name sorğusu yoxdur. Xəta səssiz udulmur: UMAIL_ERR qeyd olunur və interfeys bunu göstərir. */
+/* ---------- Audit jurnalı üçün istifadəçi e-poçtları ----------
+   users table SELECT is RLS-restricted to own row for non-admins (role/
+   warehouse are admin-only), so actor display uses the safe
+   get_user_directory() RPC, which returns ONLY confirmed columns (id, email —
+   never users.name). Xəta səssiz udulmur: UMAIL_ERR qeyd olunur. */
 async function loadAuditUsers() {
   if (!SB) return;
   UMAIL = new Map(); UMAIL_ERR = false;
   try {
-    const { data, error } = await SB.from('users').select('id,email');
+    const { data, error } = await SB.rpc('get_user_directory');
     if (error) throw error;
     (data || []).forEach(u => { if (u.id) UMAIL.set(u.id, u.email || ''); });
   } catch (e) {
-    console.error('audit users (id,email) yüklənmədi', e);
+    console.error('audit istifadəçi kataloqu yüklənmədi', e);
     UMAIL_ERR = true;
+  }
+}
+
+/* ---------- Admin: real istifadəçi idarəetmə oxu yolu ----------
+   DB.users yalnız Admin üçün doldurulur. users RLS siyasəti Admin-ə bütün
+   sətirləri oxumağa icazə verir; qeyri-Admin üçün bu sorğu yalnız öz sətrini
+   qaytarar, ona görə də cədvəl yalnız Admin-də göstərilir. Yalnız təsdiqlənmiş
+   sütunlar seçilir: id, email, role, warehouse, active (users.name YOXDUR). */
+let USERS_ERR = false;
+async function loadUsersAdmin() {
+  DB.users = {}; USERS_ERR = false;
+  if (!SB || !isAdmin()) return;
+  try {
+    const { data, error } = await SB.from('users').select('id,email,role,warehouse,active');
+    if (error) throw error;
+    (data || []).forEach(u => { DB.users[u.id] = { id: u.id, email: u.email || '', role: u.role || '', wh: u.warehouse || '', active: u.active !== false }; });
+  } catch (e) {
+    console.error('istifadəçilər yüklənmədi', e);
+    USERS_ERR = true;
   }
 }
 
@@ -1742,29 +1790,30 @@ $('#op-post').onclick = async () => {
     }
   }
 
-  // ---- Yerdəyişmə olmayan sətirlər: mövcud yol dəyişmədən ----
+  // ---- Yerdəyişmə olmayan sətirlər: atomar server RPC (mənfi qalıq serverdə bloklanır) ----
+  // Köhnə birbaşa emitMany()/insert yolu bu növlər üçün istifadə OLUNMUR — RLS də birbaşa
+  // PostgREST insert-i anbardar/rehber üçün rədd edir, yalnız bu RPC yazır.
   if (other.length) {
-    const doc = 'SND-' + Date.now().toString(36).toUpperCase();
-    const evs = [];
-    const priced = new Map();
-    for (const l of other) {
-      const base = { d: l.d, c: l.c, t: l.t, pr: l.pr || 0, ch: l.ch || '', ct: l.ct, iv: l.iv, note: l.note, by: ME.name, ts: Date.now(), doc };
-      if (l.kind === 'in') {
-        evs.push({ e: 'mv', op: 'a', d: Object.assign({ id: uid(), w: l.w, i: l.q, o: 0, p: l.p }, base) });
-        const it = DB.itemBy.get(l.c);
-        if (l.pr > 0 && it && Math.abs((it.price || 0) - l.pr) > 1e-6) priced.set(l.c, l.pr);
-      }
-      else evs.push({ e: 'mv', op: 'a', d: Object.assign({ id: uid(), w: l.w, i: 0, o: l.q, p: l.p }, base) });
+    const p_lines = other.map(l => ({
+      date: l.d, warehouse: l.w, code: l.c, type: l.t,
+      in_qty: l.kind === 'in' ? l.q : 0, out_qty: l.kind === 'in' ? 0 : l.q,
+      partner: l.p || '', channel: l.ch || '', contract: l.ct || '', invoice: l.iv || '',
+      price: l.pr || 0, note: l.note || ''
+    }));
+    try {
+      const { data, error } = await SB.rpc('post_movement_document', { p_lines });
+      if (error) throw error;
+    } catch (err) {
+      toast('Əməliyyat qeyd edilmədi: ' + (err.message || 'server xətası'), true);
+      return;
     }
-    priced.forEach((pr, code) => evs.push({ e: 'item', op: 'u', d: { code, price: pr, psrc: 'sənəd' }, note: 'qiymət mədaxil sənədindən yeniləndi (' + doc + ')' }));
-    await emitMany(evs);
   }
 
   const n = OP.lines.length; OP.lines = [];
   captureOpHeader();
   if (OP.hdr) { OP.hdr.iv = ''; OP.hdr.ct = ''; }   // yeni sənəd — yeni qaimə/müqavilə nömrəsi
-  // Server RPC ilə yazılan sətirlər lokal state-də yoxdur — bazadan yenidən yüklə
-  if (mvLines.length) await loadFromDB();
+  // Bütün sətirlər server RPC ilə yazıldı — lokal state-də yoxdur, bazadan yenidən yüklə
+  await loadFromDB();
   renderAll(); toast(n + ' sətir qeyd edildi');
 };
 
@@ -2219,9 +2268,9 @@ function parseCsvText(text) {
   return rows.filter(r => r.length && r.some(c => String(c).trim() !== ''));
 }
 function categoryImport() {
-  if (!isAdmin()) { toast('Yalnız Rəhbər kateqoriya idxal edə bilər', true); return; }
+  if (!isAdmin()) { toast('Yalnız Admin kateqoriya idxal edə bilər', true); return; }
   CATIMP = []; CATIMP_CONFIRM = false;
-  modal('Kateqoriya idxalı (CSV) — yalnız Rəhbər', `
+  modal('Kateqoriya idxalı (CSV) — yalnız Admin', `
     <p class="hint" style="margin-top:0">Nəzərdən keçirilmiş CSV-ni yapışdırın və ya faylı seçin. Sütunlar: <b>code</b> və <b>category</b> (və ya <b>proposed_category</b>). Sistem hər sətri yoxlayır; yalnız təsdiqinizdən sonra serverə (atomar RPC) yazılır — ya hamısı, ya heç biri. Kodların əvvəlindəki sıfırlar qorunur.</p>
     <label class="f"><span>CSV mətni</span><textarea id="ci-txt" rows="7" placeholder="code,category&#10;0000001,Filtrlər&#10;0000003,Ehtiyat hissələri və fitinqlər"></textarea></label>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
@@ -2303,7 +2352,7 @@ function catImpCount() {
   btn.textContent = ok.length ? ('Bazaya yaz (RPC): ' + nf(ok.length)) : 'Bazaya yaz (RPC)';
 }
 async function catImpApply() {
-  if (!isAdmin()) { toast('Yalnız Rəhbər', true); return; }
+  if (!isAdmin()) { toast('Yalnız Admin', true); return; }
   const ok = CATIMP.filter(x => x.bucket === 'ok');
   const errs = CATIMP.filter(x => x.bucket === 'err');
   // Təhlükəsizlik üçün ikinci sədd: səhv sətir varsa RPC heç vaxt çağırılmır (yalnız düymə
@@ -2951,12 +3000,27 @@ async function rLog() {
 /* ================= SETTINGS ================= */
 function rSet() {
   $('#t-perm').innerHTML = tbl([{ t: 'Səlahiyyət' }].concat(Object.keys(ROLES).map(r => ({ t: ROLES[r].name }))),
-    [['mv.add', 'Əməliyyat qeyd etmək'], ['mv.edit', 'Qeydə düzəliş'], ['mv.del', 'Qeydi ləğv etmək'], ['item.add', 'Yeni mal'], ['item.edit', 'Mal düzəlişi'], ['partner.edit', 'Kontragent idarəsi'], ['price.edit', 'Qiymət dəyişmək'], ['import', 'Toplu idxal']]
-      .map(([k, t]) => ({ c: [esc(t)].concat(Object.keys(ROLES).map(r => ROLES[r].can.includes(k) ? '<span class="tag t-in">var</span>' : '<span class="tag t-mut">yox</span>')) })));
-  const us = Object.values(DB.users);
-  $('#t-users').innerHTML = tbl([{ t: 'İstifadəçi' }, { t: 'Vəzifə' }, { t: 'Anbar' }, { t: 'Son fəaliyyət' }, { t: 'Qeydlərinin sayı', r: 1 }],
-    us.map(u => ({ c: [`<b>${esc(u.name)}</b>${u.id === ME.id ? ' <span class="tag t-op">siz</span>' : ''}`, esc(ROLES[u.role] ? ROLES[u.role].name : u.role), esc(u.wh || '—'), new Date(u.ts).toLocaleTimeString('az-AZ'), nf(DB.events.filter(e => e.uid === u.id).length)] })),
-    { empty: 'Hazırda yalnız siz sistemdəsiniz.' });
+    [['mv.add', 'Əməliyyat qeyd etmək'], ['mv.edit', 'Qeydə düzəliş'], ['mv.del', 'Qeydi ləğv etmək'], ['item.add', 'Yeni mal'], ['item.edit', 'Mal düzəlişi'], ['partner.edit', 'Kontragent idarəsi'], ['price.edit', 'Qiymət dəyişmək'], ['import', 'Toplu idxal'], ['user.manage', 'İstifadəçi idarəsi'], ['cancel', 'Əməliyyat ləğvi']]
+      .map(([k, t]) => ({ c: [esc(t)].concat(Object.keys(ROLES).map(r => (ROLE_PERMS[effectiveRole(r)] || []).includes(k) ? '<span class="tag t-in">var</span>' : '<span class="tag t-mut">yox</span>')) })));
+  // Real Admin user-management/read path (Codex audit finding #3). For a
+  // non-Admin this table is intentionally hidden — the users RLS policy would
+  // only return their own row, so there is nothing meaningful to manage.
+  if (!isAdmin()) {
+    $('#t-users').innerHTML = `<div class="empty"><b>İstifadəçi idarəetməsi</b>Yalnız Admin bütün istifadəçiləri görə və rol təyin edə bilər.</div>`;
+  } else if (USERS_ERR) {
+    $('#t-users').innerHTML = `<div class="empty"><b>Yükləmə xətası</b>İstifadəçilər yüklənə bilmədi.</div>`;
+  } else {
+    const us = Object.values(DB.users).sort((a, b) => (a.email || '').localeCompare(b.email || ''));
+    $('#t-users').innerHTML = tbl(
+      [{ t: 'İstifadəçi (e-poçt)' }, { t: 'Rol' }, { t: 'Anbar' }, { t: 'Status' }, { t: '' }],
+      us.map(u => ({
+        c: [`<b>${esc(u.email)}</b>${u.id === ME.id ? ' <span class="tag t-op">siz</span>' : ''}`,
+          esc(ROLES[u.role] ? ROLES[u.role].name : u.role),
+          esc(u.wh || '—'),
+          u.active ? '<span class="tag t-in">aktiv</span>' : '<span class="tag t-mut">deaktiv</span>',
+          `<button class="btn sm" onclick="editUser('${esc(u.id)}')">Rol təyin et</button>`]
+      })), { empty: 'İstifadəçi tapılmadı.' });
+  }
   $('#set-src').innerHTML = `<div class="hint">
     Məlumat bazası: Supabase (PostgreSQL). Cari vəziyyət: <b>${nf(DB.items.length)}</b> nomenklatura mövqeyi, <b>${nf(DB.partners.length)}</b> kontragent, <b>${nf(normalMovements().length)}</b> mal hərəkəti qeydi.</div>`;
   $$('[data-exp]').forEach(b => b.onclick = () => ({ mov: () => { go('mov'); setTimeout(() => $('#mov-exp').click(), 50); }, bal: () => { go('bal'); setTimeout(() => $('#bal-exp').click(), 50); }, nom: () => { go('nom'); setTimeout(() => $('#nom-exp').click(), 50); }, knt: () => xls([['Kontragent', 'VÖEN', 'Müqavilə', 'Tarix']].concat(DB.partners.map(p => [p.name, p.voen, p.contract, p.cdate])), 'kontragentler'), log: () => { go('log'); setTimeout(() => $('#log-exp').click(), 50); } }[b.dataset.exp]()));
@@ -2966,18 +3030,83 @@ function rSet() {
   };
   $('#imp-go').onclick = async () => {
     if (!need('import')) return;
+    // All stock-changing writes — including this Admin bulk paste — go through
+    // the validated atomic RPC post_movement_document(). The old direct
+    // emitMany()/PostgREST-insert path is removed (Codex audit finding #4):
+    // it bypassed server-side warehouse/item/negative-balance validation and
+    // is now blocked by RLS anyway (direct movements INSERT is admin-only, and
+    // even admin must not skip the balance/atomicity guarantees).
+    const NON_TRANSFER = ['Satınalma', 'Əvvələ qalıq', 'Qaytarma', 'Silinmə', 'Sahəyə', 'Satış'];
     const lines = $('#imp-txt').value.split(/\n/).map(l => l.trim()).filter(Boolean);
-    const evs = []; let bad = 0;
+    const p_lines = []; let bad = 0;
     for (const l of lines) {
       const p = l.split(/\t|;/).map(s => s.trim());
       if (p.length < 5) { bad++; continue; }
       const [d, w, c, gi, go_, t, kn] = p;
-      if (!DB.whs.includes(w) || !/^\d{7}$/.test(c)) { bad++; continue; }
-      evs.push({ e: 'mv', op: 'a', d: { id: uid(), d: d || today(), w, c, i: parseFloat(gi) || 0, o: parseFloat(go_) || 0, t: t || 'Satınalma', p: kn || '', pr: (DB.itemBy.get(c) || {}).price || 0, by: ME.name, ts: Date.now() }, note: 'toplu idxal' });
+      const inQ = parseFloat(gi) || 0, outQ = parseFloat(go_) || 0;
+      const type = t || 'Satınalma';
+      // Reject: unknown warehouse, malformed code, transfer/unknown type (this
+      // single-warehouse format cannot express a transfer), or not exactly one
+      // of in/out positive.
+      if (!DB.whs.includes(w) || !/^\d{7}$/.test(c) || !DB.itemBy.has(c)
+          || !NON_TRANSFER.includes(type) || ((inQ > 0) === (outQ > 0))) { bad++; continue; }
+      p_lines.push({
+        date: d || today(), warehouse: w, code: c, type,
+        in_qty: inQ, out_qty: outQ, partner: kn || '',
+        channel: '', contract: '', invoice: '',
+        price: (DB.itemBy.get(c) || {}).price || 0, note: 'toplu idxal'
+      });
     }
-    if (evs.length) await emitMany(evs);
-    $('#imp-res').innerHTML = `<b>${evs.length}</b> sətir yükləndi${bad ? `, <span class="neg">${bad} sətir səhv formatdadır</span>` : ''}.`;
+    if (!p_lines.length) {
+      $('#imp-res').innerHTML = `<span class="neg">Yazılacaq etibarlı sətir yoxdur${bad ? ' (' + bad + ' sətir səhv formatdadır)' : ''}.</span>`;
+      return;
+    }
+    try {
+      const { error } = await SB.rpc('post_movement_document', { p_lines });
+      if (error) throw error;
+    } catch (err) {
+      $('#imp-res').innerHTML = `<span class="neg">İdxal qeyd edilmədi: ${esc(err.message || 'server xətası')}. Heç bir sətir yazılmadı.</span>`;
+      return;
+    }
+    await loadFromDB();
+    $('#imp-res').innerHTML = `<b>${p_lines.length}</b> sətir yükləndi${bad ? `, <span class="neg">${bad} sətir səhv formatdadır</span>` : ''}.`;
     renderAll();
+  };
+}
+
+/* ---------- Admin: rol/anbar təyinatı (server admin_update_user RPC ilə) ----------
+   Bütün yoxlama və blok serverdə: yalnız Admin, etibarlı rol, anbardar üçün
+   operasion anbar (Ofis yox), və lockout müdafiəsi (öz Admin rolunu/aktivliyini
+   dəyişə bilməz; sonuncu Admin qorunur). UI yalnız rahatlıq üçündür. */
+async function editUser(userId) {
+  if (!isAdmin()) { toast('Yalnız Admin', true); return; }
+  const u = DB.users[userId]; if (!u) return;
+  const roleOpts = ['admin', 'rehber', 'anbardar', 'techizat', 'muhasib', 'baxis'];
+  const opWh = DB.whs.filter(w => w !== 'Ofis');
+  modal('İstifadəçi rolu · ' + esc(u.email), `
+    <div class="hint" style="margin-bottom:12px">Rol və anbar dəyişikliyi serverdə yoxlanılır və audit olunur. Anbardar yalnız bir operasion anbara təyin edilə bilər (Ofis yox).</div>
+    <div class="row" style="grid-template-columns:1fr 1fr">
+      <label class="f"><span>Rol</span><select id="us-role">${roleOpts.map(r => `<option value="${r}" ${r === u.role ? 'selected' : ''}>${esc(ROLES[r] ? ROLES[r].name : r)}</option>`).join('')}</select></label>
+      <label class="f"><span>Anbar (yalnız anbardar üçün)</span><select id="us-wh"><option value="">—</option>${opWh.map(w => `<option ${w === u.wh ? 'selected' : ''}>${esc(w)}</option>`).join('')}</select></label>
+    </div>
+    <label style="display:flex;gap:8px;align-items:center;margin:2px 0"><input type="checkbox" id="us-active" style="width:auto" ${u.active ? 'checked' : ''}><span>Aktiv</span></label>
+    <span class="err" id="us-err"></span>`,
+    `<div style="flex:1"></div><button class="btn" data-close>İmtina</button><button class="btn pri" id="us-save">Yadda saxla</button>`);
+  const syncWh = () => { $('#us-wh').closest('label').style.opacity = $('#us-role').value === 'anbardar' ? '1' : '.5'; };
+  $('#us-role').onchange = syncWh; syncWh();
+  $('#us-save').onclick = async () => {
+    const role = $('#us-role').value;
+    const wh = role === 'anbardar' ? $('#us-wh').value : '';
+    const active = $('#us-active').checked;
+    if (role === 'anbardar' && !wh) { $('#us-err').textContent = 'Anbardar üçün anbar seçin.'; return; }
+    $('#us-save').disabled = true;
+    try {
+      const { error } = await SB.rpc('admin_update_user', { p_user_id: userId, p_role: role, p_warehouse: wh || null, p_active: active });
+      if (error) throw error;
+    } catch (err) {
+      $('#us-err').textContent = err.message || 'Server xətası'; $('#us-save').disabled = false; return;
+    }
+    await loadUsersAdmin(); closeModal(); rSet(); toast('İstifadəçi yeniləndi');
   };
 }
 
@@ -3070,7 +3199,7 @@ function sessionDialog() {
   modal('Sessiya',
     `<p><b>${esc(ME.name)}</b> · ${esc(ROLES[ME.role] ? ROLES[ME.role].name : ME.role)} · ${esc(ME.wh || 'bütün anbarlar')}</p>
      <p class="hint">${esc(ME.email)}</p>
-     <p class="hint">Səlahiyyətləriniz: ${ROLES[ME.role] ? (ROLES[ME.role].can.length ? esc(ROLES[ME.role].can.join(', ')) : 'yalnız baxış') : '—'}.</p>
+     <p class="hint">Səlahiyyətləriniz: ${(ROLE_PERMS[effectiveRole(ME.role)] || []).length ? esc(ROLE_PERMS[effectiveRole(ME.role)].join(', ')) : 'yalnız baxış'}.</p>
      <p class="hint">Bu cihazda yadda saxlanılıb: <b>${rememberOn() ? 'bəli' : 'xeyr'}</b>.</p>`,
     `<button class="btn" id="ss-pw">Şifrəni dəyiş</button><div style="flex:1"></div>
      <button class="btn" id="ss-out">Çıxış</button><button class="btn pri" data-close>Bağla</button>`);
@@ -3096,6 +3225,7 @@ async function enterApp(userId, email) {
   startHeartbeat(userId);
   await loadFromDB();
   await loadAuditUsers();
+  await loadUsersAdmin();
   loadAuditTotal();
   subscribeRealtime();
   renderAll(); go('dash');
