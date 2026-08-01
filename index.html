@@ -2139,9 +2139,12 @@ const BC = { docs: [], selected: new Set() };
 function buildBatchDocs() {
   const byDoc = new Map();
   for (const m of DB.movs) {
-    if (!m.doc) continue; // legacy (sənədsiz) — batch xaricində, yalnız fərdi ləğv
-    let g = byDoc.get(m.doc);
-    if (!g) { g = { doc: m.doc, rows: [] }; byDoc.set(m.doc, g); }
+    // Köhnə, sənədsiz qeydlər də axtarışda GÖRÜNMƏLİDİR. Onlar bir-biri ilə
+    // süni "sənəd" kimi birləşdirilmir və seçilə bilməz: yalnız fərdi ləğv
+    // təhlükəsizdir. Etibarlı sənədlər isə həmişə doc_num üzrə qruplaşır.
+    const key = m.doc ? 'doc:' + m.doc : 'legacy:' + m.id;
+    let g = byDoc.get(key);
+    if (!g) { g = { key, doc: m.doc || '', legacy: !m.doc, rows: [] }; byDoc.set(key, g); }
     g.rows.push(m);
   }
   const out = [];
@@ -2151,8 +2154,8 @@ function buildBatchDocs() {
     const isTransfer = types.includes('Yerdəyişmə');
     const hasOther = types.some(t => t !== 'Yerdəyişmə');
     const isRev = rows.some(r => /^Ləğv(?: \(əks yerdəyişmə\))?:/.test(String(r.note || '').trim()));
-    const cancelledBy = isTransfer ? docReversalDoc(g.doc)
-      : (types.every(t => CANCELLABLE_TYPES.includes(t)) ? docCancelledBy(g.doc) : null);
+    const cancelledBy = !g.legacy && (isTransfer ? docReversalDoc(g.doc)
+      : (types.every(t => CANCELLABLE_TYPES.includes(t)) ? docCancelledBy(g.doc) : null));
     const date = rows.map(r => r.d).sort()[0] || '';
     const by = (rows[0] && rows[0].by) || '—';
     const codes = Array.from(new Set(rows.map(r => r.c)));
@@ -2185,14 +2188,15 @@ function buildBatchDocs() {
     });
     let eligible = false, status = '';
     if (isRev) status = 'Əks/ləğv sənədi — ləğv edilmir';
+    else if (g.legacy) status = 'Köhnə (sənədsiz) qeyd — yalnız fərdi ləğv';
     else if (cancelledBy) status = 'Artıq ləğv edilib (' + cancelledBy + ')';
     else if (isTransfer && hasOther) status = 'Qarışıq sənəd — dəstəklənmir';
     else if (isTransfer) { eligible = true; status = 'Yerdəyişmə — ləğv edilə bilər'; }
     else if (types.length === 1 && CANCELLABLE_TYPES.includes(types[0])) { eligible = true; status = 'Ləğv edilə bilər'; }
     else status = 'Dəstəklənməyən növ — ləğv edilmir';
-    out.push({ doc: g.doc, date, types, typeLabel: types.join(', '), isTransfer, route, lines, totQty, by, codes, names, whs, details, eligible, status });
+    out.push({ key: g.key, doc: g.doc, legacy: g.legacy, date, types, typeLabel: types.join(', '), isTransfer, route, lines, totQty, by, codes, names, whs, details, eligible, status });
   }
-  out.sort((a, b) => (b.date || '').localeCompare(a.date || '') || a.doc.localeCompare(b.doc));
+  out.sort((a, b) => (b.date || '').localeCompare(a.date || '') || (a.doc || a.key).localeCompare(b.doc || b.key));
   return out;
 }
 function batchCancelOpen() {
@@ -2249,10 +2253,10 @@ function renderBatchList() {
     [{ t: '' }, { t: 'Sənəd №' }, { t: 'Tarix' }, { t: 'Növ' }, { t: 'Anbar / marşrut' }, { t: 'Sətir', r: 1 }, { t: 'Ümumi miqdar', r: 1 }, { t: 'Qeyd edən' }, { t: 'Status' }],
     list.map(d => {
       const chk = d.eligible
-        ? `<input type="checkbox" data-bc="${esc(d.doc)}" ${BC.selected.has(d.doc) ? 'checked' : ''}>`
+        ? `<input type="checkbox" data-bc="${esc(d.key)}" ${BC.selected.has(d.key) ? 'checked' : ''}>`
         : '<span class="muted">—</span>';
       return {
-        c: [chk, `<span class="code">${esc(d.doc)}</span>`, esc(fmtD(d.date)), TYPE_TAG(d.types[0]) + (d.types.length > 1 ? ' <span class="hint">+' + (d.types.length - 1) + '</span>' : ''),
+        c: [chk, `<span class="code">${esc(d.doc || '— (sənədsiz)')}</span>`, esc(fmtD(d.date)), TYPE_TAG(d.types[0]) + (d.types.length > 1 ? ' <span class="hint">+' + (d.types.length - 1) + '</span>' : ''),
           esc(d.route), nf(d.lines), nf(d.totQty, 2), `<span class="hint">${esc(d.by)}</span>`,
           d.eligible ? `<span class="hint">${esc(d.status)}</span>` : `<span class="tag t-rm">${esc(d.status)}</span>`]
       };
@@ -2271,7 +2275,7 @@ function updateBatchSel() {
   if ($('#bc-review')) $('#bc-review').onclick = renderBatchConfirm;
 }
 function renderBatchConfirm() {
-  const sel = BC.docs.filter(d => BC.selected.has(d.doc) && d.eligible);
+  const sel = BC.docs.filter(d => BC.selected.has(d.key) && d.eligible);
   if (!sel.length) return toast('Ləğv üçün etibarlı sənəd seçilməyib', true);
   const totLines = sel.reduce((s, d) => s + d.lines, 0);
   const totQty = sel.reduce((s, d) => s + d.totQty, 0);
