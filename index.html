@@ -2158,18 +2158,31 @@ function buildBatchDocs() {
     const codes = Array.from(new Set(rows.map(r => r.c)));
     const names = codes.map(c => (DB.itemBy.get(c) || {}).name || c);
     const whs = Array.from(new Set(rows.map(r => r.w)));
-    let lines, totQty, route;
+    let lines, totQty, route, base;
     if (isTransfer) {
       const outRows = rows.filter(r => (r.o || 0) > 0);
-      const base = outRows.length ? outRows : rows;
+      base = outRows.length ? outRows : rows;
       lines = base.length;
       totQty = base.reduce((s, r) => s + ((r.o || r.i) || 0), 0);
       route = Array.from(new Set(base.map(r => routeOrPartner(r)))).join(', ');
     } else {
+      base = rows;
       lines = rows.length;
       totQty = rows.reduce((s, r) => s + ((r.i || r.o) || 0), 0);
       route = whs.join(', ');
     }
+    const details = base.map(r => {
+      const it = DB.itemBy.get(r.c) || {};
+      const qty = (r.o || r.i) || 0;
+      return {
+        code: r.c,
+        name: it.name || r.c,
+        whRoute: isTransfer ? (routeOrPartner(r) || '—') : (r.w || '—'),
+        qty,
+        unit: it.unit || 'ədəd',
+        price: r.pr || it.price || 0
+      };
+    });
     let eligible = false, status = '';
     if (isRev) status = 'Əks/ləğv sənədi — ləğv edilmir';
     else if (cancelledBy) status = 'Artıq ləğv edilib (' + cancelledBy + ')';
@@ -2177,7 +2190,7 @@ function buildBatchDocs() {
     else if (isTransfer) { eligible = true; status = 'Yerdəyişmə — ləğv edilə bilər'; }
     else if (types.length === 1 && CANCELLABLE_TYPES.includes(types[0])) { eligible = true; status = 'Ləğv edilə bilər'; }
     else status = 'Dəstəklənməyən növ — ləğv edilmir';
-    out.push({ doc: g.doc, date, types, typeLabel: types.join(', '), isTransfer, route, lines, totQty, by, codes, names, whs, eligible, status });
+    out.push({ doc: g.doc, date, types, typeLabel: types.join(', '), isTransfer, route, lines, totQty, by, codes, names, whs, details, eligible, status });
   }
   out.sort((a, b) => (b.date || '').localeCompare(a.date || '') || a.doc.localeCompare(b.doc));
   return out;
@@ -2262,14 +2275,24 @@ function renderBatchConfirm() {
   if (!sel.length) return toast('Ləğv üçün etibarlı sənəd seçilməyib', true);
   const totLines = sel.reduce((s, d) => s + d.lines, 0);
   const totQty = sel.reduce((s, d) => s + d.totQty, 0);
+  const detailCards = sel.map(d => `
+    <div class="card" style="margin-top:8px">
+      <div style="display:flex;gap:8px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--line-2)">
+        <b class="code">${esc(d.doc)}</b><span>${esc(fmtD(d.date))}</span><span>${TYPE_TAG(d.typeLabel)}</span><span class="hint" style="margin-left:auto">${nf(d.lines)} sətir · ${nf(d.totQty, 2)} ${esc((d.details[0] && d.details[0].unit) || '')}</span>
+      </div>
+      <div class="tw" style="max-height:32vh;overflow:auto">${tbl(
+        [{ t: 'Kod' }, { t: 'Malın adı' }, { t: 'Anbar / marşrut' }, { t: 'Miqdar', r: 1 }, { t: 'Ölçü' }, { t: 'Vahid qiyməti', r: 1 }],
+        d.details.map(x => ({ c: [
+          `<span class="code">${esc(x.code)}</span>`, esc(x.name), esc(x.whRoute), nf(x.qty, 2), esc(x.unit), x.price ? money(x.price) : '—'
+        ] }))
+      )}</div>
+    </div>`).join('');
   modal('Qrup üzrə ləğv — təsdiq', `
     <div class="hint" style="padding:9px;background:var(--out-l);border-radius:4px;margin-bottom:10px">
       Aşağıdakı <b>${nf(sel.length)}</b> sənəd bir atomar əməliyyatda ləğv ediləcək. Hər sənəd üçün əks-yazı yaradılır, orijinal sətirlər dəyişmir. Hər hansı sənəd (qalıq və ya validasiya səbəbi ilə) ləğv edilə bilməzsə, <b>heç bir</b> sənəd ləğv olunmur.
     </div>
-    <div class="card"><div class="tw" style="max-height:42vh">${tbl(
-      [{ t: 'Sənəd №' }, { t: 'Tarix' }, { t: 'Növ' }, { t: 'Anbar / marşrut' }, { t: 'Sətir', r: 1 }, { t: 'Ümumi miqdar', r: 1 }, { t: 'Qeyd edən' }],
-      sel.map(d => ({ c: [`<span class="code">${esc(d.doc)}</span>`, esc(fmtD(d.date)), esc(d.typeLabel), esc(d.route), nf(d.lines), nf(d.totQty, 2), `<span class="hint">${esc(d.by)}</span>`] }))
-    )}</div></div>
+    <div class="hint" style="margin-top:8px">Əməliyyatı təsdiqləməzdən əvvəl bütün malları yoxlayın.</div>
+    ${detailCards}
     <div class="row" style="grid-template-columns:1fr 1fr;margin-top:10px">
       <div class="kpi"><div class="s">Cəmi sənəd</div><div class="v">${nf(sel.length)}</div></div>
       <div class="kpi"><div class="s">Cəmi sətir / miqdar</div><div class="v">${nf(totLines)} · ${nf(totQty, 2)}</div></div>
