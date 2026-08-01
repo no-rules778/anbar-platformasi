@@ -204,6 +204,7 @@ label.f>span{display:block;font-size:10.5px;text-transform:uppercase;letter-spac
       <a data-p="grp">Mal qrupları</a>
       <a data-p="knt">Kontragentlər <b id="c-knt"></b></a>
       <a data-p="anb">Anbar və layihələr <b id="c-anb"></b></a>
+      <a data-p="refs" id="nav-refs" style="display:none">Sorğuçalar</a>
       <div class="grp">Təhlil</div>
       <a data-p="rep">Hesabatlar</a>
       <a data-p="fin">Maliyyə göstəriciləri</a>
@@ -305,6 +306,12 @@ label.f>span{display:block;font-size:10.5px;text-transform:uppercase;letter-spac
           <div class="card"><header><h3>Fiziki anbarlar</h3></header><div class="tw" id="t-anb"></div></div>
           <div class="card"><header><h3>Layihə və təhvil məntəqələri</h3></header><div class="tw" id="t-loc"></div></div>
         </div>
+      </section>
+
+      <!-- REFERENCE DIRECTORIES: Admin only, one source for shared dropdown values -->
+      <section class="page" id="p-refs">
+        <div class="phead"><div><h2>Sorğuçalar</h2><p>Dropdown siyahılarının vahid mənbəyi. İstifadə olunan dəyər redaktə və deaktiv edilir; istifadə edilməyən dəyər silinə bilər.</p></div></div>
+        <div id="refs-out"></div>
       </section>
 
       <!-- REPORTS -->
@@ -603,6 +610,7 @@ async function sbGetUser() {
 const DB = {
   items: [], itemBy: new Map(),
   partners: [], locs: [], whs: [],
+  refs: { channels: [], ready: false },
   movs: [], events: [],
   users: {}, dirty: true
 };
@@ -651,11 +659,11 @@ async function loadFromDB() {
   }));
   DB.partners = (partners.data || []).map(r => ({
     id: r.id, name: r.name, voen: r.voen || '', contract: r.contract || '',
-    cdate: r.contract_date || '', seed: true
+    cdate: r.contract_date || '', active: r.active !== false, seed: true
   }));
   DB.whs = (warehouses.data || []).filter(r => r.active && r.type === 'anbar').map(r => r.name);
   DB.transferDests = DB.whs.slice();
-  DB.locs = (warehouses.data || []).map(r => ({ id: r.id, name: r.name, kind: r.type, seed: true }));
+  DB.locs = (warehouses.data || []).map(r => ({ id: r.id, name: r.name, kind: r.type, active: r.active !== false, seed: true }));
   DB.movs = (movements.data || []).map(r => ({
     id: r.id, w: r.warehouse, d: r.date, c: r.item_code,
     i: parseFloat(r.in_qty) || 0, o: parseFloat(r.out_qty) || 0,
@@ -677,6 +685,16 @@ async function loadFromDB() {
   DB.movs.forEach(m => {
     m.by = !m.by || m.by === 'sistem' ? 'Excel idxalı' : (uname.get(m.by) || (ME && m.by === ME.sbId ? ME.name : 'digər istifadəçi'));
   });
+  // Purchase channels are loaded from the central directory. Before SQL 011 is
+  // applied, the existing fallback remains usable and no form is blocked.
+  DB.refs = { channels: [], ready: false };
+  try {
+    const rv = await SB.rpc('get_reference_values');
+    if (rv.error) throw rv.error;
+    DB.refs.channels = (rv.data || []).filter(x => x.kind === 'purchase_channel')
+      .map(x => ({ id: x.id, name: x.name, active: x.active !== false }));
+    DB.refs.ready = true;
+  } catch (e) { console.warn('Sorğuçalar yüklənmədi (SQL 011 hələ tətbiq edilməyib)', e); }
   // Load transfer destination names via SECURITY DEFINER RPC — bypasses warehouses
   // RLS so anbardar sees Ofis as a valid destination without exposing Ofis stock/metadata.
   if (isAdmin() || isAnbardar()) {
@@ -1110,6 +1128,7 @@ function routeOrPartner(m) { return transferRoute(m) || (m.p || '—'); }
 /* ================= navigation ================= */
 let PAGE = 'dash';
 function go(p) {
+  if (p === 'refs' && !isAdmin()) return toast('Sorğuçalar yalnız Admin üçündür', true);
   PAGE = p;
   $$('.rail a').forEach(a => a.classList.toggle('on', a.dataset.p === p));
   $$('.page').forEach(s => s.classList.toggle('on', s.id === 'p-' + p));
@@ -1121,7 +1140,7 @@ $$('.rail a').forEach(a => a.onclick = () => go(a.dataset.p));
 $('#burger').onclick = () => $('#rail').classList.toggle('open');
 
 function render(p) {
-  ({ dash: rDash, op: rOp, mov: rMov, bal: rBal, nom: rNom, grp: rGroups, knt: rKnt, anb: rAnb, rep: rRep, fin: rFin, ctrl: rCtrl, log: rLog, set: rSet }[p] || (() => { }))();
+  ({ dash: rDash, op: rOp, mov: rMov, bal: rBal, nom: rNom, grp: rGroups, knt: rKnt, anb: rAnb, refs: rRefs, rep: rRep, fin: rFin, ctrl: rCtrl, log: rLog, set: rSet }[p] || (() => { }))();
   counters();
 }
 function renderAll() { render(PAGE); }
@@ -1619,10 +1638,10 @@ function rKnt() {
     rows.map(r => ({
       c: [`<b>${esc(r.p.name)}</b>`, r.p.voen ? `<span class="code">${esc(r.p.voen)}</span>` : `<span class="tag t-rm">yoxdur</span>`,
       esc(r.p.contract || '—'), esc(fmtD(r.p.cdate) || '—'), nf(r.st.n), nf(r.st.in, 2), money(r.st.val),
-      can('partner.edit') ? `<button class="btn sm" onclick="editPartner('${esc(r.p.id)}')">Düzəliş</button>` : '']
+      isAdmin() ? `<button class="btn sm" onclick="go('refs')">Sorğuçalarda idarə et</button>` : '']
     })));
-  $('#knt-add').onclick = () => editPartner(null);
-  $('#knt-add').disabled = !can('partner.edit');
+  $('#knt-add').onclick = () => go('refs');
+  $('#knt-add').disabled = !isAdmin();
 }
 
 /* ================= WAREHOUSES / LOCATIONS ================= */
@@ -1640,8 +1659,84 @@ function rAnb() {
       const st = IX.byPartner.get(l.name) || { n: 0, in: 0, out: 0 };
       return { c: [esc(l.name), `<span class="tag ${l.kind === 'anbar' ? 't-op' : 't-mut'}">${esc(l.kind)}</span>`, nf(st.n), nf(st.in + st.out, 2)] };
     }));
-  $('#anb-add').onclick = () => editLoc();
-  $('#anb-add').disabled = !can('loc.edit');
+  $('#anb-add').onclick = () => go('refs');
+  $('#anb-add').disabled = !isAdmin();
+}
+
+/* ================= REFERENCE DIRECTORIES (ADMIN ONLY) ================= */
+function refUsage(kind, x) {
+  const n = x.name || '';
+  if (kind === 'channel') return DB.movs.filter(m => m.ch === n).length;
+  if (kind === 'partner') return DB.movs.filter(m => m.p === n).length;
+  if (kind === 'warehouse') return DB.movs.filter(m => m.w === n).length;
+  return DB.movs.filter(m => m.p === n).length;
+}
+function refEntities(kind) {
+  if (kind === 'channel') return (DB.refs && DB.refs.channels) || [];
+  if (kind === 'partner') return DB.partners;
+  return DB.locs.filter(x => x.kind === (kind === 'warehouse' ? 'anbar' : 'layihə'));
+}
+function refTitle(kind) {
+  return ({ channel: 'Alınma kanalları', partner: 'Kontragentlər', warehouse: 'Fiziki anbarlar', location: 'Layihə və təhvil məntəqələri' })[kind] || kind;
+}
+function rRefs() {
+  if (!isAdmin()) { go('dash'); return; }
+  const channelReady = DB.refs && DB.refs.ready;
+  const panel = kind => {
+    const rows = refEntities(kind);
+    const canManage = kind !== 'channel' || channelReady;
+    return `<div class="card" style="margin-top:12px"><header><h3>${esc(refTitle(kind))}</h3><div class="sp"></div><button class="btn sm pri" data-ref-new="${kind}" ${canManage ? '' : 'disabled'}>Əlavə et</button></header>
+      <div class="tw">${tbl(
+        [{ t: 'Ad' }, { t: 'Status' }, { t: 'İstifadə', r: 1 }, { t: '' }],
+        rows.map(x => { const used = refUsage(kind, x); return { c: [
+          `<b>${esc(x.name)}</b>`, x.active !== false ? '<span class="tag t-in">aktiv</span>' : '<span class="tag t-rm">deaktiv</span>',
+          nf(used), `<button class="btn sm" data-ref-edit="${kind}|${esc(x.id)}" ${canManage ? '' : 'disabled'}>İdarə et</button>`
+        ]}; }), { empty: kind === 'channel' && !channelReady ? 'SQL 011 tətbiq ediləndən sonra kanallar burada görünəcək.' : 'Məlumat yoxdur.' })}</div></div>`;
+  };
+  $('#refs-out').innerHTML = `<div class="hint" style="padding:10px;background:var(--out-l);border-radius:4px">
+    Eyni mənbə bütün uyğun dropdown-larda istifadə olunur. İstifadə edilən dəyər silinmir: redaktə olunur və ya deaktiv edilir. Tarixi əməliyyatlar dəyişməz qalır.
+  </div>${panel('warehouse')}${panel('location')}${panel('partner')}${panel('channel')}
+  <div class="card" style="margin-top:12px"><div class="pad hint"><b>Sistem siyahıları</b>: <span class="code">Bütün anbarlar</span>, istifadəçi rolları və əməliyyat növləri uçot məntiqinə bağlıdır; bu bölmədən silinmir və dəyişdirilmir.</div></div>`;
+  $$('#refs-out [data-ref-new]').forEach(b => b.onclick = () => refOpen(b.dataset.refNew, null));
+  $$('#refs-out [data-ref-edit]').forEach(b => b.onclick = () => { const [kind, id] = b.dataset.refEdit.split('|'); refOpen(kind, id); });
+}
+function refOpen(kind, id) {
+  if (!isAdmin()) return toast('Sorğuçalar yalnız Admin üçündür', true);
+  if (kind === 'channel' && !(DB.refs && DB.refs.ready)) return toast('Əvvəlcə SQL 011 tətbiq edilməlidir', true);
+  const x = id ? refEntities(kind).find(v => String(v.id) === String(id)) : null;
+  const used = x ? refUsage(kind, x) : 0;
+  const partnerFields = kind === 'partner' ? `<div class="row" style="grid-template-columns:1fr 1fr">
+      <label class="f"><span>VÖEN</span><input id="ref-voen" maxlength="10" value="${esc(x ? x.voen || '' : '')}"></label>
+      <label class="f"><span>Müqavilə tarixi</span><input id="ref-cdate" type="date" value="${esc(x ? x.cdate || '' : '')}"></label>
+    </div><label class="f"><span>Müqavilə №</span><input id="ref-contract" value="${esc(x ? x.contract || '' : '')}"></label>` : '';
+  const note = x ? `<p class="hint">İstifadə sayı: <b>${nf(used)}</b>. ${used ? 'Tarixçəni qorumaq üçün silinməyəcək; deaktiv edilə bilər.' : 'İstifadə edilməyib — silinə bilər.'}</p>` : '';
+  modal(x ? refTitle(kind) + ' — idarəetmə' : refTitle(kind) + ' — yeni dəyər', `
+    <label class="f"><span>Ad</span><input id="ref-name" value="${esc(x ? x.name : '')}" autocomplete="off"></label>${partnerFields}${note}`,
+    `<button class="btn" data-close>İmtina</button><div style="flex:1"></div>
+      ${x && x.active !== false ? `<button class="btn" id="ref-deactivate">Deaktiv et</button>` : ''}
+      ${x && x.active === false ? `<button class="btn" id="ref-activate">Aktiv et</button>` : ''}
+      ${x ? `<button class="btn dgr" id="ref-delete">Sil</button>` : ''}
+      <button class="btn pri" id="ref-save">Yadda saxla</button>`);
+  const send = action => refSend(kind, action, x ? x.id : null);
+  $('#ref-save').onclick = () => send(x ? 'update' : 'create');
+  if ($('#ref-deactivate')) $('#ref-deactivate').onclick = () => send('deactivate');
+  if ($('#ref-activate')) $('#ref-activate').onclick = () => send('activate');
+  if ($('#ref-delete')) $('#ref-delete').onclick = () => { if (confirm('Bu dəyər silinsin?')) send('delete'); };
+}
+async function refSend(kind, action, id) {
+  const name = $('#ref-name') ? $('#ref-name').value.trim() : '';
+  if ((action === 'create' || action === 'update') && name.length < 2) return toast('Ad ən azı 2 simvol olmalıdır', true);
+  const meta = kind === 'partner' ? {
+    voen: ($('#ref-voen') && $('#ref-voen').value.trim()) || '',
+    contract: ($('#ref-contract') && $('#ref-contract').value.trim()) || '',
+    contract_date: ($('#ref-cdate') && $('#ref-cdate').value) || ''
+  } : {};
+  if (meta.voen && !/^\d{10}$/.test(meta.voen)) return toast('VÖEN 10 rəqəm olmalıdır', true);
+  try {
+    const { error } = await SB.rpc('manage_reference', { p_kind: kind, p_action: action, p_id: id, p_name: name || null, p_meta: meta });
+    if (error) throw error;
+    closeModal(); await loadFromDB(); renderAll(); toast('Sorğuça yeniləndi');
+  } catch (e) { toast('Sorğuça yenilənmədi: ' + (e.message || 'server xətası'), true); }
 }
 </script>
 <script>
@@ -1649,15 +1744,16 @@ function rAnb() {
 const OP = { kind: 'in', lines: [], pick: null };
 $$('#op-seg button').forEach(b => b.onclick = () => { OP.kind = b.dataset.k; $$('#op-seg button').forEach(x => x.classList.toggle('on', x === b)); rOp(); });
 
-const CHANNELS = ['Nağd alış', 'Kommersiya şirkəti', 'Köçürmə', 'Sahə üzrə məsul şəxs'];
+const DEFAULT_CHANNELS = ['Nağd alış', 'Kommersiya şirkəti', 'Köçürmə', 'Sahə üzrə məsul şəxs'];
 function channelOptions() {
+  if (DB.refs && DB.refs.ready) return DB.refs.channels.filter(x => x.active).map(x => x.name);
   const used = Array.from(new Set(normalMovements().map(m => m.ch).filter(Boolean)));
-  return Array.from(new Set(CHANNELS.concat(used)));
+  return Array.from(new Set(DEFAULT_CHANNELS.concat(used)));
 }
 function partnerOptions(kind) {
   const names = kind === 'mv' ? DB.whs
     : kind === 'out' ? ['Sahə üzrə məsul şəxs'].concat(DB.locs.filter(l => l.kind !== 'anbar').map(l => l.name)).concat(DB.locs.filter(l => l.kind === 'anbar').map(l => l.name))
-      : DB.partners.map(p => p.name);
+      : DB.partners.filter(p => p.active !== false).map(p => p.name);
   return Array.from(new Set(names));
 }
 function captureOpHeader() {
@@ -3550,6 +3646,7 @@ async function enterApp(userId, email) {
   };
   $('#gate').style.display = 'none';
   $('#app').style.display = 'block';
+  if ($('#nav-refs')) $('#nav-refs').style.display = isAdmin() ? '' : 'none';
   $('#btn-me').textContent = ME.name.split(' ')[0] + ' · ' + (ROLES[ME.role] ? ROLES[ME.role].name : ME.role);
   $('#btn-me').onclick = sessionDialog;
   try { const ss = await SB.auth.getSession(); window.SB_TOKEN = ss.data.session ? ss.data.session.access_token : null; } catch (e) { }
