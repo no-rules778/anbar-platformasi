@@ -259,7 +259,7 @@ label.f>span{display:block;font-size:10.5px;text-transform:uppercase;letter-spac
       <!-- MOVEMENTS -->
       <section class="page" id="p-mov">
         <div class="phead"><div><h2>Mal hərəkəti</h2><p>Bütün mədaxil, məxaric və yerdəyişmələrin vahid registri.</p></div><div class="sp"></div>
-          <button class="btn" id="mov-exp">Excel</button><button class="btn" id="mov-print">Çap</button><button class="btn pri" data-goto="op">Yeni əməliyyat</button></div>
+          <button class="btn" id="mov-exp">Excel</button><button class="btn" id="mov-print">Çap</button><button class="btn dgr" id="mov-batch" style="display:none">Qrup üzrə ləğv</button><button class="btn pri" data-goto="op">Yeni əməliyyat</button></div>
         <div class="filters" id="mov-filters"></div>
         <div class="card"><div class="tw" id="t-mov"></div><div class="pad" id="mov-pager" style="border-top:1px solid var(--line-2);display:flex;align-items:center;gap:10px"></div></div>
       </section>
@@ -1269,6 +1269,10 @@ function rMov() {
   $('#mov-pager').innerHTML =
     `<span class="hint">${nf(all.length)} qeyd · mədaxil <b class="num">${nf(sin, 2)}</b> · məxaric <b class="num">${nf(sout, 2)}</b> · mədaxil dəyəri <b>${money(sval)}</b>`
     + cutNote(all, 'mov', rMov) + `</span>`;
+  if ($('#mov-batch')) {
+    $('#mov-batch').style.display = isAdmin() ? '' : 'none';
+    $('#mov-batch').onclick = batchCancelOpen;
+  }
   $('#mov-print').onclick = () => { printHead('Mal hərəkəti', nf(all.length) + ' qeyd'); setTimeout(() => window.print(), 60); };
   $('#mov-exp').onclick = () => xls([['Tarix', 'Anbar', 'Kod', 'Malın adı', 'Ölçü', 'Növü', 'Kontragent/Layihə', 'Alınma kanalı', 'Giriş', 'Çıxış', 'Vahid qiyməti', 'Məbləğ', 'Müqavilə', 'Qaimə', 'Qeyd edən']]
     .concat(all.map(m => { const it = DB.itemBy.get(m.c) || {}; const pr = m.pr || it.price || 0; return [m.d, m.w, m.c, it.name || '', it.unit || '', m.t, m.p, m.ch || '', m.i || '', m.o || '', pr || '', pr ? (((m.i || 0) + (m.o || 0)) * pr).toFixed(2) : '', m.ct || '', m.iv || '', m.by || '']; })), 'mal_hereketi');
@@ -1738,10 +1742,16 @@ function pickItem(code, keep) {
   $('#o-itemsel').innerHTML = `Seçildi: <span class="code">${esc(it.code)}</span> · ${esc(it.unit)}`;
   $('#o-unit').value = it.unit;
   if ($('#o-price') && it.price && !$('#o-price').value) $('#o-price').value = it.price;
+  renderItemBalance(code);
+  if (!keep) $('#o-qty').focus();
+}
+/* Seçilmiş mal üzrə anbar qalıqlarını #op-state panelində göstərir. Qalıqlar
+   IX.bal-dan (baza qalığı) götürülür — gözləyən sənəd sətirlərindən asılı deyil. */
+function renderItemBalance(code) {
+  const it = DB.itemBy.get(code); if (!it || !$('#op-state')) return;
   const bal = IX.bal.filter(b => b.c === code);
   $('#op-state').innerHTML = `<div style="font-weight:650;margin-bottom:6px">${esc(it.name)}</div>` +
     tbl([{ t: 'Anbar' }, { t: 'Qalıq', r: 1 }], bal.length ? bal.map(b => ({ c: [esc(b.w), `<b class="${b.q < 0 ? 'neg' : ''}">${nf(b.q, 2)} ${esc(b.unit)}</b>`] })) : [], { empty: 'Bu mal üzrə hələ hərəkət yoxdur.' });
-  if (!keep) $('#o-qty').focus();
 }
 function prefillOp(code) { OP.pick = code; go('op'); setTimeout(() => pickItem(code), 60); }
 function addLine() {
@@ -1795,9 +1805,50 @@ function renderLines() {
       c: [`<div class="nm">${esc(l.name)}</div><span class="code">${esc(l.c)}</span>`,
       `${TYPE_TAG(l.t)}<div class="hint">${esc(l.kind === 'mv' ? l.w + ' → ' + l.w2 : (l.kind === 'in' ? l.p + ' → ' + l.w : l.w + ' → ' + l.p))}</div>`,
       nf(l.q, 2) + ' ' + esc(l.unit), l.pr ? money(l.q * l.pr) : '—',
-      `<button class="btn sm dgr" onclick="OP.lines.splice(${i},1);renderLines()">Sil</button>`]
+      `<button class="btn sm" onclick="editLine(${i})">Redaktə et</button> <button class="btn sm dgr" onclick="OP.lines.splice(${i},1);renderLines()">Sil</button>`]
     })), { empty: 'Sətir əlavə edin — sənəd bir neçə maldan ibarət ola bilər.' });
   $('#op-post').disabled = !L.length || !can('mv.add');
+}
+/* Gözləyən sənəd sətrinin YALNIZ miqdarını redaktə edir (mal, anbar, təyinat,
+   növ, tarix, kontragent, qiymət, qeyd DƏYİŞMİR). Stok azaldan sətirlər üçün
+   mövcudluq = mənbə anbar qalığı − eyni anbar+mal üzrə DİGƏR gözləyən çıxış/
+   yerdəyişmə sətirləri (redaktə olunan sətir istisna). Artıq miqdar dərhal
+   mövcud maksimuma kəsilir; qalıq <= 0 olduqda redaktə rədd edilir və əvvəlki
+   etibarlı miqdar saxlanılır. Mədaxil qalıqla məhdudlaşdırılmır. */
+function editLine(i) {
+  const l = OP.lines[i];
+  if (!l) return;
+  modal('Miqdarı redaktə et',
+    `<div style="font-weight:650;margin-bottom:4px">${esc(l.name)} <span class="code">${esc(l.c)}</span></div>
+     <div class="hint" style="margin-bottom:10px">${TYPE_TAG(l.t)} ${esc(l.kind === 'mv' ? l.w + ' → ' + l.w2 : (l.kind === 'in' ? l.p + ' → ' + l.w : l.w + ' → ' + l.p))}</div>
+     <label class="f"><span>Miqdar (${esc(l.unit)})</span><input type="number" id="edit-q" step="0.01" min="0" value="${l.q}"></label>
+     <div class="hint" id="edit-err" style="margin-top:6px"></div>`,
+    `<button class="btn" data-close>İmtina</button><button class="btn pri" id="edit-save">Yadda saxla</button>`);
+  setTimeout(() => { const inp = $('#edit-q'); if (inp) { inp.focus(); inp.select(); } }, 30);
+  $('#edit-save').onclick = () => {
+    const err = $('#edit-err');
+    const q = parseFloat($('#edit-q').value);
+    if (!(q > 0)) { err.innerHTML = '<span style="color:var(--alarm)">Miqdar sıfırdan böyük olmalıdır.</span>'; return; }
+    let nq = q;
+    if (l.kind !== 'in') {
+      const b = IX.bal.find(x => x.w === l.w && x.c === l.c);
+      const have = b ? b.q : 0;
+      const pending = OP.lines.filter((x, j) => j !== i && x.c === l.c && x.w === l.w && x.kind !== 'in').reduce((s, x) => s + x.q, 0);
+      const avail = have - pending;
+      if (avail <= 0) {
+        err.innerHTML = `<span style="color:var(--alarm)">${esc(l.w)} anbarında "${esc(l.name)}" üzrə mövcud qalıq yoxdur — əvvəlki miqdar (${nf(l.q, 2)} ${esc(l.unit)}) saxlanıldı.</span>`;
+        return;
+      }
+      if (nq > avail) {
+        nq = avail;
+        toast(`${l.w} anbarında maksimum ${nf(avail, 2)} ${l.unit} mövcuddur — miqdar bu maksimuma endirildi.`, true);
+      }
+    }
+    l.q = nq;
+    closeModal();
+    renderLines();
+    if (OP.pick) renderItemBalance(OP.pick);
+  };
 }
 $('#op-clear').onclick = () => { OP.lines = []; renderLines(); };
 $('#op-post').onclick = async () => {
@@ -2077,6 +2128,176 @@ function legacyTransferCancelView(m) {
       toast('Köhnə yerdəyişmə ləğv edildi · əks sənəd: ' + (data && data.reversal_doc_num ? data.reversal_doc_num : '—'));
     } catch (err) { if ($('#lt-go')) $('#lt-go').disabled = false; toast('Ləğv edilmədi: ' + (err.message || 'server xətası'), true); }
   };
+}
+/* ================= QRUP ÜZRƏ LƏĞV (yalnız Admin) =================
+   Sənəd səviyyəsində axtarış → seçim → təsdiq → atomar server RPC
+   (cancel_documents_batch). Fərdi ləğv məntiqi dəyişmir; bu, yalnız çoxlu
+   sənədi bir atomar əməliyyatda ləğv etmək üçün UI + serverdəki batch RPC-dir. */
+const BC = { docs: [], selected: new Set() };
+/* DB.movs-u sənəd nömrəsi üzrə qruplaşdırır və hər sənədi təsnif edir
+   (SQL cancel_documents_batch eligibility qaydaları ilə eyni). */
+function buildBatchDocs() {
+  const byDoc = new Map();
+  for (const m of DB.movs) {
+    if (!m.doc) continue; // legacy (sənədsiz) — batch xaricində, yalnız fərdi ləğv
+    let g = byDoc.get(m.doc);
+    if (!g) { g = { doc: m.doc, rows: [] }; byDoc.set(m.doc, g); }
+    g.rows.push(m);
+  }
+  const out = [];
+  for (const g of byDoc.values()) {
+    const rows = g.rows;
+    const types = Array.from(new Set(rows.map(r => r.t)));
+    const isTransfer = types.includes('Yerdəyişmə');
+    const hasOther = types.some(t => t !== 'Yerdəyişmə');
+    const isRev = rows.some(r => /^Ləğv(?: \(əks yerdəyişmə\))?:/.test(String(r.note || '').trim()));
+    const cancelledBy = isTransfer ? docReversalDoc(g.doc)
+      : (types.every(t => CANCELLABLE_TYPES.includes(t)) ? docCancelledBy(g.doc) : null);
+    const date = rows.map(r => r.d).sort()[0] || '';
+    const by = (rows[0] && rows[0].by) || '—';
+    const codes = Array.from(new Set(rows.map(r => r.c)));
+    const names = codes.map(c => (DB.itemBy.get(c) || {}).name || c);
+    const whs = Array.from(new Set(rows.map(r => r.w)));
+    let lines, totQty, route;
+    if (isTransfer) {
+      const outRows = rows.filter(r => (r.o || 0) > 0);
+      const base = outRows.length ? outRows : rows;
+      lines = base.length;
+      totQty = base.reduce((s, r) => s + ((r.o || r.i) || 0), 0);
+      route = Array.from(new Set(base.map(r => routeOrPartner(r)))).join(', ');
+    } else {
+      lines = rows.length;
+      totQty = rows.reduce((s, r) => s + ((r.i || r.o) || 0), 0);
+      route = whs.join(', ');
+    }
+    let eligible = false, status = '';
+    if (isRev) status = 'Əks/ləğv sənədi — ləğv edilmir';
+    else if (cancelledBy) status = 'Artıq ləğv edilib (' + cancelledBy + ')';
+    else if (isTransfer && hasOther) status = 'Qarışıq sənəd — dəstəklənmir';
+    else if (isTransfer) { eligible = true; status = 'Yerdəyişmə — ləğv edilə bilər'; }
+    else if (types.length === 1 && CANCELLABLE_TYPES.includes(types[0])) { eligible = true; status = 'Ləğv edilə bilər'; }
+    else status = 'Dəstəklənməyən növ — ləğv edilmir';
+    out.push({ doc: g.doc, date, types, typeLabel: types.join(', '), isTransfer, route, lines, totQty, by, codes, names, whs, eligible, status });
+  }
+  out.sort((a, b) => (b.date || '').localeCompare(a.date || '') || a.doc.localeCompare(b.doc));
+  return out;
+}
+function batchCancelOpen() {
+  if (!isAdmin()) return toast('Bu əməliyyat yalnız Rəhbər (Admin) üçündür', true);
+  BC.docs = buildBatchDocs();
+  BC.selected = new Set();
+  renderBatchSearch();
+}
+function batchFilterDocs() {
+  const f = {
+    from: ($('#bc-from') && $('#bc-from').value) || '',
+    to: ($('#bc-to') && $('#bc-to').value) || '',
+    wh: ($('#bc-wh') && $('#bc-wh').value) || '',
+    type: ($('#bc-type') && $('#bc-type').value) || '',
+    q: (($('#bc-item') && $('#bc-item').value) || '').trim().toLowerCase(),
+    doc: (($('#bc-doc') && $('#bc-doc').value) || '').trim().toLowerCase()
+  };
+  return BC.docs.filter(d => {
+    if (f.from && (d.date || '') < f.from) return false;
+    if (f.to && (d.date || '') > f.to) return false;
+    if (f.wh && !d.whs.includes(f.wh)) return false;
+    if (f.type && !d.types.includes(f.type)) return false;
+    if (f.doc && d.doc.toLowerCase().indexOf(f.doc) < 0) return false;
+    if (f.q && !(d.codes.some(c => c.toLowerCase().indexOf(f.q) >= 0)
+      || d.names.some(n => (n || '').toLowerCase().indexOf(f.q) >= 0))) return false;
+    return true;
+  });
+}
+function renderBatchSearch() {
+  const whOpts = '<option value="">Bütün anbarlar</option>' + DB.whs.map(w => `<option>${esc(w)}</option>`).join('');
+  const typeOpts = '<option value="">Bütün növlər</option>' + ['Yerdəyişmə'].concat(CANCELLABLE_TYPES).map(t => `<option>${esc(t)}</option>`).join('');
+  modal('Qrup üzrə ləğv — sənəd axtarışı', `
+    <div class="hint" style="margin-bottom:8px">Yalnız etibarlı sənəd nömrəsi olan əməliyyatlar. Artıq ləğv edilmiş, əks/ləğv, qarışıq və köhnə (sənədsiz) qeydlər seçilə bilməz və səbəbi göstərilir.</div>
+    <div class="row" style="grid-template-columns:1fr 1fr 1fr">
+      <label class="f"><span>Tarix (başlanğıc)</span><input type="date" id="bc-from"></label>
+      <label class="f"><span>Tarix (son)</span><input type="date" id="bc-to"></label>
+      <label class="f"><span>Anbar</span><select id="bc-wh">${whOpts}</select></label>
+    </div>
+    <div class="row" style="grid-template-columns:1fr 1fr 1fr">
+      <label class="f"><span>Əməliyyat növü</span><select id="bc-type">${typeOpts}</select></label>
+      <label class="f"><span>Mal (kod və ya ad)</span><input type="text" id="bc-item" placeholder="məs. kabel və ya 0000123"></label>
+      <label class="f"><span>Sənəd №</span><input type="text" id="bc-doc" placeholder="məs. SND-…"></label>
+    </div>
+    <div class="card" style="margin-top:6px"><div class="tw" id="bc-list" style="max-height:44vh"></div></div>`,
+    `<span class="hint" id="bc-selcnt" style="margin-right:auto"></span><button class="btn" data-close>Bağla</button><button class="btn dgr" id="bc-review" disabled>Seçilənləri nəzərdən keçir</button>`);
+  ['bc-from', 'bc-to', 'bc-wh', 'bc-type', 'bc-item', 'bc-doc'].forEach(id => {
+    const el = $('#' + id); if (el) el.oninput = el.onchange = renderBatchList;
+  });
+  renderBatchList();
+}
+function renderBatchList() {
+  const list = batchFilterDocs();
+  $('#bc-list').innerHTML = tbl(
+    [{ t: '' }, { t: 'Sənəd №' }, { t: 'Tarix' }, { t: 'Növ' }, { t: 'Anbar / marşrut' }, { t: 'Sətir', r: 1 }, { t: 'Ümumi miqdar', r: 1 }, { t: 'Qeyd edən' }, { t: 'Status' }],
+    list.map(d => {
+      const chk = d.eligible
+        ? `<input type="checkbox" data-bc="${esc(d.doc)}" ${BC.selected.has(d.doc) ? 'checked' : ''}>`
+        : '<span class="muted">—</span>';
+      return {
+        c: [chk, `<span class="code">${esc(d.doc)}</span>`, esc(fmtD(d.date)), TYPE_TAG(d.types[0]) + (d.types.length > 1 ? ' <span class="hint">+' + (d.types.length - 1) + '</span>' : ''),
+          esc(d.route), nf(d.lines), nf(d.totQty, 2), `<span class="hint">${esc(d.by)}</span>`,
+          d.eligible ? `<span class="hint">${esc(d.status)}</span>` : `<span class="tag t-rm">${esc(d.status)}</span>`]
+      };
+    }), { empty: 'Süzgəcə uyğun sənəd tapılmadı.' });
+  $$('#bc-list [data-bc]').forEach(cb => cb.onchange = () => {
+    if (cb.checked) BC.selected.add(cb.dataset.bc); else BC.selected.delete(cb.dataset.bc);
+    updateBatchSel();
+  });
+  updateBatchSel();
+}
+function updateBatchSel() {
+  // seçimdən artıq siyahıda olmayan (süzülmüş) sənədləri saxla — seçim filtrlə itmir
+  const n = BC.selected.size;
+  if ($('#bc-selcnt')) $('#bc-selcnt').textContent = n ? nf(n) + ' sənəd seçilib' : 'Sənəd seçin';
+  if ($('#bc-review')) $('#bc-review').disabled = !n;
+  if ($('#bc-review')) $('#bc-review').onclick = renderBatchConfirm;
+}
+function renderBatchConfirm() {
+  const sel = BC.docs.filter(d => BC.selected.has(d.doc) && d.eligible);
+  if (!sel.length) return toast('Ləğv üçün etibarlı sənəd seçilməyib', true);
+  const totLines = sel.reduce((s, d) => s + d.lines, 0);
+  const totQty = sel.reduce((s, d) => s + d.totQty, 0);
+  modal('Qrup üzrə ləğv — təsdiq', `
+    <div class="hint" style="padding:9px;background:var(--out-l);border-radius:4px;margin-bottom:10px">
+      Aşağıdakı <b>${nf(sel.length)}</b> sənəd bir atomar əməliyyatda ləğv ediləcək. Hər sənəd üçün əks-yazı yaradılır, orijinal sətirlər dəyişmir. Hər hansı sənəd (qalıq və ya validasiya səbəbi ilə) ləğv edilə bilməzsə, <b>heç bir</b> sənəd ləğv olunmur.
+    </div>
+    <div class="card"><div class="tw" style="max-height:42vh">${tbl(
+      [{ t: 'Sənəd №' }, { t: 'Tarix' }, { t: 'Növ' }, { t: 'Anbar / marşrut' }, { t: 'Sətir', r: 1 }, { t: 'Ümumi miqdar', r: 1 }, { t: 'Qeyd edən' }],
+      sel.map(d => ({ c: [`<span class="code">${esc(d.doc)}</span>`, esc(fmtD(d.date)), esc(d.typeLabel), esc(d.route), nf(d.lines), nf(d.totQty, 2), `<span class="hint">${esc(d.by)}</span>`] }))
+    )}</div></div>
+    <div class="row" style="grid-template-columns:1fr 1fr;margin-top:10px">
+      <div class="kpi"><div class="s">Cəmi sənəd</div><div class="v">${nf(sel.length)}</div></div>
+      <div class="kpi"><div class="s">Cəmi sətir / miqdar</div><div class="v">${nf(totLines)} · ${nf(totQty, 2)}</div></div>
+    </div>
+    <label class="f" style="max-width:220px;margin-top:10px"><span>Ləğv (əks-yazı) tarixi</span><input type="date" id="bc-date" value="${today()}"></label>`,
+    `<button class="btn" id="bc-back">Geri</button><div style="flex:1"></div><button class="btn dgr" id="bc-exec">${nf(sel.length)} sənədi ləğv et</button>`);
+  if ($('#bc-back')) $('#bc-back').onclick = renderBatchSearch;
+  if ($('#bc-exec')) $('#bc-exec').onclick = () => batchCancelExecute(sel.map(d => d.doc));
+}
+function batchCancelExecute(docNums) {
+  if (!isAdmin()) return toast('Bu əməliyyat yalnız Rəhbər (Admin) üçündür', true);
+  if (!docNums || !docNums.length) return;
+  const btn = $('#bc-exec'); if (btn) btn.disabled = true;
+  const dt = $('#bc-date') ? $('#bc-date').value : '';
+  (async () => {
+    try {
+      const { data, error } = await SB.rpc('cancel_documents_batch',
+        dt ? { p_doc_nums: docNums, p_reversal_date: dt } : { p_doc_nums: docNums });
+      if (error) throw error;
+      closeModal();
+      await loadFromDB(); if (typeof loadAuditTotal === 'function') loadAuditTotal();
+      renderAll();
+      toast((data && data.cancelled_count ? data.cancelled_count : docNums.length) + ' sənəd qrup üzrə ləğv edildi');
+    } catch (err) {
+      if ($('#bc-exec')) $('#bc-exec').disabled = false;
+      toast('Qrup üzrə ləğv baş tutmadı: ' + (err.message || 'server xətası') + ' — heç bir sənəd ləğv edilmədi', true);
+    }
+  })();
 }
 function editMov(id) {
   const m = DB.movs.find(x => x.id === id); if (!m) return;
