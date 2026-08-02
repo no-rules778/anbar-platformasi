@@ -1374,28 +1374,117 @@ const _INIT_BAL_NORM = _normPartner(INIT_BAL_PARTNER);
 function _isInitBalType(t) { return _normBase(t) === _INIT_BAL_TYPE_NORM; }
 function _isInitBalPartner(p) { return _normPartner(p) === _INIT_BAL_NORM; }
 function getInitialBalanceRows() {
-  const agg = new Map();                         // "wh|code" -> sətir
-  for (const m of normalMovements()) {
-    if (!_isInitBalType(m.t)) continue;
-    if (!_isInitBalPartner(m.p)) continue;
-    const it = DB.itemBy.get(m.c) || {};
-    if ((m.pr || 0) > 0 || (it.price || 0) > 0) continue;   // yalnız qiymətsiz mallar
-    const key = m.w + '|' + m.c;
-    let r = agg.get(key);
-    if (!r) {
-      r = { c: m.c, name: it.name || '(nomenklaturada yoxdur: ' + m.c + ')', w: m.w, unit: it.unit || '',
-            initial_qty: 0, in: 0, out: 0, last: '' };
-      agg.set(key, r);
+  const agg = new Map();                         // "wh|code" -> opening layer
+  const lots = new Map();                        // FIFO provenance lots
+  const pendingTransfers = new Map();            // transfer key -> FIFO opening lots moved
+  const keyOf = (w, c) => w + '|' + c;
+  const whFromLabel = label => {
+    const n = _normBase(label).replace(/\s+anbar$/g, '');
+    return DB.whs.find(w => _normBase(w) === n) || String(label || '').replace(/\s+anbar$/i, '').trim();
+  };
+  /* Older Excel-imported transfers have no document number.  Their two
+     legs are still matchable by date, item, source and destination. */
+  const transferKey = (m, direction) => {
+    if (m.doc) return 'doc|' + String(m.doc) + '|' + m.c;
+    const from = direction === 'out' ? m.w : whFromLabel(m.p);
+    const to = direction === 'out' ? whFromLabel(m.p) : m.w;
+    return 'legacy|' + String(m.d || '') + '|' + m.c + '|' + from + '|' + to;
+  };
+  const addLot = (w, c, origin, qty, meta = {}) => {
+    if (!(qty > 0)) return;
+    const key = keyOf(w, c), q = lots.get(key) || [];
+    q.push({ origin, qty, opening_date: meta.opening_date || '', opening_warehouse: meta.opening_warehouse || '' });
+    lots.set(key, q);
+  };
+  const consume = (w, c, qty) => {
+    let rest = Math.max(0, qty), opening = 0;
+    const openingLots = [];
+    const key = keyOf(w, c), q = lots.get(key) || [];
+    for (const lot of q) {
+      if (!(rest > 0)) break;
+      const take = Math.min(lot.qty, rest);
+      lot.qty -= take; rest -= take;
+      if (lot.origin === 'opening') {
+        opening += take;
+        openingLots.push({ qty: take, opening_date: lot.opening_date, opening_warehouse: lot.opening_warehouse });
+      }
     }
-    r.initial_qty += (m.i || 0) - (m.o || 0);
-    if (m.d > r.last) r.last = m.d;
+    lots.set(key, q.filter(lot => lot.qty > 1e-9));
+    return { opening, openingLots };
+  };
+  const putPending = (key, moved) => {
+    if (!moved.length) return;
+    const q = pendingTransfers.get(key) || [];
+    q.push(...moved); pendingTransfers.set(key, q);
+  };
+  const takePending = (key, qty) => {
+    let rest = Math.max(0, qty), opening = 0;
+    const q = pendingTransfers.get(key) || [], out = [];
+    while (rest > 1e-9 && q.length) {
+      const lot = q[0], take = Math.min(rest, lot.qty);
+      lot.qty -= take; rest -= take; opening += take;
+      out.push({ qty: take, opening_date: lot.opening_date, opening_warehouse: lot.opening_warehouse });
+      if (lot.qty <= 1e-9) q.shift();
+    }
+    pendingTransfers.set(key, q);
+    return { opening, lots: out };
+  };
+  const movs = normalMovements().slice().sort((a, b) => {
+    const d = String(a.d || '').localeCompare(String(b.d || ''));
+    if (d) return d;
+    const ao = a.t === 'Yerdəyişmə' && (a.o || 0) > 0 ? 0 : 1;
+    const bo = b.t === 'Yerdəyişmə' && (b.o || 0) > 0 ? 0 : 1;
+    return ao - bo || ((a.ts || 0) - (b.ts || 0));
+  });
+  for (const m of movs) {
+    const key = keyOf(m.w, m.c), it = DB.itemBy.get(m.c) || {};
+    if (_isInitBalType(m.t) && _isInitBalPartner(m.p)) {
+      const qty = (m.i || 0) - (m.o || 0);
+      addLot(m.w, m.c, 'opening', qty, { opening_date: m.d || '', opening_warehouse: m.w });
+      let r = agg.get(key);
+      if (!r) {
+        r = { c: m.c, name: it.name || '(nomenklaturada yoxdur: ' + m.c + ')', w: m.w, unit: it.unit || '',
+              initial_qty: 0, current_qty: 0, in: 0, out: 0, opening_date: m.d || '', last: m.d || '' };
+        agg.set(key, r);
+      }
+      r.initial_qty += qty;
+      if (!r.opening_date || (m.d && m.d < r.opening_date)) r.opening_date = m.d;
+      if (m.d > r.last) r.last = m.d;
+      continue;
+    }
+    const transfer = m.t === 'Yerdəyişmə';
+    if ((m.o || 0) > 0) {
+      const consumed = consume(m.w, m.c, m.o || 0);
+      if (transfer) putPending(transferKey(m, 'out'), consumed.openingLots);
+    }
+    if ((m.i || 0) > 0) {
+      const moved = transfer ? takePending(transferKey(m, 'in'), m.i || 0) : { opening: 0, lots: [] };
+      for (const lot of moved.lots) addLot(m.w, m.c, 'opening', lot.qty, lot);
+      addLot(m.w, m.c, 'later', (m.i || 0) - moved.opening);
+    }
+  }
+  /* A transfer does not create a new initial balance.  It only moves the
+     original layer to another warehouse, where it must be visible in the
+     "Cari qalıq" view without duplicating "İlkin miqdar". */
+  for (const [key, q] of lots) {
+    const openingLots = q.filter(lot => lot.origin === 'opening');
+    if (!openingLots.length || agg.has(key)) continue;
+    const [w, c] = key.split('|'), it = DB.itemBy.get(c) || {};
+    const dates = openingLots.map(lot => lot.opening_date).filter(Boolean).sort();
+    const origins = openingLots.map(lot => lot.opening_warehouse).filter(Boolean);
+    agg.set(key, { c, name: it.name || '(nomenklaturada yoxdur: ' + c + ')', w, unit: it.unit || '',
+      initial_qty: 0, current_qty: 0, opening_date: dates[0] || '', opening_warehouse: origins[0] || '', last: '' });
   }
   const rows = Array.from(agg.values());
   for (const r of rows) {
-    const b = IX.bal.find(x => x.w === r.w && x.c === r.c);   // mövcud, ləğvsiz indeks
-    r.current_qty = b ? b.q : 0;
-    r.in = b ? b.in : 0;
-    r.out = b ? b.out : 0;
+    const q = lots.get(keyOf(r.w, r.c)) || [];
+    r.current_qty = q.filter(lot => lot.origin === 'opening').reduce((s, lot) => s + lot.qty, 0);
+    const openingLots = q.filter(lot => lot.origin === 'opening');
+    if (!r.opening_warehouse && openingLots.length) r.opening_warehouse = openingLots[0].opening_warehouse || '';
+    if ((!r.opening_date || openingLots.some(lot => lot.opening_date && lot.opening_date < r.opening_date)) && openingLots.length) {
+      r.opening_date = openingLots.map(lot => lot.opening_date).filter(Boolean).sort()[0] || r.opening_date;
+    }
+    const b = IX.bal.find(x => x.w === r.w && x.c === r.c);
     if (b && b.last > r.last) r.last = b.last;
   }
   return rows;
@@ -1430,6 +1519,8 @@ function rBal() {
     let filtered = base.filter(b => {
       if (BF.q && (b.name + ' ' + b.c).toLowerCase().indexOf(BF.q) < 0) return false;
       if (wSel && b.w !== wSel) return false;
+      if (BF.initMode === 'initial' && !(b.initial_qty > 1e-9)) return false;
+      if (BF.initMode === 'current' && !(b.current_qty > 1e-9)) return false;
       return true;
     });
     const current = BF.initMode === 'current';
@@ -1452,21 +1543,16 @@ function rBal() {
     else emptyMsg = '<div class="empty"><b>Nəticə yoxdur</b>Bu süzgəclərə uyğun ilkin qalıq mövqeyi yoxdur.</div>';
     const page = cut(filtered, 'bal');
     $('#t-bal').innerHTML = filtered.length === 0 ? emptyMsg : tbl(
-      [{ t: 'Kod' }, { t: 'Malın adı' }, { t: 'Anbar' }, { t: 'Ölçü' }, { t: 'Mədaxil', r: 1 }, { t: 'Məxaric', r: 1 }, { t: modeLabel, r: 1 }, { t: 'Vahid qiyməti', r: 1 }, { t: 'Dəyər', r: 1 }, { t: 'Son hərəkət' }],
+      [{ t: 'Kod' }, { t: 'Malın adı' }, { t: 'Anbar' }, { t: 'Ölçü' }, { t: modeLabel, r: 1 }, { t: 'İlk mənbə anbar' }, { t: 'Əvvələ qalıq tarixi' }, { t: 'Son hərəkət' }],
       page.map(b => ({
         _a: `data-card="${esc(b.c)}"`, c: [`<span class="code">${esc(b.c)}</span>`, `<div class="nm">${esc(b.name)}</div>`, esc(b.w), esc(b.unit),
-        current ? nf(b.in, 2) : nf(Math.max(b.initial_qty, 0), 2),
-        current ? nf(b.out, 2) : nf(Math.max(-b.initial_qty, 0), 2),
         `<b class="${b[qtyCol] < 0 ? 'neg' : ''}">${nf(b[qtyCol] || 0, 2)}</b>`,
-        '<span class="muted">—</span>', money(0), esc(fmtD(b.last) || '—')]
+        esc(b.opening_warehouse || '—'), esc(fmtD(b.opening_date) || '—'), esc(fmtD(b.last) || '—')]
       })), { clk: 1 });
     $('#bal-pager').innerHTML = `<span class="hint">${nf(filtered.length)} sətir · ${esc(modeLabel)}` + cutNote(filtered, 'bal', rBal) + `</span>`;
     $('#bal-print').onclick = () => { printHead('Anbar qalıqları — Əvvələ qalıq (' + modeLabel + ')', (wSel || 'bütün anbarlar') + ' · ' + nf(filtered.length) + ' mövqe'); setTimeout(() => window.print(), 60); };
-    $('#bal-exp').onclick = () => xls([['Anbar', 'Kod', 'Malın adı', 'Ölçü', 'Mədaxil', 'Məxaric', modeLabel, 'Vahid qiyməti', 'Dəyər', 'Son hərəkət']]
-      .concat(filtered.map(b => [b.w, b.c, b.name, b.unit,
-        current ? b.in : Math.max(b.initial_qty, 0),
-        current ? b.out : Math.max(-b.initial_qty, 0),
-        b[qtyCol] || 0, '', '0.00', b.last])), 'anbar_qaliqlari');
+    $('#bal-exp').onclick = () => xls([['Anbar', 'Kod', 'Malın adı', 'Ölçü', modeLabel, 'İlk mənbə anbar', 'Əvvələ qalıq tarixi', 'Son hərəkət']]
+      .concat(filtered.map(b => [b.w, b.c, b.name, b.unit, b[qtyCol] || 0, b.opening_warehouse || '', b.opening_date, b.last])), 'anbar_qaliqlari');
     return;
   }
   let src;
