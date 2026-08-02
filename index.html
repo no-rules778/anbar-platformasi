@@ -1359,17 +1359,24 @@ const BF = { q: '', w: '', z: 'act', page: 0, size: 80, sort: 'val', init: false
    Cari qalıq IX.bal-dan oxunur — ləğv/əks yazılar operationalMovements() ilə
    artıq çıxarılıb, anbar və ölçü vahidi ayrılığı qorunur. Heç bir yazı olmur. */
 const INIT_BAL_PARTNER = 'Əvvələ anbar qalıqı';
-function _normAz(s) {
-  let v = String(s || '').normalize('NFKC').trim().toLowerCase();
-  v = v.replace(/ğ/g, 'q').replace(/ı/g, 'ı');
-  return v;
-}
-const _INIT_BAL_NORM = _normAz(INIT_BAL_PARTNER);
-function _isInitBalPartner(p) { return _normAz(p) === _INIT_BAL_NORM; }
+const INIT_BAL_TYPE = 'Əvvələ qalıq';
+/* Base normalisation: NFKC + trim + lowercase. Neutralises invisible
+   production-data differences (compatibility forms, stray whitespace, casing)
+   without changing letter identity. */
+function _normBase(s) { return String(s || '').normalize('NFKC').trim().toLowerCase(); }
+/* Partner normalisation additionally tolerates the ğ/q variant seen in legacy
+   import labels ("Əvvələ anbar qalığı" vs "Əvvələ anbar qalıqı"). */
+function _normPartner(s) { return _normBase(s).replace(/ğ/g, 'q'); }
+const _INIT_BAL_TYPE_NORM = _normBase(INIT_BAL_TYPE);
+const _INIT_BAL_NORM = _normPartner(INIT_BAL_PARTNER);
+/* Type stays strict: normalised value must equal exactly "Əvvələ qalıq"
+   (no ğ/q tolerance). Partner allows the legacy ğ/q variants. */
+function _isInitBalType(t) { return _normBase(t) === _INIT_BAL_TYPE_NORM; }
+function _isInitBalPartner(p) { return _normPartner(p) === _INIT_BAL_NORM; }
 function getInitialBalanceRows() {
   const agg = new Map();                         // "wh|code" -> sətir
   for (const m of normalMovements()) {
-    if (m.t !== 'Əvvələ qalıq') continue;
+    if (!_isInitBalType(m.t)) continue;
     if (!_isInitBalPartner(m.p)) continue;
     const it = DB.itemBy.get(m.c) || {};
     if ((m.pr || 0) > 0 || (it.price || 0) > 0) continue;   // yalnız qiymətsiz mallar
