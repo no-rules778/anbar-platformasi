@@ -1358,7 +1358,11 @@ const BF = { q: '', w: '', z: 'act', page: 0, size: 80, sort: 'val', init: false
 /* Yalnız oxuma. Qiymətsiz "Əvvələ qalıq" sətirlərini anbar × mal üzrə yığır.
    Cari qalıq IX.bal-dan oxunur — ləğv/əks yazılar operationalMovements() ilə
    artıq çıxarılıb, anbar və ölçü vahidi ayrılığı qorunur. Heç bir yazı olmur. */
-const INIT_BAL_PARTNER = 'Əvvələ anbar qalıqı';
+const INIT_BAL_PARTNERS = [
+  'Əvvələ anbar qalıqı',  // original Excel spelling
+  'Əvvələ anbar qalığı',  // legacy Excel spelling
+  'Anbar qalığı'          // confirmed current Supabase value
+];
 const INIT_BAL_TYPE = 'Əvvələ qalıq';
 /* Base normalisation: NFKC + trim + lowercase. Neutralises invisible
    production-data differences (compatibility forms, stray whitespace, casing)
@@ -1368,19 +1372,25 @@ function _normBase(s) { return String(s || '').normalize('NFKC').trim().toLowerC
    import labels ("Əvvələ anbar qalığı" vs "Əvvələ anbar qalıqı"). */
 function _normPartner(s) { return _normBase(s).replace(/ğ/g, 'q'); }
 const _INIT_BAL_TYPE_NORM = _normBase(INIT_BAL_TYPE);
-const _INIT_BAL_NORM = _normPartner(INIT_BAL_PARTNER);
+const _INIT_BAL_NORMS = new Set(INIT_BAL_PARTNERS.map(_normPartner));
 /* Type stays strict: normalised value must equal exactly "Əvvələ qalıq"
    (no ğ/q tolerance). Partner allows the legacy ğ/q variants. */
 function _isInitBalType(t) { return _normBase(t) === _INIT_BAL_TYPE_NORM; }
-function _isInitBalPartner(p) { return _normPartner(p) === _INIT_BAL_NORM; }
+function _isInitBalPartner(p) { return _INIT_BAL_NORMS.has(_normPartner(p)); }
 function getInitialBalanceRows() {
   const agg = new Map();                         // "wh|code" -> opening layer
   const lots = new Map();                        // FIFO provenance lots
   const pendingTransfers = new Map();            // transfer key -> FIFO opening lots moved
   const keyOf = (w, c) => w + '|' + c;
+  /* Transfer legs store the counterparty as an Azerbaijani-declined label:
+     source leg → "<dest> anbarına", destination leg → "<src> anbarı".
+     Strip the " anbar…" suffix (any declension) to recover the warehouse
+     name, then resolve to the canonical DB.whs spelling for stable keys. */
   const whFromLabel = label => {
-    const n = _normBase(label).replace(/\s+anbar$/g, '');
-    return DB.whs.find(w => _normBase(w) === n) || String(label || '').replace(/\s+anbar$/i, '').trim();
+    const raw = _normBase(label);
+    const stripped = raw.replace(/\s+anbar\S*$/u, '').trim();
+    const hit = DB.whs.find(w => _normBase(w) === stripped) || DB.whs.find(w => _normBase(w) === raw);
+    return hit || String(label || '').replace(/\s+anbar\S*$/iu, '').trim();
   };
   /* Older Excel-imported transfers have no document number.  Their two
      legs are still matchable by date, item, source and destination. */
@@ -1533,12 +1543,12 @@ function rBal() {
     $('#bal-kpis').innerHTML = [
       ['Mövqe sayı', nf(filtered.length), wSel ? esc(wSel) : 'bütün anbarlar', ''],
       ['Ümumi miqdar', nf(totQty, 2), modeLabel + ' · ölçü vahidləri qarışıqdır', ''],
-      ['Ümumi dəyər', money(0), 'qiymətsiz mallar', ''],
+      ['Ümumi dəyər', money(0), 'bu görünüşdə hesablanmır', ''],
       ['Sıfır qalıq', nf(filtered.filter(b => Math.abs(b[qtyCol]) < 1e-9).length), 'bu filtrdə', '']
     ].map(k => `<div class="kpi ${k[3]}"><div class="eyebrow">${esc(k[0])}</div><div class="v">${k[1]}</div><div class="s">${esc(k[2])}</div></div>`).join('');
     // İki fərqli boş-hal mesajı: (1) ümumiyyətlə ilkin qalıq yoxdur, (2) süzgəcdən sonra yoxdur
     let emptyMsg;
-    if (!base.length) emptyMsg = '<div class="empty"><b>İlkin qalıq tapılmadı</b>Qiymətsiz «Əvvələ qalıq» mövqeyi yoxdur.</div>';
+    if (!base.length) emptyMsg = '<div class="empty"><b>İlkin qalıq tapılmadı</b>«Əvvələ qalıq» və «Anbar qalığı» ilə işarələnmiş mövqe yoxdur.</div>';
     else if (current) emptyMsg = '<div class="empty"><b>Cari qalıq tapılmadı</b>Seçilmiş mal/anbar üzrə cari qalıq yoxdur.</div>';
     else emptyMsg = '<div class="empty"><b>Nəticə yoxdur</b>Bu süzgəclərə uyğun ilkin qalıq mövqeyi yoxdur.</div>';
     const page = cut(filtered, 'bal');
