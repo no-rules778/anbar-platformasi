@@ -1359,11 +1359,18 @@ const BF = { q: '', w: '', z: 'act', page: 0, size: 80, sort: 'val', init: false
    Cari qalıq IX.bal-dan oxunur — ləğv/əks yazılar operationalMovements() ilə
    artıq çıxarılıb, anbar və ölçü vahidi ayrılığı qorunur. Heç bir yazı olmur. */
 const INIT_BAL_PARTNER = 'Əvvələ anbar qalıqı';
+function _normAz(s) {
+  let v = String(s || '').normalize('NFKC').trim().toLowerCase();
+  v = v.replace(/ğ/g, 'q').replace(/ı/g, 'ı');
+  return v;
+}
+const _INIT_BAL_NORM = _normAz(INIT_BAL_PARTNER);
+function _isInitBalPartner(p) { return _normAz(p) === _INIT_BAL_NORM; }
 function getInitialBalanceRows() {
   const agg = new Map();                         // "wh|code" -> sətir
   for (const m of normalMovements()) {
     if (m.t !== 'Əvvələ qalıq') continue;
-    if (String(m.p || '').trim() !== INIT_BAL_PARTNER) continue;
+    if (!_isInitBalPartner(m.p)) continue;
     const it = DB.itemBy.get(m.c) || {};
     if ((m.pr || 0) > 0 || (it.price || 0) > 0) continue;   // yalnız qiymətsiz mallar
     const key = m.w + '|' + m.c;
