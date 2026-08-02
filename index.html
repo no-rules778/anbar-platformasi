@@ -460,8 +460,11 @@ const isAnbardar = () => !!(ME && effectiveRole(ME.role) === 'anbardar');
 const CANCELLABLE_TYPES = ['Satınalma', 'Əvvələ qalıq', 'Qaytarma', 'Silinmə', 'Sahəyə', 'Satış'];
 
 /* ---------- Mal kateqoriyaları (MVP: bir malın bir əsas kateqoriyası) ----------
-   SQL migration 004_items_category.sql + 006_items_category_extend_and_rpc.sql ilə
-   eyni siyahı olmalıdır (004: ilk 12 + Təyin edilməyib; 006: +3 yeni kateqoriya). */
+   MƏNBƏ: Sorğuçalar (reference_values.kind = 'item_category', SQL 012).
+   Aşağıdakı ITEM_CATEGORIES yalnız EHTİYAT siyahıdır — 011/012 tətbiq edilməyibsə
+   və ya sorğuça oxunmayıbsa istifadə olunur. Onu əl ilə genişləndirmək lazım
+   deyil: yeni kateqoriya Sorğuçalar bölməsindən əlavə edilir.
+   004/006-dakı statik CHECK constraint 012 ilə dinamik yoxlamaya keçirilib. */
 const CAT_UNSET = 'Təyin edilməyib';
 const ITEM_CATEGORIES = ['Generatorlar', 'Nasoslar', 'Konteynerlər', 'Xüsusi texnika',
   'Kanselyariya və ofis ləvazimatları', 'İT və ofis texnikası', 'Mebel',
@@ -488,8 +491,33 @@ const CAT_KEYWORDS = {
 };
 function suggestCategory(name) {
   const n = ' ' + String(name || '').toLowerCase() + ' ';
-  for (const cat of ITEM_CATEGORIES) { if ((CAT_KEYWORDS[cat] || []).some(k => n.indexOf(k) >= 0)) return cat; }
+  for (const cat of categoryOptions()) { if ((CAT_KEYWORDS[cat] || []).some(k => n.indexOf(k) >= 0)) return cat; }
   return '';
+}
+
+/* ---------- Sorğuça oxuyucuları ----------
+   Hər dropdown mənbəyi TƏK yerdən oxunur. Sabit ehtiyat siyahıya YALNIZ sorğuça
+   hazır olmadıqda (SQL 011/012 hələ tətbiq edilməyib) keçilir. Sorğuça hazırdır,
+   amma aktiv dəyər yoxdursa — boş siyahı qaytarılır: əks halda Admin-in
+   gizlətdiyi dəyərlər ehtiyat siyahı vasitəsilə formalara geri qayıdardı
+   (Codex audit v2, F3). Gizlədilmiş dəyər keçmiş qeydlərdə saxlanılır. */
+const DEFAULT_UNITS = ['ədəd', 'kq', 'metr', 'litr', 'm²', 'm³', 'ton', 'cüt', 'dəst', 'bağlama', 'qutu', 'çanta', 'rulon'];
+function refActiveNames(bucket) {
+  if (!DB.refs || !DB.refs.ready) return null;
+  return (DB.refs[bucket] || []).filter(x => x.active).map(x => x.name);
+}
+function unitOptions() { const a = refActiveNames('units'); return a || DEFAULT_UNITS.slice(); }
+function categoryOptions() { const a = refActiveNames('cats'); return a || ITEM_CATEGORIES.slice(); }
+/* Malın hazırkı dəyəri sonradan gizlədilibsə, o, seçim siyahısında saxlanılır —
+   əks halda kartı açıb saxlamaq dəyəri səssizcə dəyişdirərdi. Bu istisna YALNIZ
+   həmin malın öz cari dəyərinə aiddir, başqa mala təklif olunmur. */
+function categoryOptionsFor(current) {
+  const list = categoryOptions();
+  return current && list.indexOf(current) < 0 ? list.concat([current]) : list;
+}
+function unitOptionsFor(current) {
+  const list = unitOptions();
+  return current && list.indexOf(current) < 0 ? list.concat([current]) : list;
 }
 /* Mənbə qrup anbarları — Astara/Harmony paylaşır, digərləri təkdir.
    Mirrors source_group_warehouses() in sql/007_role_security_migration.sql. */
@@ -610,7 +638,7 @@ async function sbGetUser() {
 const DB = {
   items: [], itemBy: new Map(),
   partners: [], locs: [], whs: [],
-  refs: { channels: [], ready: false },
+  refs: { channels: [], units: [], cats: [], ready: false },
   movs: [], events: [],
   users: {}, dirty: true
 };
@@ -685,14 +713,17 @@ async function loadFromDB() {
   DB.movs.forEach(m => {
     m.by = !m.by || m.by === 'sistem' ? 'Excel idxalı' : (uname.get(m.by) || (ME && m.by === ME.sbId ? ME.name : 'digər istifadəçi'));
   });
-  // Purchase channels are loaded from the central directory. Before SQL 011 is
-  // applied, the existing fallback remains usable and no form is blocked.
-  DB.refs = { channels: [], ready: false };
+  // Sorğuçalar: purchase channels, units and item categories all come from the
+  // one central directory. Before SQL 011/012 are applied the built-in
+  // fallbacks remain usable and no form is blocked.
+  DB.refs = { channels: [], units: [], cats: [], ready: false };
   try {
     const rv = await SB.rpc('get_reference_values');
     if (rv.error) throw rv.error;
-    DB.refs.channels = (rv.data || []).filter(x => x.kind === 'purchase_channel')
-      .map(x => ({ id: x.id, name: x.name, active: x.active !== false }));
+    const all = (rv.data || []).map(x => ({ id: x.id, kind: x.kind, name: x.name, active: x.active !== false }));
+    DB.refs.channels = all.filter(x => x.kind === 'purchase_channel');
+    DB.refs.units = all.filter(x => x.kind === 'unit');
+    DB.refs.cats = all.filter(x => x.kind === 'item_category');
     DB.refs.ready = true;
   } catch (e) { console.warn('Sorğuçalar yüklənmədi (SQL 011 hələ tətbiq edilməyib)', e); }
   // Load transfer destination names via SECURITY DEFINER RPC — bypasses warehouses
@@ -820,27 +851,12 @@ async function emit(e, op, d, note) {
         const k = DB.items.findIndex(x => x.code === d.code);
         if (k >= 0) { DB.items[k] = Object.assign({}, DB.items[k], d); DB.itemBy.set(d.code, DB.items[k]); }
       }
-    } else if (e === 'partner') {
-      if (op === 'a') {
-        const row = { name: d.name, voen: d.voen || '', contract: d.contract || '', contract_date: d.cdate || '', created_by: ME.sbId };
-        const { data, error } = await SB.from('partners').insert(row).select().single();
-        if (error) throw error;
-        DB.partners.push({ ...d, id: data.id });
-      } else if (op === 'u') {
-        const { error } = await SB.from('partners').update({ name: d.name, voen: d.voen || '', contract: d.contract || '', contract_date: d.cdate || '' }).eq('id', d.id);
-        if (error) throw error;
-        const k = DB.partners.findIndex(x => x.id === d.id);
-        if (k >= 0) DB.partners[k] = Object.assign({}, DB.partners[k], d);
-      }
-    } else if (e === 'loc') {
-      if (op === 'a') {
-        const row = { name: d.name, type: d.kind || 'layihə', active: true };
-        const { error } = await SB.from('warehouses').insert(row);
-        if (error) throw error;
-        DB.locs.push(d);
-        if (d.kind === 'anbar' && !DB.whs.includes(d.name)) DB.whs.push(d.name);
-      }
     }
+    /* QEYD: 'partner' və 'loc' üçün birbaşa yazı yolları QƏSDƏN silinib.
+       Kontragent, anbar və ünvan yalnız Sorğuçalar bölməsindən — yəni
+       manage_reference() RPC-si vasitəsilə — yaradılır və dəyişdirilir.
+       Birbaşa insert/update serverdəki istifadə, qalıq, kaskad və audit
+       yoxlamalarını yan keçirdi. Bax: sql/011_reference_directories.sql. */
     // log locally for audit display
     DB.events.push({ id: uid(), ts: Date.now(), uid: ME.id, un: ME.name, role: ME.role, e, op, d, note: note || '' });
     setSync(true);
@@ -1338,19 +1354,106 @@ function itemCard(code) {
 }
 
 /* ================= BALANCES ================= */
-const BF = { q: '', w: '', z: 'act', page: 0, size: 80, sort: 'val' };
+const BF = { q: '', w: '', z: 'act', page: 0, size: 80, sort: 'val', init: false, initMode: 'initial' };
+/* Yalnız oxuma. Qiymətsiz "Əvvələ qalıq" sətirlərini anbar × mal üzrə yığır.
+   Cari qalıq IX.bal-dan oxunur — ləğv/əks yazılar operationalMovements() ilə
+   artıq çıxarılıb, anbar və ölçü vahidi ayrılığı qorunur. Heç bir yazı olmur. */
+const INIT_BAL_PARTNER = 'Əvvələ anbar qalıqı';
+function getInitialBalanceRows() {
+  const agg = new Map();                         // "wh|code" -> sətir
+  for (const m of normalMovements()) {
+    if (m.t !== 'Əvvələ qalıq') continue;
+    if (String(m.p || '').trim() !== INIT_BAL_PARTNER) continue;
+    const it = DB.itemBy.get(m.c) || {};
+    if ((m.pr || 0) > 0 || (it.price || 0) > 0) continue;   // yalnız qiymətsiz mallar
+    const key = m.w + '|' + m.c;
+    let r = agg.get(key);
+    if (!r) {
+      r = { c: m.c, name: it.name || '(nomenklaturada yoxdur: ' + m.c + ')', w: m.w, unit: it.unit || '',
+            initial_qty: 0, in: 0, out: 0, last: '' };
+      agg.set(key, r);
+    }
+    r.initial_qty += (m.i || 0) - (m.o || 0);
+    if (m.d > r.last) r.last = m.d;
+  }
+  const rows = Array.from(agg.values());
+  for (const r of rows) {
+    const b = IX.bal.find(x => x.w === r.w && x.c === r.c);   // mövcud, ləğvsiz indeks
+    r.current_qty = b ? b.q : 0;
+    r.in = b ? b.in : 0;
+    r.out = b ? b.out : 0;
+    if (b && b.last > r.last) r.last = b.last;
+  }
+  return rows;
+}
 function rBal() {
   const el = $('#bal-filters');
   if (!el.dataset.done) {
     el.dataset.done = 1;
     el.innerHTML = `<input type="search" id="bf-q" placeholder="Mal adı və ya kod…">
       <select id="bf-w"><option value="">Anbarlar üzrə ayrı</option><option value="__sum">Ümumi (anbarlar birlikdə)</option>${DB.whs.map(w => `<option>${esc(w)}</option>`).join('')}</select>
-      <div class="seg" id="bf-z"><button data-z="act" class="on">Aktiv qalıq</button><button data-z="all">Hamısı</button><button data-z="neg">Mənfi</button><button data-z="zero">Sıfır</button></div>
+      <div class="seg" id="bf-z"><button data-z="act" class="on">Aktiv qalıq</button><button data-z="all">Hamısı</button><button data-z="neg">Mənfi</button><button data-z="zero">Sıfır</button><button data-z="init" style="margin-left:16px">Əvvələ qalıq</button></div>
+      <div class="seg" id="bf-init-mode" style="display:none"><button data-mode="initial" class="on">İlkin miqdar</button><button data-mode="current">Cari qalıq</button></div>
       <select id="bf-s"><option value="val">Dəyərə görə</option><option value="q">Miqdara görə</option><option value="name">Ada görə</option><option value="last">Son hərəkətə görə</option></select>`;
     $('#bf-q').oninput = debounce(() => { BF.q = $('#bf-q').value.trim().toLowerCase(); BF.page = 0; rBal(); }, 200);
     $('#bf-w').onchange = () => { BF.w = $('#bf-w').value; BF.page = 0; rBal(); };
     $('#bf-s').onchange = () => { BF.sort = $('#bf-s').value; rBal(); };
-    $$('#bf-z button').forEach(b => b.onclick = () => { BF.z = b.dataset.z; $$('#bf-z button').forEach(x => x.classList.toggle('on', x === b)); BF.page = 0; rBal(); });
+    $$('#bf-z button').forEach(b => b.onclick = () => {
+      BF.z = b.dataset.z; BF.init = (b.dataset.z === 'init');
+      $$('#bf-z button').forEach(x => x.classList.toggle('on', x === b));
+      $('#bf-init-mode').style.display = BF.init ? '' : 'none';
+      BF.page = 0; rBal();
+    });
+    $$('#bf-init-mode button').forEach(b => b.onclick = () => {
+      BF.initMode = b.dataset.mode;
+      $$('#bf-init-mode button').forEach(x => x.classList.toggle('on', x === b));
+      BF.page = 0; rBal();
+    });
+  }
+  if (BF.init) {
+    const base = getInitialBalanceRows();
+    const wSel = (BF.w && BF.w !== '__sum') ? BF.w : '';   // __sum bu görünüşdə anbar ayrılığını pozmur
+    let filtered = base.filter(b => {
+      if (BF.q && (b.name + ' ' + b.c).toLowerCase().indexOf(BF.q) < 0) return false;
+      if (wSel && b.w !== wSel) return false;
+      return true;
+    });
+    const current = BF.initMode === 'current';
+    const qtyCol = current ? 'current_qty' : 'initial_qty';
+    const modeLabel = current ? 'Cari qalıq' : 'İlkin miqdar';
+    const cmp = { val: (a, b) => b[qtyCol] - a[qtyCol], q: (a, b) => b[qtyCol] - a[qtyCol],
+                  name: (a, b) => a.name.localeCompare(b.name, 'az'), last: (a, b) => dsort(b.last, a.last) };
+    filtered.sort(cmp[BF.sort] || cmp.name);
+    const totQty = filtered.reduce((s, b) => s + (b[qtyCol] || 0), 0);
+    $('#bal-kpis').innerHTML = [
+      ['Mövqe sayı', nf(filtered.length), wSel ? esc(wSel) : 'bütün anbarlar', ''],
+      ['Ümumi miqdar', nf(totQty, 2), modeLabel + ' · ölçü vahidləri qarışıqdır', ''],
+      ['Ümumi dəyər', money(0), 'qiymətsiz mallar', ''],
+      ['Sıfır qalıq', nf(filtered.filter(b => Math.abs(b[qtyCol]) < 1e-9).length), 'bu filtrdə', '']
+    ].map(k => `<div class="kpi ${k[3]}"><div class="eyebrow">${esc(k[0])}</div><div class="v">${k[1]}</div><div class="s">${esc(k[2])}</div></div>`).join('');
+    // İki fərqli boş-hal mesajı: (1) ümumiyyətlə ilkin qalıq yoxdur, (2) süzgəcdən sonra yoxdur
+    let emptyMsg;
+    if (!base.length) emptyMsg = '<div class="empty"><b>İlkin qalıq tapılmadı</b>Qiymətsiz «Əvvələ qalıq» mövqeyi yoxdur.</div>';
+    else if (current) emptyMsg = '<div class="empty"><b>Cari qalıq tapılmadı</b>Seçilmiş mal/anbar üzrə cari qalıq yoxdur.</div>';
+    else emptyMsg = '<div class="empty"><b>Nəticə yoxdur</b>Bu süzgəclərə uyğun ilkin qalıq mövqeyi yoxdur.</div>';
+    const page = cut(filtered, 'bal');
+    $('#t-bal').innerHTML = filtered.length === 0 ? emptyMsg : tbl(
+      [{ t: 'Kod' }, { t: 'Malın adı' }, { t: 'Anbar' }, { t: 'Ölçü' }, { t: 'Mədaxil', r: 1 }, { t: 'Məxaric', r: 1 }, { t: modeLabel, r: 1 }, { t: 'Vahid qiyməti', r: 1 }, { t: 'Dəyər', r: 1 }, { t: 'Son hərəkət' }],
+      page.map(b => ({
+        _a: `data-card="${esc(b.c)}"`, c: [`<span class="code">${esc(b.c)}</span>`, `<div class="nm">${esc(b.name)}</div>`, esc(b.w), esc(b.unit),
+        current ? nf(b.in, 2) : nf(Math.max(b.initial_qty, 0), 2),
+        current ? nf(b.out, 2) : nf(Math.max(-b.initial_qty, 0), 2),
+        `<b class="${b[qtyCol] < 0 ? 'neg' : ''}">${nf(b[qtyCol] || 0, 2)}</b>`,
+        '<span class="muted">—</span>', money(0), esc(fmtD(b.last) || '—')]
+      })), { clk: 1 });
+    $('#bal-pager').innerHTML = `<span class="hint">${nf(filtered.length)} sətir · ${esc(modeLabel)}` + cutNote(filtered, 'bal', rBal) + `</span>`;
+    $('#bal-print').onclick = () => { printHead('Anbar qalıqları — Əvvələ qalıq (' + modeLabel + ')', (wSel || 'bütün anbarlar') + ' · ' + nf(filtered.length) + ' mövqe'); setTimeout(() => window.print(), 60); };
+    $('#bal-exp').onclick = () => xls([['Anbar', 'Kod', 'Malın adı', 'Ölçü', 'Mədaxil', 'Məxaric', modeLabel, 'Vahid qiyməti', 'Dəyər', 'Son hərəkət']]
+      .concat(filtered.map(b => [b.w, b.c, b.name, b.unit,
+        current ? b.in : Math.max(b.initial_qty, 0),
+        current ? b.out : Math.max(-b.initial_qty, 0),
+        b[qtyCol] || 0, '', '0.00', b.last])), 'anbar_qaliqlari');
+    return;
   }
   let src;
   if (BF.w === '__sum') {
@@ -1529,7 +1632,7 @@ function rGroups() {
     $('#grp-whs').innerHTML = allowed.length
       ? allowed.map(w => `<label class="tag t-mut" style="cursor:pointer;user-select:none"><input type="checkbox" class="grp-wh" value="${esc(w)}" style="margin-right:5px">${esc(w)}</label>`).join('')
       : '<span class="hint">İcazəli anbar yoxdur</span>';
-    $('#grp-cats').innerHTML = [CAT_UNSET].concat(ITEM_CATEGORIES).map(c => `<label class="tag t-mut" style="cursor:pointer;user-select:none"><input type="checkbox" class="grp-cat" value="${esc(c)}" style="margin-right:5px">${esc(c)}</label>`).join('');
+    $('#grp-cats').innerHTML = [CAT_UNSET].concat(categoryOptions()).map(c => `<label class="tag t-mut" style="cursor:pointer;user-select:none"><input type="checkbox" class="grp-cat" value="${esc(c)}" style="margin-right:5px">${esc(c)}</label>`).join('');
     $$('#grp-whs .grp-wh').forEach(cb => cb.onchange = () => { cb.checked ? GRP.whs.add(cb.value) : GRP.whs.delete(cb.value); rGroups(); });
     $$('#grp-cats .grp-cat').forEach(cb => cb.onchange = () => { cb.checked ? GRP.cats.add(cb.value) : GRP.cats.delete(cb.value); rGroups(); });
     $('#grp-min').oninput = debounce(() => { GRP.min = $('#grp-min').value.trim(); rGroups(); }, 200);
@@ -1663,68 +1766,229 @@ function rAnb() {
   $('#anb-add').disabled = !isAdmin();
 }
 
-/* ================= REFERENCE DIRECTORIES (ADMIN ONLY) ================= */
-function refUsage(kind, x) {
-  const n = x.name || '';
-  if (kind === 'channel') return DB.movs.filter(m => m.ch === n).length;
-  if (kind === 'partner') return DB.movs.filter(m => m.p === n).length;
-  if (kind === 'warehouse') return DB.movs.filter(m => m.w === n).length;
-  return DB.movs.filter(m => m.p === n).length;
+/* ================= SORĞUÇALAR — REFERENCE DIRECTORIES (ADMIN ONLY) =================
+   Bütün eyni dropdown sahələri üçün VAHİD mənbə. Dəyər burada bir dəfə yaradılır
+   və bütün bölmələrdə (İdarə paneli, Yeni əməliyyat, Nomenklatura, hesabatlar)
+   eyni siyahıdan oxunur — proses dublikat olmur.
+
+   Razılaşdırılmış qaydalar:
+     * İstifadə olunmamış dəyər  → SİLİNİR (fiziki).
+     * İstifadə olunmuş dəyər    → GİZLƏDİLİR (yalnız platforma siyahılarından
+       çıxır; tarixçə, audit və mühasibat qeydləri toxunulmur).
+     * Kontragent / kanal / ölçü vahidi / kateqoriya adı dəyişəndə server
+       tarixi mətni də kaskad yeniləyir ki, hesabatlar parçalanmasın.
+     * Anbar / ünvan adı istifadədədirsə DƏYİŞDİRİLMİR — uçot və rol
+       təhlükəsizliyi açarıdır; sistem əvəzinə "Gizlət" seçimini təklif edir.
+     * "Bütün anbarlar", rollar və əməliyyat növləri sistem dəyərləridir.
+   Bütün yoxlamalar serverdə (manage_reference) təkrarlanır — UI yalnız köməkçidir. */
+
+const REF_KINDS = [
+  { k: 'warehouse', t: 'Anbar' },
+  { k: 'location',  t: 'Ünvan / layihə' },
+  { k: 'partner',   t: 'Kontragent' },
+  { k: 'channel',   t: 'Alınma kanalı' },
+  { k: 'unit',      t: 'Ölçü vahidi' },
+  { k: 'category',  t: 'Mal kateqoriyası' }
+];
+const REF_KIND_LABEL = k => (REF_KINDS.find(x => x.k === k) || {}).t || k;
+/* Səhifə vəziyyəti — filtrlər və səhifələmə (skrinşotdakı idarə paneli kimi) */
+const RF = { kind: '', status: '', q: '', size: 10, page: 0, newKind: 'warehouse' };
+
+/* reference_values ilə idarə olunan növlər 011/012 tətbiq edilməyincə əlçatmazdır */
+function refServerReady(kind) {
+  if (kind === 'channel' || kind === 'unit' || kind === 'category') return !!(DB.refs && DB.refs.ready);
+  return true;
 }
 function refEntities(kind) {
   if (kind === 'channel') return (DB.refs && DB.refs.channels) || [];
+  if (kind === 'unit') return (DB.refs && DB.refs.units) || [];
+  if (kind === 'category') return (DB.refs && DB.refs.cats) || [];
   if (kind === 'partner') return DB.partners;
   return DB.locs.filter(x => x.kind === (kind === 'warehouse' ? 'anbar' : 'layihə'));
 }
-function refTitle(kind) {
-  return ({ channel: 'Alınma kanalları', partner: 'Kontragentlər', warehouse: 'Fiziki anbarlar', location: 'Layihə və təhvil məntəqələri' })[kind] || kind;
+/* İstifadə sayı — serverdəki yoxlama ilə eyni sahələr üzərindən hesablanır.
+   Anbar/ünvan üçün server həm movements.warehouse, həm movements.partner, həm də
+   users.warehouse-a baxır (aktivliyindən ASILI OLMAYARAQ hər təyinat sayılır,
+   sql/011_reference_directories.sql:290-291); UI eyni üç mənbəni eyni qaydada
+   sayır ki, "silinə bilər" göstərişi serverin qərarından fərqlənməsin
+   (Codex audit v2, F2). Müqayisə serverdəki kimi registrdən asılı deyil. */
+const REF_EQ = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+/* users siyahısı yüklənməyibsə dəqiq say bilinmir — dəyər "istifadədə" sayılır
+   ki, UI-də serverin rədd edəcəyi "Sil" düyməsi görünməsin. */
+function refStaffCount(n) {
+  if (USERS_ERR) return 1;
+  return Object.values(DB.users || {}).filter(u => REF_EQ(u.wh, n)).length;
+}
+function refUsage(kind, x) {
+  const n = x.name || '';
+  if (!n) return 0;
+  if (kind === 'channel') return DB.movs.filter(m => REF_EQ(m.ch, n)).length;
+  if (kind === 'unit') return DB.items.filter(i => REF_EQ(i.unit, n)).length;
+  if (kind === 'category') return DB.items.filter(i => REF_EQ(i.category, n)).length;
+  if (kind === 'partner') return DB.movs.filter(m => REF_EQ(m.p, n)).length;
+  const inMovs = DB.movs.filter(m => REF_EQ(m.w, n) || REF_EQ(m.p, n)).length;
+  return inMovs + refStaffCount(n);
+}
+/* Bütün növlərin sətirlərini tək cədvələ yığır */
+function refAllRows() {
+  const out = [];
+  REF_KINDS.forEach(({ k }) => {
+    if (!refServerReady(k)) return;
+    refEntities(k).forEach(x => out.push({
+      kind: k, id: x.id, name: x.name || '',
+      active: x.active !== false, used: refUsage(k, x)
+    }));
+  });
+  return out;
+}
+function refFiltered() {
+  const q = RF.q.trim().toLowerCase();
+  return refAllRows().filter(r =>
+    (!RF.kind || r.kind === RF.kind) &&
+    (!RF.status || (RF.status === 'active' ? r.active : !r.active)) &&
+    (!q || r.name.toLowerCase().indexOf(q) >= 0));
 }
 function rRefs() {
   if (!isAdmin()) { go('dash'); return; }
-  const channelReady = DB.refs && DB.refs.ready;
-  const panel = kind => {
-    const rows = refEntities(kind);
-    const canManage = kind !== 'channel' || channelReady;
-    return `<div class="card" style="margin-top:12px"><header><h3>${esc(refTitle(kind))}</h3><div class="sp"></div><button class="btn sm pri" data-ref-new="${kind}" ${canManage ? '' : 'disabled'}>Əlavə et</button></header>
+  const notReady = REF_KINDS.filter(x => !refServerReady(x.k)).map(x => x.t);
+  const rows = refFiltered();
+  const pages = Math.max(1, Math.ceil(rows.length / RF.size));
+  if (RF.page > pages - 1) RF.page = pages - 1;
+  const from = rows.length ? RF.page * RF.size : -1;
+  const page = rows.slice(RF.page * RF.size, RF.page * RF.size + RF.size);
+  const to = from < 0 ? 0 : from + page.length;
+
+  $('#refs-out').innerHTML = `
+    ${notReady.length ? `<div class="hint" style="padding:10px;background:var(--out-l);border-radius:4px;margin-bottom:12px">
+      Bu sorğuçalar SQL <b>011</b>/<b>012</b> tətbiq ediləndən sonra aktivləşir: ${esc(notReady.join(', '))}.</div>` : ''}
+    <div class="card"><div class="pad">
+      <div class="row" style="grid-template-columns:1fr 1.4fr auto;align-items:end;gap:10px">
+        <label class="f"><span>Sorğuça növünü seçin</span>
+          <select id="rf-new-kind">${REF_KINDS.map(x => `<option value="${x.k}" ${x.k === RF.newKind ? 'selected' : ''} ${refServerReady(x.k) ? '' : 'disabled'}>${esc(x.t)}</option>`).join('')}</select></label>
+        <label class="f"><span>Sorğuça adı</span>
+          <input type="text" id="rf-new-name" autocomplete="off" list="rf-sugg" placeholder="Ad yazın">
+          <datalist id="rf-sugg">${refEntities(RF.newKind).map(x => `<option>${esc(x.name)}</option>`).join('')}</datalist></label>
+        <button class="btn pri" id="rf-add">Əlavə et +</button>
+      </div>
+      <p class="hint" style="margin-top:8px">Eyni dəyər bütün bölmələrdə bu siyahıdan oxunur. İstifadə olunmuş dəyər silinmir — gizlədilir; tarixçə dəyişməz qalır.</p>
+    </div></div>
+
+    <div class="card" style="margin-top:12px">
+      <header><h3>Sorğuçalar</h3><div class="sp"></div>
+        <select id="rf-f-kind"><option value="">Bütün növlər</option>${REF_KINDS.map(x => `<option value="${x.k}" ${x.k === RF.kind ? 'selected' : ''}>${esc(x.t)}</option>`).join('')}</select>
+        <select id="rf-f-status"><option value="">Bütün statuslar</option><option value="active" ${RF.status === 'active' ? 'selected' : ''}>Aktiv</option><option value="off" ${RF.status === 'off' ? 'selected' : ''}>Gizli</option></select>
+        <input type="text" id="rf-f-q" value="${esc(RF.q)}" placeholder="Ada görə axtarış" style="min-width:170px">
+      </header>
       <div class="tw">${tbl(
-        [{ t: 'Ad' }, { t: 'Status' }, { t: 'İstifadə', r: 1 }, { t: '' }],
-        rows.map(x => { const used = refUsage(kind, x); return { c: [
-          `<b>${esc(x.name)}</b>`, x.active !== false ? '<span class="tag t-in">aktiv</span>' : '<span class="tag t-rm">deaktiv</span>',
-          nf(used), `<button class="btn sm" data-ref-edit="${kind}|${esc(x.id)}" ${canManage ? '' : 'disabled'}>İdarə et</button>`
-        ]}; }), { empty: kind === 'channel' && !channelReady ? 'SQL 011 tətbiq ediləndən sonra kanallar burada görünəcək.' : 'Məlumat yoxdur.' })}</div></div>`;
-  };
-  $('#refs-out').innerHTML = `<div class="hint" style="padding:10px;background:var(--out-l);border-radius:4px">
-    Eyni mənbə bütün uyğun dropdown-larda istifadə olunur. İstifadə edilən dəyər silinmir: redaktə olunur və ya deaktiv edilir. Tarixi əməliyyatlar dəyişməz qalır.
-  </div>${panel('warehouse')}${panel('location')}${panel('partner')}${panel('channel')}
-  <div class="card" style="margin-top:12px"><div class="pad hint"><b>Sistem siyahıları</b>: <span class="code">Bütün anbarlar</span>, istifadəçi rolları və əməliyyat növləri uçot məntiqinə bağlıdır; bu bölmədən silinmir və dəyişdirilmir.</div></div>`;
-  $$('#refs-out [data-ref-new]').forEach(b => b.onclick = () => refOpen(b.dataset.refNew, null));
-  $$('#refs-out [data-ref-edit]').forEach(b => b.onclick = () => { const [kind, id] = b.dataset.refEdit.split('|'); refOpen(kind, id); });
+        [{ t: 'No', r: 1, w: '58px' }, { t: 'Sorğuça növü' }, { t: 'Sorğuça adı' }, { t: 'İstifadə', r: 1 }, { t: 'Status' }, { t: 'Əməliyyatlar' }],
+        page.map((r, i) => ({ c: [
+          nf(from + i + 1),
+          esc(REF_KIND_LABEL(r.kind)),
+          `<b>${esc(r.name)}</b>`,
+          nf(r.used),
+          r.active ? '<span class="tag t-in">Aktiv</span>' : '<span class="tag t-rm">Gizli</span>',
+          `<button class="btn sm" data-ref-edit="${r.kind}|${esc(r.id)}" title="Redaktə et">✎</button>
+           <button class="btn sm dgr" data-ref-rm="${r.kind}|${esc(r.id)}" title="${r.used ? 'Gizlət' : 'Sil'}">✕</button>`
+        ] })),
+        { empty: 'Bu filtrlərə uyğun sorğuça tapılmadı.' })}</div>
+      <div class="pad" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;justify-content:flex-end">
+        <span class="hint">Hər səhifədə</span>
+        <select id="rf-size">${[10, 25, 50, 100].map(n => `<option ${n === RF.size ? 'selected' : ''}>${n}</option>`).join('')}</select>
+        <span class="hint">${rows.length ? nf(from + 1) + '–' + nf(to) : '0'}, cəmi ${nf(rows.length)}</span>
+        <button class="btn sm" id="rf-prev" ${RF.page === 0 ? 'disabled' : ''}>‹</button>
+        <span class="hint">Səhifə ${nf(RF.page + 1)} / ${nf(pages)}</span>
+        <button class="btn sm" id="rf-next" ${RF.page >= pages - 1 ? 'disabled' : ''}>›</button>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:12px"><div class="pad hint"><b>Sistem siyahıları</b>: <span class="code">Bütün anbarlar</span>, <span class="code">Təyin edilməyib</span>, istifadəçi rolları və əməliyyat növləri uçot məntiqinə bağlıdır; bu bölmədən silinmir və dəyişdirilmir.</div></div>`;
+
+  $('#rf-new-kind').onchange = e => { RF.newKind = e.target.value; rRefs(); };
+  $('#rf-add').onclick = () => refOpen(RF.newKind, null, ($('#rf-new-name').value || '').trim());
+  $('#rf-new-name').onkeydown = e => { if (e.key === 'Enter') $('#rf-add').click(); };
+  $('#rf-f-kind').onchange = e => { RF.kind = e.target.value; RF.page = 0; rRefs(); };
+  $('#rf-f-status').onchange = e => { RF.status = e.target.value; RF.page = 0; rRefs(); };
+  $('#rf-f-q').oninput = e => { RF.q = e.target.value; RF.page = 0; rRefs(); const el = $('#rf-f-q'); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } };
+  $('#rf-size').onchange = e => { RF.size = parseInt(e.target.value, 10) || 10; RF.page = 0; rRefs(); };
+  $('#rf-prev').onclick = () => { RF.page--; rRefs(); };
+  $('#rf-next').onclick = () => { RF.page++; rRefs(); };
+  $$('#refs-out [data-ref-edit]').forEach(b => b.onclick = () => { const [k, id] = b.dataset.refEdit.split('|'); refOpen(k, id); });
+  $$('#refs-out [data-ref-rm]').forEach(b => b.onclick = () => { const [k, id] = b.dataset.refRm.split('|'); refRemove(k, id); });
 }
-function refOpen(kind, id) {
+
+/* Yaratma və redaktə pəncərəsi */
+function refOpen(kind, id, presetName) {
   if (!isAdmin()) return toast('Sorğuçalar yalnız Admin üçündür', true);
-  if (kind === 'channel' && !(DB.refs && DB.refs.ready)) return toast('Əvvəlcə SQL 011 tətbiq edilməlidir', true);
+  if (!refServerReady(kind)) return toast('Əvvəlcə SQL 011/012 tətbiq edilməlidir', true);
   const x = id ? refEntities(kind).find(v => String(v.id) === String(id)) : null;
+  if (id && !x) return toast('Sorğuça tapılmadı', true);
   const used = x ? refUsage(kind, x) : 0;
+  // Anbar/ünvan adı uçot açarıdır: istifadədədirsə ad sahəsi bağlanır və
+  // istifadəçiyə "Gizlət" alternativi göstərilir (server də bunu tələb edir).
+  const nameLocked = x && used > 0 && (kind === 'warehouse' || kind === 'location');
   const partnerFields = kind === 'partner' ? `<div class="row" style="grid-template-columns:1fr 1fr">
       <label class="f"><span>VÖEN</span><input id="ref-voen" maxlength="10" value="${esc(x ? x.voen || '' : '')}"></label>
       <label class="f"><span>Müqavilə tarixi</span><input id="ref-cdate" type="date" value="${esc(x ? x.cdate || '' : '')}"></label>
     </div><label class="f"><span>Müqavilə №</span><input id="ref-contract" value="${esc(x ? x.contract || '' : '')}"></label>` : '';
-  const note = x ? `<p class="hint">İstifadə sayı: <b>${nf(used)}</b>. ${used ? 'Tarixçəni qorumaq üçün silinməyəcək; deaktiv edilə bilər.' : 'İstifadə edilməyib — silinə bilər.'}</p>` : '';
-  modal(x ? refTitle(kind) + ' — idarəetmə' : refTitle(kind) + ' — yeni dəyər', `
-    <label class="f"><span>Ad</span><input id="ref-name" value="${esc(x ? x.name : '')}" autocomplete="off"></label>${partnerFields}${note}`,
+  let note = '';
+  if (USERS_ERR && (kind === 'warehouse' || kind === 'location')) {
+    note = `<p class="hint" style="color:var(--alarm)">İstifadəçi siyahısı yüklənmədi — anbara təyin olunmuş
+      anbardarların sayı dəqiq bilinmir. Dəyər ehtiyatlı olaraq "istifadədə" sayılır.</p>`;
+  }
+  if (x && nameLocked) {
+    note += `<p class="hint" style="padding:9px;background:var(--out-l);border-radius:4px">
+      Bu ${esc(REF_KIND_LABEL(kind).toLowerCase())} <b>${nf(used)}</b> qeyddə istifadə olunub. Adı uçot və giriş
+      hüquqlarının açarıdır, ona görə dəyişdirilmir. Siyahılardan çıxarmaq üçün <b>Gizlət</b> seçin —
+      keçmiş əməliyyatlar və hesabatlar olduğu kimi qalır.</p>`;
+  } else if (x && used) {
+    note += `<p class="hint">İstifadə sayı: <b>${nf(used)}</b>. Ad dəyişdirilsə, keçmiş qeydlərdəki mətn də
+      avtomatik yenilənəcək ki, hesabatlar parçalanmasın. Bu dəyər silinmir — yalnız gizlədilə bilər.</p>`;
+  } else if (x) {
+    note += `<p class="hint">Bu dəyər heç bir qeyddə istifadə olunmayıb — adı dəyişdirilə və ya tamamilə silinə bilər.</p>`;
+  }
+  modal(x ? REF_KIND_LABEL(kind) + ' — redaktə' : REF_KIND_LABEL(kind) + ' — yeni dəyər', `
+    <label class="f"><span>Ad</span><input id="ref-name" value="${esc(x ? x.name : (presetName || ''))}" autocomplete="off" ${nameLocked ? 'readonly' : ''}></label>${partnerFields}${note}`,
     `<button class="btn" data-close>İmtina</button><div style="flex:1"></div>
-      ${x && x.active !== false ? `<button class="btn" id="ref-deactivate">Deaktiv et</button>` : ''}
+      ${x && x.active !== false ? `<button class="btn" id="ref-deactivate">Gizlət</button>` : ''}
       ${x && x.active === false ? `<button class="btn" id="ref-activate">Aktiv et</button>` : ''}
-      ${x ? `<button class="btn dgr" id="ref-delete">Sil</button>` : ''}
-      <button class="btn pri" id="ref-save">Yadda saxla</button>`);
-  const send = action => refSend(kind, action, x ? x.id : null);
-  $('#ref-save').onclick = () => send(x ? 'update' : 'create');
-  if ($('#ref-deactivate')) $('#ref-deactivate').onclick = () => send('deactivate');
-  if ($('#ref-activate')) $('#ref-activate').onclick = () => send('activate');
-  if ($('#ref-delete')) $('#ref-delete').onclick = () => { if (confirm('Bu dəyər silinsin?')) send('delete'); };
+      ${nameLocked ? '' : `<button class="btn pri" id="ref-save">Yadda saxla</button>`}`);
+  if ($('#ref-save')) $('#ref-save').onclick = () => refSend(kind, x ? 'update' : 'create', x ? x.id : null);
+  if ($('#ref-deactivate')) $('#ref-deactivate').onclick = () => refSend(kind, 'deactivate', x.id);
+  if ($('#ref-activate')) $('#ref-activate').onclick = () => refSend(kind, 'activate', x.id);
+  if (!x) setTimeout(() => { const el = $('#ref-name'); if (el) el.focus(); }, 60);
 }
+
+/* ✕ düyməsi — sistem seçim təklif edir, sükutla silmir */
+function refRemove(kind, id) {
+  if (!isAdmin()) return toast('Sorğuçalar yalnız Admin üçündür', true);
+  const x = refEntities(kind).find(v => String(v.id) === String(id));
+  if (!x) return toast('Sorğuça tapılmadı', true);
+  const used = refUsage(kind, x);
+  const label = esc(REF_KIND_LABEL(kind)) + ': <b>' + esc(x.name) + '</b>';
+  if (!used) {
+    modal('Sorğuçanın silinməsi', `<p>${label}</p>
+      <p class="hint">Bu dəyər heç bir qeyddə istifadə olunmayıb, ona görə tamamilə silinə bilər.
+      Alternativ olaraq onu yalnız siyahılardan gizlədə bilərsiniz.</p>`,
+      `<button class="btn" data-close>İmtina</button><div style="flex:1"></div>
+       ${x.active !== false ? `<button class="btn" id="ref-deactivate">Gizlət</button>` : ''}
+       <button class="btn dgr" id="ref-delete">Tamamilə sil</button>`);
+  } else {
+    modal('Sorğuçanın gizlədilməsi', `<p>${label}</p>
+      <p class="hint">Bu dəyər <b>${nf(used)}</b> qeyddə istifadə olunub, ona görə silinmir.
+      <b>Gizlət</b> onu yeni əməliyyat və filtr siyahılarından çıxarır; keçmiş əməliyyatlar,
+      hesabatlar və audit jurnalı olduğu kimi qalır.</p>`,
+      `<button class="btn" data-close>İmtina</button><div style="flex:1"></div>
+       ${x.active !== false ? `<button class="btn pri" id="ref-deactivate">Gizlət</button>`
+                            : `<button class="btn pri" id="ref-activate">Aktiv et</button>`}`);
+  }
+  if ($('#ref-delete')) $('#ref-delete').onclick = () => refSend(kind, 'delete', id);
+  if ($('#ref-deactivate')) $('#ref-deactivate').onclick = () => refSend(kind, 'deactivate', id);
+  if ($('#ref-activate')) $('#ref-activate').onclick = () => refSend(kind, 'activate', id);
+}
+
 async function refSend(kind, action, id) {
-  const name = $('#ref-name') ? $('#ref-name').value.trim() : '';
+  const nameEl = $('#ref-name');
+  const name = nameEl ? nameEl.value.trim() : '';
   if ((action === 'create' || action === 'update') && name.length < 2) return toast('Ad ən azı 2 simvol olmalıdır', true);
   const meta = kind === 'partner' ? {
     voen: ($('#ref-voen') && $('#ref-voen').value.trim()) || '',
@@ -1732,11 +1996,25 @@ async function refSend(kind, action, id) {
     contract_date: ($('#ref-cdate') && $('#ref-cdate').value) || ''
   } : {};
   if (meta.voen && !/^\d{10}$/.test(meta.voen)) return toast('VÖEN 10 rəqəm olmalıdır', true);
+  const btns = $$('#m-foot .btn'); btns.forEach(b => b.disabled = true);
   try {
-    const { error } = await SB.rpc('manage_reference', { p_kind: kind, p_action: action, p_id: id, p_name: name || null, p_meta: meta });
+    const { data, error } = await SB.rpc('manage_reference',
+      { p_kind: kind, p_action: action, p_id: id, p_name: name || null, p_meta: meta });
     if (error) throw error;
-    closeModal(); await loadFromDB(); renderAll(); toast('Sorğuça yeniləndi');
-  } catch (e) { toast('Sorğuça yenilənmədi: ' + (e.message || 'server xətası'), true); }
+    closeModal();
+    if ($('#rf-new-name')) $('#rf-new-name').value = '';
+    await loadFromDB(); renderAll();
+    const n = data && data.cascaded_rows ? data.cascaded_rows : 0;
+    toast(action === 'delete' ? 'Sorğuça silindi'
+      : action === 'deactivate' ? 'Sorğuça gizlədildi'
+      : action === 'activate' ? 'Sorğuça aktivləşdirildi'
+      : n ? `Sorğuça yeniləndi (${nf(n)} tarixi qeydin mətni uzlaşdırıldı)`
+      : 'Sorğuça yadda saxlanıldı');
+  } catch (e) {
+    btns.forEach(b => b.disabled = false);
+    const msg = (e && e.message) || 'server xətası';
+    toast(/duplicate key|unique/i.test(msg) ? 'Bu ad artıq mövcuddur' : 'Sorğuça yenilənmədi: ' + msg, true);
+  }
 }
 </script>
 <script>
@@ -1751,8 +2029,11 @@ function channelOptions() {
   return Array.from(new Set(DEFAULT_CHANNELS.concat(used)));
 }
 function partnerOptions(kind) {
+  // Sorğuçalarda gizlədilmiş dəyər yeni əməliyyatda seçilə bilməz (nə kontragent,
+  // nə də layihə/ünvan). DB.whs onsuz da yalnız aktiv anbarları saxlayır.
+  const activeLocs = DB.locs.filter(l => l.active !== false);
   const names = kind === 'mv' ? DB.whs
-    : kind === 'out' ? ['Sahə üzrə məsul şəxs'].concat(DB.locs.filter(l => l.kind !== 'anbar').map(l => l.name)).concat(DB.locs.filter(l => l.kind === 'anbar').map(l => l.name))
+    : kind === 'out' ? ['Sahə üzrə məsul şəxs'].concat(activeLocs.filter(l => l.kind !== 'anbar').map(l => l.name)).concat(activeLocs.filter(l => l.kind === 'anbar').map(l => l.name))
       : DB.partners.filter(p => p.active !== false).map(p => p.name);
   return Array.from(new Set(names));
 }
@@ -2484,20 +2765,27 @@ function nextCode() {
 function editItem(code, presetName) {
   if (!need(code ? 'item.edit' : 'item.add')) return;
   const it = code ? DB.itemBy.get(code) : null;
+  /* Ölçü vahidi YALNIZ sorğuçadan seçilir — sərbəst mətn qəbul edilmir, əks
+     halda Sorğuçalarda olmayan vahid yaranardı (Codex audit v2). Malın cari
+     vahidi gizlədilibsə, o, yalnız bu mal üçün siyahıda saxlanılır. */
+  const uOpts = unitOptionsFor(it ? it.unit : '');
+  const uPre = it ? (it.unit || uOpts[0] || '') : (uOpts.indexOf('ədəd') >= 0 ? 'ədəd' : (uOpts[0] || ''));
+  if (!uOpts.length) return toast('Sorğuçalarda aktiv ölçü vahidi yoxdur — əvvəlcə əlavə edin', true);
   modal(it ? 'Malın düzəlişi' : 'Yeni mal', `
     <div class="row" style="grid-template-columns:150px 1fr">
       <label class="f"><span>Kod</span><input type="text" id="i-code" value="${esc(it ? it.code : nextCode())}" ${it ? 'readonly' : ''}></label>
       <label class="f"><span>Malın adı — standart: <i>Ad / ölçü / marka / mənşə</i></span><input type="text" id="i-name" value="${esc(it ? it.name : (presetName || ''))}"></label>
     </div>
     <div class="row" style="grid-template-columns:1fr 1fr">
-      <label class="f"><span>Ölçü vahidi</span><input type="text" id="i-unit" list="unitlist" value="${esc(it ? it.unit : 'ədəd')}">
-        <datalist id="unitlist">${['ədəd','kq','metr','litr','m²','m³','ton','cüt','dəst','bağlama','qutu','çanta','rulon'].map(u => `<option>${esc(u)}</option>`).join('')}</datalist></label>
+      <label class="f"><span>Ölçü vahidi</span><select id="i-unit">
+        ${unitOptionsFor(it ? it.unit : '').map(u => `<option ${u === uPre ? 'selected' : ''}>${esc(u)}</option>`).join('')}
+      </select></label>
       <label class="f"><span>Son vahid qiyməti (₼)</span><input type="number" step="0.01" id="i-price" value="${it && it.price ? it.price : ''}" ${can('price.edit') ? '' : 'disabled'}></label>
     </div>
     ${canEditCategory() ? `<div class="row" style="grid-template-columns:1fr auto">
       <label class="f"><span>Kateqoriya${it ? '' : ' <b style="color:var(--alarm)">*</b>'}</span><select id="i-cat">
         <option value="" ${it ? '' : 'disabled'}>${it ? esc(CAT_UNSET) : 'Seçin…'}</option>
-        ${ITEM_CATEGORIES.map(c => `<option ${it && it.category === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}
+        ${categoryOptionsFor(it && it.category).map(c => `<option ${it && it.category === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}
       </select></label>
       <div id="i-cat-sug" style="align-self:end;padding-bottom:6px"></div>
     </div>${it ? '' : '<div class="hint">Yeni mal üçün kateqoriya seçilməlidir.</div>'}` : ''}
@@ -2530,7 +2818,9 @@ function editItem(code, presetName) {
     // kateqoriya seçmədən yadda saxlaya bilməz. Mövcud malın düzəlişinə bu qayda TƏTBİQ OLUNMUR
     // (Təyin edilməyib saxlamaq olar); toplu/Excel idxalı da bu qaydadan kənardır (ayrı yol).
     if (!it && canEditCategory() && $('#i-cat') && !$('#i-cat').value) return toast('Yeni mal üçün kateqoriya seçin', true);
-    const payload = { code: c, name: n, unit: $('#i-unit').value.trim() || 'ədəd', price: parseFloat($('#i-price').value) || 0, by: ME.name };
+    const u = $('#i-unit').value.trim();
+    if (!u) return toast('Ölçü vahidini seçin', true);
+    const payload = { code: c, name: n, unit: u, price: parseFloat($('#i-price').value) || 0, by: ME.name };
     // Kateqoriya yalnız Rəhbər/Təchizatçı üçün göndərilir; boş = Təyin edilməyib (NULL, yalnız düzəlişdə mümkündür)
     if (canEditCategory() && $('#i-cat')) payload.category = $('#i-cat').value || '';
     await emit('item', it ? 'u' : 'a', payload);
@@ -2542,6 +2832,11 @@ const NORM = s => String(s || '').toLowerCase().replace(/[\s/.,"'`’\-–—()]
 let BULK = [];
 function parseItemList(txt, updateExisting) {
   const lines = txt.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  /* Toplu idxal da sorğuçadan kənar ölçü vahidi yarada bilməz — sətir rədd
+     olunur. Server tərəfdə eyni qayda guard_item_unit() ilə təmin edilir. */
+  const uAll = unitOptions();
+  const uSet = new Set(uAll.map(u => u.trim().toLowerCase()));
+  const uDef = uSet.has('ədəd') ? 'ədəd' : (uAll[0] || '');
   const byName = new Map(); DB.items.forEach(i => { const k = NORM(i.name); if (!byName.has(k)) byName.set(k, i); });
   let maxCode = 0; DB.items.forEach(i => { const n = parseInt(i.code, 10); if (n > maxCode) maxCode = n; });
   const seenName = new Set(), seenCode = new Set();
@@ -2554,9 +2849,13 @@ function parseItemList(txt, updateExisting) {
     else if (/^\d{1,7}$/.test(p[0]) && p[1]) { code = p[0].padStart(7, '0'); name = p[1]; unit = p[2] || ''; price = parseFloat(String(p[3] || '').replace(',', '.')) || 0; }
     else { name = p[0]; unit = p[1] || ''; price = parseFloat(String(p[2] || '').replace(',', '.')) || 0; }
     unit = unit.replace(/\.$/, '');
-    const r = { n: ix + 1, code, name, unit: unit || 'ədəd', price, raw: line, use: false };
+    const r = { n: ix + 1, code, name, unit: unit || uDef, price, raw: line, use: false };
     const key = NORM(name);
     if (!name || name.length < 2) { r.st = 'err'; r.msg = 'Ad boşdur və ya çox qısadır'; }
+    else if (!uSet.has(String(r.unit).trim().toLowerCase())) {
+      r.st = 'err';
+      r.msg = r.unit ? 'Ölçü vahidi Sorğuçalarda yoxdur: ' + r.unit : 'Sorğuçalarda aktiv ölçü vahidi yoxdur';
+    }
     else if (code && DB.itemBy.has(code)) {
       const ex = DB.itemBy.get(code);
       if (updateExisting) { r.st = 'upd'; r.msg = 'Mövcud kod — yenilənəcək: ' + ex.name; r.use = true; }
@@ -2702,7 +3001,8 @@ function categoryImport() {
 }
 function catImpPreview() {
   const raw = ($('#ci-txt').value || '').replace(/^﻿/, '');
-  const catSet = new Set(ITEM_CATEGORIES.concat([CAT_UNSET]));
+  // İcazəli dəyərlər mərkəzi sorğuçadan gəlir (server set_item_categories() ilə eyni mənbə)
+  const catSet = new Set(categoryOptions().concat([CAT_UNSET]));
   const rows = parseCsvText(raw);
   CATIMP = [];
   if (!rows.length) { $('#ci-prev').innerHTML = '<div class="hint">Məlumat yoxdur.</div>'; catImpCount(); return; }
@@ -3064,39 +3364,9 @@ function importNewItems() {
   setTimeout(() => $('#ni-txt').focus(), 80);
 }
 
-function editPartner(id) {
-  if (!need('partner.edit')) return;
-  const p = id ? DB.partners.find(x => x.id === id) : null;
-  modal(p ? 'Kontragentin düzəlişi' : 'Yeni kontragent', `
-    <label class="f"><span>Adı (hüquqi ad)</span><input type="text" id="k-name" value="${esc(p ? p.name : '')}" placeholder='məs. "Neq MMC"'></label>
-    <div class="row" style="grid-template-columns:1fr 1fr">
-      <label class="f"><span>VÖEN (10 rəqəm)</span><input type="text" id="k-voen" value="${esc(p ? p.voen : '')}" maxlength="10"></label>
-      <label class="f"><span>Müqavilə tarixi</span><input type="text" id="k-cdate" value="${esc(p ? p.cdate : '')}" placeholder="2026-06-01"></label>
-    </div>
-    <label class="f"><span>Müqavilə nömrəsi</span><input type="text" id="k-ct" value="${esc(p ? p.contract : '')}"></label>
-    <p class="hint">VÖEN-siz kontragentlə əməliyyat vergi və audit riski yaradır. Nağd alışlar üçün satıcının qəbzi saxlanılmalıdır.</p>`,
-    `<div style="flex:1"></div><button class="btn" data-close>İmtina</button><button class="btn pri" id="k-save">Yadda saxla</button>`);
-  $('#k-save').onclick = async () => {
-    const n = $('#k-name').value.trim(); if (n.length < 2) return toast('Adı yazın', true);
-    const v = $('#k-voen').value.trim();
-    if (v && !/^\d{10}$/.test(v)) return toast('VÖEN 10 rəqəm olmalıdır', true);
-    await emit('partner', p ? 'u' : 'a', { id: p ? p.id : 'p' + uid(), name: n, voen: v, contract: $('#k-ct').value.trim(), cdate: $('#k-cdate').value.trim() });
-    closeModal(); renderAll(); toast('Kontragent yadda saxlanıldı');
-  };
-}
-function editLoc() {
-  if (!need('loc.edit')) return;
-  modal('Yeni anbar / layihə ünvanı', `
-    <label class="f"><span>Adı</span><input type="text" id="l-name" placeholder="məs. Qobustan anbar"></label>
-    <label class="f"><span>Tipi</span><select id="l-kind"><option value="anbar">Fiziki anbar (qalıq saxlayır)</option><option value="layihə">Layihə / təhvil məntəqəsi</option></select></label>
-    <p class="hint">Fiziki anbar əlavə etdikdə o, bütün qalıq hesabatlarında ayrıca sütun kimi görünəcək.</p>`,
-    `<div style="flex:1"></div><button class="btn" data-close>İmtina</button><button class="btn pri" id="l-save">Yadda saxla</button>`);
-  $('#l-save').onclick = async () => {
-    const n = $('#l-name').value.trim(); if (n.length < 2) return toast('Adı yazın', true);
-    await emit('loc', 'a', { id: 'l' + uid(), name: n, kind: $('#l-kind').value });
-    closeModal(); renderAll(); toast('Ünvan əlavə edildi');
-  };
-}
+/* editPartner() və editLoc() SİLİNİB — kontragent, anbar və ünvan artıq
+   yalnız Sorğuçalar bölməsindən (manage_reference RPC) idarə olunur.
+   Bax: rRefs() / refOpen() / refSend(). */
 
 /* ================= REPORTS ================= */
 let REP_ROWS = [], REP_NAME = 'hesabat';
@@ -3321,7 +3591,13 @@ function rCtrl() {
    cədvəlini birbaşa oxuyur. Yeni cədvəl/trigger/RPC yaradılmır; sxem dəyişmir.
    Bütün filtrlər server tərəfində tətbiq olunur ki, say (count) həmişə göstərilən
    sətirlərlə uzlaşsın. */
-const AUDIT_TABLE_LABEL = { movements: 'Mal hərəkəti', partners: 'Kontragent' };
+const AUDIT_TABLE_LABEL = {
+  movements: 'Mal hərəkəti', partners: 'Kontragent',
+  /* SQL 011: Sorğuçalardakı anbar/ünvan və kanal/vahid/kateqoriya dəyişiklikləri
+     manage_reference() tərəfindən audit_log-a yazılır (partners/movements üçün
+     mövcud trigger işlədiyindən orada təkrar yazılmır). */
+  warehouses: 'Anbar / ünvan', reference_values: 'Sorğuça dəyəri'
+};
 const AUDIT_ACTION_LABEL = { INSERT: 'əlavə', UPDATE: 'düzəliş', DELETE: 'silinmə' };
 const LF = { table: '', action: '', actor: '', d1: '', d2: '', page: 0, size: 50 };
 let LOG_REQ = 0;
