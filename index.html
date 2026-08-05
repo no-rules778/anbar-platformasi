@@ -147,6 +147,52 @@ label.f>span{display:block;font-size:10.5px;text-transform:uppercase;letter-spac
 .empty{padding:34px 14px;text-align:center;color:var(--ink-3)}
 .empty b{display:block;color:var(--ink-2);margin-bottom:4px}
 .printonly{display:none}
+
+/* ==========================================================================
+   AZPETROL / ARAZ — ayrıca modul, açıq-yaşıl vizual kimlik.
+   Bütün seçicilər `#p-azp` və ya `.azp-*` ilə məhdudlaşır; ANBAR-ın :root
+   dəyişənləri və mövcud sinifləri DƏYİŞMİR. Modul ANBAR-ın mavi kimliyindən
+   vizual olaraq tam ayrılır.
+   ========================================================================== */
+#p-azp{
+  --azp:#2E7D4F; --azp-d:#1B5E38; --azp-l:#E8F5EC; --azp-l2:#F4FBF6;
+  --azp-line:#C7E3D3; --azp-accent:#57B87E; --azp-ink:#123A26;
+}
+#p-azp .card{border-color:var(--azp-line)}
+#p-azp .card>header{background:var(--azp-l2);border-bottom-color:var(--azp-line)}
+#p-azp .card>header h3{color:var(--azp-ink)}
+#p-azp th{background:var(--azp-l);color:var(--azp-d);box-shadow:0 1px 0 var(--azp-line);border-bottom-color:var(--azp-line)}
+#p-azp tbody tr:hover{background:var(--azp-l2)}
+#p-azp .kpi{border-color:var(--azp-line)}
+#p-azp .kpi:after{background:var(--azp-accent)}
+#p-azp .kpi.gd:after{background:var(--azp-d)}
+#p-azp .kpi.wn:after{background:var(--out)}
+#p-azp .kpi.al:after{background:var(--alarm)}
+#p-azp .btn.pri{background:var(--azp);border-color:var(--azp);color:#fff}
+#p-azp .btn.pri:hover{background:var(--azp-d)}
+#p-azp .seg button.on{background:var(--azp);color:#fff}
+#p-azp input:focus,#p-azp select:focus,#p-azp textarea:focus{border-color:var(--azp);box-shadow:0 0 0 3px rgba(46,125,79,.14)}
+#p-azp .t-az{background:var(--azp-l);color:var(--azp-d);border-color:var(--azp-line)}
+/* modul başlığı — açıq-yaşıl lent, ANBAR səhifə başlıqlarından fərqli */
+.azp-band{background:linear-gradient(90deg,var(--azp-l),var(--azp-l2));border:1px solid var(--azp-line);
+  border-left:4px solid var(--azp);border-radius:5px;padding:11px 14px;margin-bottom:14px;
+  display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.azp-band h2{font-size:18px;color:var(--azp-ink)}
+.azp-band p{margin:2px 0 0;font-size:11.5px;color:#4C6B58}
+.azp-band .sp{flex:1}
+/* modul daxili dashboard seçicisi — Azpetrol ↔ Araz */
+.azp-switch{display:inline-flex;border:1px solid var(--azp-line);border-radius:5px;overflow:hidden;background:#fff}
+.azp-switch button{border:0;background:transparent;padding:8px 18px;cursor:pointer;font-weight:650;
+  color:var(--azp-d);border-right:1px solid var(--azp-line);letter-spacing:.02em}
+.azp-switch button:last-child{border-right:0}
+.azp-switch button.on{background:var(--azp);color:#fff}
+.azp-switch button:not(.on):hover{background:var(--azp-l)}
+.azp-board{display:none}
+.azp-board.on{display:block}
+/* sol menyuda modulun öz vurğusu */
+.rail a[data-p="azp"].on{background:#E8F5EC;color:#1B5E38;border-left-color:#2E7D4F}
+.rail a[data-p="azp"].on b{color:#2E7D4F}
+
 @media print{.printonly{display:block;margin-bottom:10px}.ph-t{font-size:16px;font-weight:700}.ph-s{font-size:10px;color:#555;margin-top:2px}table{font-size:10px}tr{break-inside:avoid}thead{display:table-header-group}.rail,.topbar,.filters,.btn,.noprint{display:none!important}.main{padding:0}.card{border:0}.tw{max-height:none!important;overflow:visible!important}th{position:static}}
 @media (max-width:900px){
   .rail{position:fixed;left:0;top:46px;bottom:0;z-index:55;transform:translateX(-100%);transition:.2s}
@@ -209,6 +255,8 @@ label.f>span{display:block;font-size:10.5px;text-transform:uppercase;letter-spac
       <a data-p="rep">Hesabatlar</a>
       <a data-p="fin">Maliyyə göstəriciləri</a>
       <a data-p="ctrl">Nəzarət və risklər <b id="c-ctrl"></b></a>
+      <div class="grp">Yanacaq</div>
+      <a data-p="azp" id="nav-azp" style="display:none">Azpetrol / Araz</a>
       <div class="grp">Sistem</div>
       <a data-p="log">Audit jurnalı <b id="c-log"></b></a>
       <a data-p="set">Parametrlər və ixrac</a>
@@ -386,6 +434,99 @@ label.f>span{display:block;font-size:10.5px;text-transform:uppercase;letter-spac
         <div class="card" style="margin-top:12px"><header><h3>Hüquq matrisi</h3></header><div class="tw" id="t-perm"></div></div>
         <div class="card" style="margin-top:12px"><header><h3>Sistemdə olan istifadəçilər</h3></header><div class="tw" id="t-users"></div></div>
         <div class="card" style="margin-top:12px"><header><h3>Məlumat mənbəyi</h3></header><div class="pad" id="set-src"></div></div>
+      </section>
+
+      <!-- ================= AZPETROL / ARAZ — ayrıca modul =================
+           ANBAR ilə heç bir biznes, məlumat, hüquq, qalıq, nomenklatura,
+           hərəkət və ixrac əlaqəsi yoxdur. Daxildə iki tamamilə ayrı
+           dashboard var: Azpetrol və Araz. Onların məlumatı, kartları,
+           əməliyyatları, hesabatları, idxal/ixracı və audit qeydləri
+           qarışdırılmır. -->
+      <section class="page" id="p-azp">
+        <div class="azp-band">
+          <div><h2>Azpetrol / Araz</h2><p id="azp-sub">Yanacaq kartlarının uçotu — ANBAR-dan tam ayrı modul</p></div>
+          <div class="sp"></div>
+          <div class="azp-switch" id="azp-switch">
+            <button type="button" data-board="azpetrol" class="on">Azpetrol</button>
+            <button type="button" data-board="araz">Araz</button>
+          </div>
+        </div>
+        <div id="azp-gate" class="empty" style="display:none"><b>Giriş yoxdur</b>Bu modul yalnız Admin, Rəhbər və Mühasib üçün açıqdır.</div>
+        <div id="azp-body">
+
+          <!-- ---------- AZPETROL DASHBOARD ---------- -->
+          <div class="azp-board on" id="azp-board-azpetrol">
+            <div class="kpis" id="azp-kpi-azpetrol"></div>
+            <div class="card" style="margin-top:12px">
+              <header><h3>Kartların hesabatı</h3><div class="sp"></div>
+                <button class="btn sm" id="azp-newcard-azpetrol">+ Kart</button>
+                <button class="btn sm" id="azp-newmov-azpetrol">+ Əməliyyat</button>
+                <button class="btn sm" id="azp-imp-azpetrol">⬆ Excel idxalı</button>
+                <button class="btn sm" id="azp-exp-azpetrol">⬇ Excel ixracı</button>
+              </header>
+              <div class="tw" style="max-height:none" id="azp-cards-azpetrol"></div>
+            </div>
+            <div class="card" style="margin-top:12px">
+              <header><h3>Kart əməliyyatları</h3></header>
+              <div class="pad" style="padding-bottom:0">
+                <div class="filters">
+                  <select id="azp-f-card-azpetrol"></select>
+                  <select id="azp-f-kind-azpetrol">
+                    <option value="">Bütün növlər</option>
+                    <option value="medaxil">Mədaxil</option>
+                    <option value="mexaric">Y/D</option>
+                  </select>
+                  <input type="date" id="azp-f-d1-azpetrol" title="Başlanğıc tarix">
+                  <input type="date" id="azp-f-d2-azpetrol" title="Son tarix">
+                  <input type="search" id="azp-f-q-azpetrol" placeholder="Qaimə № və ya qeyd üzrə axtar">
+                  <button class="btn sm" id="azp-f-clr-azpetrol">Təmizlə</button>
+                </div>
+              </div>
+              <div class="tw" id="azp-movs-azpetrol"></div>
+            </div>
+            <div class="card" style="margin-top:12px">
+              <header><h3>Modulun audit jurnalı</h3><div class="sp"></div><span class="hint">yalnız Azpetrol</span></header>
+              <div class="tw" style="max-height:320px" id="azp-log-azpetrol"></div>
+            </div>
+          </div>
+
+          <!-- ---------- ARAZ DASHBOARD ---------- -->
+          <div class="azp-board" id="azp-board-araz">
+            <div class="kpis" id="azp-kpi-araz"></div>
+            <div class="card" style="margin-top:12px">
+              <header><h3>Kartların hesabatı</h3><span class="tag t-az">ƏDV DAXİL</span><div class="sp"></div>
+                <button class="btn sm" id="azp-newcard-araz">+ Kart</button>
+                <button class="btn sm" id="azp-newmov-araz">+ Əməliyyat</button>
+                <button class="btn sm" id="azp-imp-araz">⬆ Excel idxalı</button>
+                <button class="btn sm" id="azp-exp-araz">⬇ Excel ixracı</button>
+              </header>
+              <div class="tw" style="max-height:none" id="azp-cards-araz"></div>
+            </div>
+            <div class="card" style="margin-top:12px">
+              <header><h3>Kart əməliyyatları</h3></header>
+              <div class="pad" style="padding-bottom:0">
+                <div class="filters">
+                  <select id="azp-f-card-araz"></select>
+                  <select id="azp-f-kind-araz">
+                    <option value="">Bütün növlər</option>
+                    <option value="medaxil">Mədaxil</option>
+                    <option value="mexaric">Məxaric</option>
+                  </select>
+                  <input type="date" id="azp-f-d1-araz" title="Başlanğıc tarix">
+                  <input type="date" id="azp-f-d2-araz" title="Son tarix">
+                  <input type="search" id="azp-f-q-araz" placeholder="Qaimə № və ya qeyd üzrə axtar">
+                  <button class="btn sm" id="azp-f-clr-araz">Təmizlə</button>
+                </div>
+              </div>
+              <div class="tw" id="azp-movs-araz"></div>
+            </div>
+            <div class="card" style="margin-top:12px">
+              <header><h3>Modulun audit jurnalı</h3><div class="sp"></div><span class="hint">yalnız Araz</span></header>
+              <div class="tw" style="max-height:320px" id="azp-log-araz"></div>
+            </div>
+          </div>
+
+        </div>
       </section>
     </main>
   </div>
@@ -1145,6 +1286,8 @@ function routeOrPartner(m) { return transferRoute(m) || (m.p || '—'); }
 let PAGE = 'dash';
 function go(p) {
   if (p === 'refs' && !isAdmin()) return toast('Sorğuçalar yalnız Admin üçündür', true);
+  /* Azpetrol/Araz — ayrıca modul, öz hüquq modeli ilə (anbardar üçün bağlıdır) */
+  if (p === 'azp' && !(typeof azpCanRead === 'function' && azpCanRead())) return toast('Azpetrol / Araz moduluna girişiniz yoxdur', true);
   PAGE = p;
   $$('.rail a').forEach(a => a.classList.toggle('on', a.dataset.p === p));
   $$('.page').forEach(s => s.classList.toggle('on', s.id === 'p-' + p));
@@ -1156,7 +1299,7 @@ $$('.rail a').forEach(a => a.onclick = () => go(a.dataset.p));
 $('#burger').onclick = () => $('#rail').classList.toggle('open');
 
 function render(p) {
-  ({ dash: rDash, op: rOp, mov: rMov, bal: rBal, nom: rNom, grp: rGroups, knt: rKnt, anb: rAnb, refs: rRefs, rep: rRep, fin: rFin, ctrl: rCtrl, log: rLog, set: rSet }[p] || (() => { }))();
+  ({ dash: rDash, op: rOp, mov: rMov, bal: rBal, nom: rNom, grp: rGroups, knt: rKnt, anb: rAnb, refs: rRefs, rep: rRep, fin: rFin, ctrl: rCtrl, log: rLog, set: rSet, azp: (typeof rAzp === 'function' ? rAzp : null) }[p] || (() => { }))();
   counters();
 }
 function renderAll() { render(PAGE); }
@@ -4036,6 +4179,7 @@ async function enterApp(userId, email) {
   $('#gate').style.display = 'none';
   $('#app').style.display = 'block';
   if ($('#nav-refs')) $('#nav-refs').style.display = isAdmin() ? '' : 'none';
+  if ($('#nav-azp')) $('#nav-azp').style.display = (typeof azpCanRead === 'function' && azpCanRead()) ? '' : 'none';
   $('#btn-me').textContent = ME.name.split(' ')[0] + ' · ' + (ROLES[ME.role] ? ROLES[ME.role].name : ME.role);
   $('#btn-me').onclick = sessionDialog;
   try { const ss = await SB.auth.getSession(); window.SB_TOKEN = ss.data.session ? ss.data.session.access_token : null; } catch (e) { }
@@ -4566,6 +4710,709 @@ async function enterApp(userId, email) {
   })();
 })();
 
+</script>
+
+<script>
+/* ============================================================================
+   AZPETROL / ARAZ — ayrıca modul
+   ----------------------------------------------------------------------------
+   İZOLYASİYA. Bu blok ANBAR-ın DB, IX, OP, LOAD_ERR və s. vəziyyətinə YAZMIR
+   və ANBAR-ın cədvəllərini (items/movements/partners/warehouses/audit_log)
+   oxumur. Yalnız `azp_*` cədvəlləri və RPC-ləri ilə işləyir. ANBAR-dan istifadə
+   etdiyi yeganə şeylər — ümumi UI köməkçiləri (esc/nf/toast/modal), Supabase
+   klienti (SB) və cari istifadəçi (ME). Bütün adlar `azp`/`AZP` prefiksi ilədir.
+
+   İKİ DASHBOARD. `AZP.data.azpetrol` və `AZP.data.araz` tamamilə ayrı
+   obyektlərdir. Heç bir funksiya iki modulun sətirlərini birləşdirmir, cəmləri
+   toplamır və ya eyni cədvəldə göstərmir. Hər sorğu, hesabat, idxal, ixrac və
+   audit siyahısı məcburi `m` (modul) parametri alır.
+
+   HÜQUQ. admin → tam; rehber/muhasib (və köhnə techizat/baxis) → oxu + ixrac;
+   anbardar → giriş yoxdur. Bu, sql/020-dəki azp_user_role() funksiyasının
+   eynisidir. Buradakı yoxlama yalnız interfeysi idarə edir — əsl məhdudiyyət
+   serverdədir (RLS + SECURITY DEFINER RPC).
+   ========================================================================== */
+
+const AZP_MODULES = ['azpetrol', 'araz'];
+
+/* Modul etiketləri — Azpetrol "Y/D" (yanacaq doldurma), Araz "Məxaric" işlədir */
+const AZP_LABEL = {
+  azpetrol: { title: 'Azpetrol', out: 'Y/D', total: 'Tədbiqin cari balansı', vat: false,
+              cardHead: 'Sahib / Layihə', unit: '₼' },
+  araz:     { title: 'Araz',     out: 'Məxaric', total: 'Kartların cari balansı', vat: true,
+              cardHead: 'Obyekt / Kart seriyası', unit: '₼' }
+};
+
+const AZP = {
+  board: 'azpetrol',
+  data: {
+    azpetrol: { cards: [], movs: [], log: [], ready: false, err: null, loading: false },
+    araz:     { cards: [], movs: [], log: [], ready: false, err: null, loading: false }
+  },
+  filter: {
+    azpetrol: { card: '', kind: '', d1: '', d2: '', q: '' },
+    araz:     { card: '', kind: '', d1: '', d2: '', q: '' }
+  },
+  imp: { azpetrol: null, araz: null }
+};
+
+/* ---------- hüquqlar (sql/020 azp_user_role() ilə eyni cədvəl) ---------- */
+function azpRole() {
+  const r = ME && ME.role;
+  if (r === 'admin') return 'admin';
+  if (r === 'anbardar') return 'none';
+  if (r === 'rehber' || r === 'muhasib' || r === 'techizat' || r === 'baxis') return 'read';
+  return 'none';
+}
+function azpCanRead() { return azpRole() !== 'none'; }
+function azpIsAdmin() { return azpRole() === 'admin'; }
+function azpNeedAdmin() {
+  if (azpIsAdmin()) return true;
+  toast('Bu əməliyyat yalnız Admin üçündür', true);
+  return false;
+}
+function azpMod(m) {
+  if (AZP_MODULES.indexOf(m) < 0) throw new Error('AZP: yanlış modul: ' + m);
+  return m;
+}
+
+/* ---------- kiçik köməkçilər ---------- */
+const azpN = v => { const n = Number(v); return isFinite(n) ? n : 0; };
+const azpR2 = v => Math.round(azpN(v) * 100) / 100;
+const azpMoney = v => (v == null || !isFinite(Number(v))) ? '—' : nf(Number(v), 2) + ' ₼';
+function azpKindLabel(m, k) { return k === 'medaxil' ? 'Mədaxil' : AZP_LABEL[m].out; }
+
+/* Excel seriya nömrəsi və ya mətn → ISO tarix (yoxdursa boş sətir) */
+function azpDate(v) {
+  if (v == null || v === '') return '';
+  if (typeof v === 'number' && isFinite(v)) {
+    if (v < 1 || v > 60000) return '';
+    const d = new Date(Date.UTC(1899, 11, 30) + Math.round(v) * 86400000);
+    return isNaN(d) ? '' : d.toISOString().slice(0, 10);
+  }
+  const s = String(v).trim();
+  let mm = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (mm) return mm[1] + '-' + mm[2] + '-' + mm[3];
+  mm = s.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})$/);
+  if (mm) return mm[3] + '-' + ('0' + mm[2]).slice(-2) + '-' + ('0' + mm[1]).slice(-2);
+  return '';
+}
+
+/* ---------- məlumatın yüklənməsi (yalnız azp_* cədvəlləri) ---------- */
+async function azpLoad(m, force) {
+  azpMod(m);
+  const st = AZP.data[m];
+  if (st.loading) return;
+  if (st.ready && !force) return;
+  st.loading = true; st.err = null;
+  try {
+    if (!SB) throw new Error('Baza bağlantısı yoxdur');
+    const [cards, movs, log] = await Promise.all([
+      SB.from('azp_card_balances').select('*').eq('module', m).order('sort_order').order('card_no'),
+      SB.from('azp_movements').select('*').eq('module', m).order('id', { ascending: false }).limit(5000),
+      SB.from('azp_audit_log').select('*').eq('module', m).order('at', { ascending: false }).limit(300)
+    ]);
+    const bad = cards.error || movs.error || log.error;
+    if (bad) throw bad;
+    st.cards = cards.data || [];
+    st.movs = movs.data || [];
+    st.log = log.data || [];
+    st.ready = true;
+  } catch (e) {
+    st.err = (e && e.message) ? e.message : String(e);
+    st.ready = false;
+  } finally {
+    st.loading = false;
+  }
+}
+
+/* ---------- əsas render ---------- */
+function rAzp() {
+  if (!azpCanRead()) {
+    $('#azp-gate').style.display = '';
+    $('#azp-body').style.display = 'none';
+    return;
+  }
+  $('#azp-gate').style.display = 'none';
+  $('#azp-body').style.display = '';
+  const m = AZP.board;
+  AZP_MODULES.forEach(x => {
+    $('#azp-board-' + x).classList.toggle('on', x === m);
+    $$('#azp-switch button').forEach(b => b.classList.toggle('on', b.dataset.board === m));
+  });
+  $('#azp-sub').textContent = AZP_LABEL[m].title + ' — yanacaq kartlarının uçotu (ANBAR-dan tam ayrı modul)';
+  azpRenderBoard(m);
+  if (!AZP.data[m].ready && !AZP.data[m].loading) {
+    azpLoad(m).then(() => { if (AZP.board === m && PAGE === 'azp') azpRenderBoard(m); });
+  }
+}
+
+function azpRenderBoard(m) {
+  azpMod(m);
+  azpRenderKpis(m);
+  azpRenderCards(m);
+  azpRenderCardFilter(m);
+  azpRenderMovs(m);
+  azpRenderLog(m);
+  azpSyncButtons(m);
+}
+
+function azpSyncButtons(m) {
+  const admin = azpIsAdmin();
+  ['newcard', 'newmov', 'imp'].forEach(k => {
+    const b = $('#azp-' + k + '-' + m);
+    if (b) b.style.display = admin ? '' : 'none';
+  });
+}
+
+function azpNotReady(m) {
+  const st = AZP.data[m];
+  if (st.loading) return '<div class="empty">Yüklənir…</div>';
+  if (st.err) return '<div class="empty"><b>Modul bazası əlçatan deyil</b>' +
+    esc(st.err) + '<br><span class="hint">sql/020_azpetrol_module.sql hələ tətbiq edilməyibsə, bu gözləniləndir.</span></div>';
+  return null;
+}
+
+/* ---------- KPI ---------- */
+function azpRenderKpis(m) {
+  const el = $('#azp-kpi-' + m), st = AZP.data[m], L = AZP_LABEL[m];
+  const na = azpNotReady(m);
+  if (na) { el.innerHTML = '<div class="card" style="grid-column:1/-1">' + na + '</div>'; return; }
+  const act = st.cards.filter(c => c.active);
+  const inn = act.reduce((s, c) => s + azpN(c.medaxil_total), 0);
+  const out = act.reduce((s, c) => s + azpN(c.mexaric_total), 0);
+  const bal = azpR2(inn - out);
+  const neg = act.filter(c => azpN(c.balance) < 0).length;
+  el.innerHTML = [
+    ['Aktiv kart', nf(act.length), st.cards.length + ' kartdan', ''],
+    ['Ümumi mədaxil', azpMoney(inn), L.title + ' üzrə', 'gd'],
+    ['Ümumi ' + L.out, azpMoney(out), L.title + ' üzrə', 'wn'],
+    [L.total, azpMoney(bal), L.vat ? 'ƏDV daxil' : 'cari vəziyyət', neg ? 'al' : '']
+  ].map(k => '<div class="kpi ' + k[3] + '"><div class="eyebrow">' + esc(k[0]) + '</div>' +
+    '<div class="v">' + esc(k[1]) + '</div><div class="s">' + esc(k[2]) + '</div></div>').join('') +
+    (neg ? '<div class="kpi al"><div class="eyebrow">Mənfi balans</div><div class="v">' + nf(neg) +
+      '</div><div class="s">kart yoxlanmalıdır</div></div>' : '');
+}
+
+/* ---------- kartlar cədvəli ---------- */
+function azpRenderCards(m) {
+  const el = $('#azp-cards-' + m), st = AZP.data[m], L = AZP_LABEL[m];
+  const na = azpNotReady(m);
+  if (na) { el.innerHTML = na; return; }
+  if (!st.cards.length) {
+    el.innerHTML = '<div class="empty"><b>Kart yoxdur</b>' +
+      (azpIsAdmin() ? '“+ Kart” düyməsi ilə ilk kartı əlavə edin.' : 'Admin hələ kart əlavə etməyib.') + '</div>';
+    return;
+  }
+  const admin = azpIsAdmin();
+  const tot = st.cards.reduce((a, c) => {
+    a.i += azpN(c.medaxil_total); a.o += azpN(c.mexaric_total); a.b += azpN(c.balance); return a;
+  }, { i: 0, o: 0, b: 0 });
+  el.innerHTML = '<table><thead><tr>' +
+    '<th>Kart №</th><th>' + esc(L.cardHead) + '</th><th>Layihə</th>' +
+    '<th class="r">Mədaxil</th><th class="r">' + esc(L.out) + '</th><th class="r">Kart balansı</th>' +
+    '<th class="r">Əməliyyat</th><th>Status</th>' + (admin ? '<th></th>' : '') +
+    '</tr></thead><tbody>' +
+    st.cards.map(c =>
+      '<tr><td class="code">' + esc(c.card_no) + '</td>' +
+      '<td class="nm">' + esc(c.holder) + '</td>' +
+      '<td class="muted">' + esc(c.project || '—') + '</td>' +
+      '<td class="num">' + azpMoney(c.medaxil_total) + '</td>' +
+      '<td class="num">' + azpMoney(c.mexaric_total) + '</td>' +
+      '<td class="num' + (azpN(c.balance) < 0 ? ' neg' : '') + '">' + azpMoney(c.balance) + '</td>' +
+      '<td class="num">' + nf(c.mov_count) + '</td>' +
+      '<td>' + (c.active ? '<span class="tag t-az">aktiv</span>' : '<span class="tag t-mut">deaktiv</span>') + '</td>' +
+      (admin ? '<td class="r"><button class="btn sm" onclick="azpCardModal(\'' + m + '\',\'' + esc(c.card_id) + '\')">Redaktə</button></td>' : '') +
+      '</tr>').join('') +
+    '</tbody><tfoot><tr>' +
+    '<td colspan="3"><b>' + esc(L.total) + '</b></td>' +
+    '<td class="num"><b>' + azpMoney(tot.i) + '</b></td>' +
+    '<td class="num"><b>' + azpMoney(tot.o) + '</b></td>' +
+    '<td class="num"><b>' + azpMoney(azpR2(tot.b)) + '</b></td>' +
+    '<td colspan="' + (admin ? 3 : 2) + '"></td></tr></tfoot></table>';
+}
+
+/* ---------- əməliyyat filtrləri ---------- */
+function azpRenderCardFilter(m) {
+  const sel = $('#azp-f-card-' + m), st = AZP.data[m];
+  const cur = AZP.filter[m].card;
+  sel.innerHTML = '<option value="">Bütün kartlar</option>' +
+    st.cards.map(c => '<option value="' + esc(c.card_id) + '">' + esc(c.card_no) + ' — ' + esc(c.holder) + '</option>').join('');
+  sel.value = cur;
+  if (sel.value !== cur) { AZP.filter[m].card = ''; sel.value = ''; }
+}
+
+function azpMovRows(m) {
+  const st = AZP.data[m], f = AZP.filter[m];
+  const byCard = new Map(st.cards.map(c => [c.card_id, c]));
+  const q = (f.q || '').trim().toLowerCase();
+  return st.movs.filter(r => {
+    if (f.card && r.card_id !== f.card) return false;
+    if (f.kind && r.kind !== f.kind) return false;
+    if (f.d1 && (!r.op_date || r.op_date < f.d1)) return false;
+    if (f.d2 && (!r.op_date || r.op_date > f.d2)) return false;
+    if (q) {
+      const c = byCard.get(r.card_id);
+      const hay = [r.doc_num, r.note, c && c.card_no, c && c.holder].join(' ').toLowerCase();
+      if (hay.indexOf(q) < 0) return false;
+    }
+    return true;
+  });
+}
+
+function azpRenderMovs(m) {
+  const el = $('#azp-movs-' + m), st = AZP.data[m], L = AZP_LABEL[m];
+  const na = azpNotReady(m);
+  if (na) { el.innerHTML = na; return; }
+  const rows = azpMovRows(m);
+  if (!rows.length) {
+    el.innerHTML = '<div class="empty"><b>Əməliyyat yoxdur</b>Seçilmiş filtrlərə uyğun qeyd tapılmadı.</div>';
+    return;
+  }
+  const byCard = new Map(st.cards.map(c => [c.card_id, c]));
+  const admin = azpIsAdmin();
+  const live = rows.filter(r => !r.cancelled);
+  const sIn = live.filter(r => r.kind === 'medaxil').reduce((s, r) => s + azpN(r.amount), 0);
+  const sOut = live.filter(r => r.kind === 'mexaric').reduce((s, r) => s + azpN(r.amount), 0);
+  el.innerHTML = '<table><thead><tr>' +
+    '<th>Tarix</th><th>Kart</th><th>' + esc(L.cardHead) + '</th><th>Növ</th>' +
+    '<th class="r">Məbləğ</th><th>Qaimə №</th><th>Qeyd</th>' + (admin ? '<th></th>' : '') +
+    '</tr></thead><tbody>' +
+    rows.slice(0, 1000).map(r => {
+      const c = byCard.get(r.card_id);
+      return '<tr' + (r.cancelled ? ' style="opacity:.5"' : '') + '>' +
+        '<td>' + esc(r.op_date ? fmtD(r.op_date) : '—') + '</td>' +
+        '<td class="code">' + esc(c ? c.card_no : '—') + '</td>' +
+        '<td class="nm">' + esc(c ? c.holder : '—') + '</td>' +
+        '<td><span class="tag ' + (r.kind === 'medaxil' ? 't-in' : 't-out') + '">' + esc(azpKindLabel(m, r.kind)) + '</span>' +
+        (r.cancelled ? ' <span class="tag t-rm">ləğv edilib</span>' : '') +
+        (r.vat_included ? ' <span class="tag t-mut">ƏDV</span>' : '') + '</td>' +
+        '<td class="num">' + azpMoney(r.amount) + '</td>' +
+        '<td class="code">' + esc(r.doc_num || '—') + '</td>' +
+        '<td class="muted">' + esc(r.note || (r.cancel_reason ? 'Ləğv səbəbi: ' + r.cancel_reason : '')) + '</td>' +
+        (admin ? '<td class="r">' + (r.cancelled ? '' :
+          '<button class="btn sm dgr" onclick="azpCancelMov(\'' + m + '\',' + Number(r.id) + ')">Ləğv et</button>') + '</td>' : '') +
+        '</tr>';
+    }).join('') +
+    '</tbody><tfoot><tr><td colspan="4"><b>Cəmi (ləğv edilməmiş): ' + nf(live.length) + ' qeyd</b></td>' +
+    '<td class="num"><b>' + azpMoney(azpR2(sIn - sOut)) + '</b></td>' +
+    '<td colspan="' + (admin ? 3 : 2) + '" class="hint">Mədaxil ' + azpMoney(sIn) + ' · ' + esc(L.out) + ' ' + azpMoney(sOut) + '</td>' +
+    '</tr></tfoot></table>' +
+    (rows.length > 1000 ? '<div class="hint" style="padding:8px">İlk 1000 sətir göstərilir (' + nf(rows.length) + ' uyğun qeyd). Filtri daraldın.</div>' : '');
+}
+
+/* ---------- modulun öz audit jurnalı ---------- */
+function azpRenderLog(m) {
+  const el = $('#azp-log-' + m), st = AZP.data[m];
+  const na = azpNotReady(m);
+  if (na) { el.innerHTML = na; return; }
+  if (!st.log.length) { el.innerHTML = '<div class="empty">Hələ qeyd yoxdur.</div>'; return; }
+  const act = { create: 'yaradıldı', update: 'dəyişdirildi', delete: 'silindi', post: 'yazıldı', cancel: 'ləğv edildi', import: 'idxal edildi' };
+  el.innerHTML = '<table><thead><tr><th>Vaxt</th><th>Obyekt</th><th>Əməliyyat</th><th>Təfərrüat</th></tr></thead><tbody>' +
+    st.log.map(r => '<tr><td>' + esc(new Date(r.at).toLocaleString('az-AZ')) + '</td>' +
+      '<td>' + esc(r.entity === 'card' ? 'Kart' : 'Əməliyyat') + '</td>' +
+      '<td>' + esc(act[r.action] || r.action) + '</td>' +
+      '<td class="muted">' + esc(r.detail ? JSON.stringify(r.detail) : '') + '</td></tr>').join('') +
+    '</tbody></table>';
+}
+
+/* ---------- kart yaratma / redaktə ---------- */
+function azpCardModal(m, id) {
+  azpMod(m);
+  if (!azpNeedAdmin()) return;
+  const st = AZP.data[m], L = AZP_LABEL[m];
+  const c = id ? st.cards.find(x => x.card_id === id) : null;
+  modal((c ? 'Kartın redaktəsi' : 'Yeni kart') + ' — ' + L.title,
+    '<label class="f"><span>Kart nömrəsi *</span><input type="text" id="azp-c-no" value="' + esc(c ? c.card_no : '') + '"></label>' +
+    '<label class="f"><span>' + esc(L.cardHead) + ' *</span><input type="text" id="azp-c-holder" value="' + esc(c ? c.holder : '') + '"></label>' +
+    '<label class="f"><span>Layihə</span><input type="text" id="azp-c-project" value="' + esc(c && c.project ? c.project : '') + '"></label>' +
+    '<label class="f"><span>Sıra</span><input type="number" id="azp-c-sort" value="' + esc(c ? c.sort_order : 0) + '"></label>' +
+    '<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="azp-c-active" style="width:auto"' +
+    ((!c || c.active) ? ' checked' : '') + '><span>Aktiv</span></label>' +
+    '<p class="hint" style="margin-top:12px">Bu kart yalnız <b>' + esc(L.title) + '</b> dashboard-una aiddir və digər modulda görünmür.</p>' +
+    '<span class="err" id="azp-c-err"></span>',
+    '<button class="btn" data-close>İmtina</button>' +
+    (c && !azpN(c.mov_count) ? '<button class="btn dgr" id="azp-c-del">Sil</button>' : '') +
+    '<button class="btn pri" id="azp-c-save">Yadda saxla</button>');
+
+  $('#azp-c-save').onclick = async () => {
+    const payload = {
+      card_no: $('#azp-c-no').value.trim(),
+      holder: $('#azp-c-holder').value.trim(),
+      project: $('#azp-c-project').value.trim(),
+      sort_order: Number($('#azp-c-sort').value) || 0,
+      active: $('#azp-c-active').checked
+    };
+    if (c) payload.id = c.card_id;
+    if (!payload.card_no || !payload.holder) { $('#azp-c-err').textContent = 'Kart nömrəsi və ad mütləqdir.'; return; }
+    $('#azp-c-save').disabled = true;
+    const { error } = await SB.rpc('azp_save_card', { p_module: m, p_card: payload });
+    $('#azp-c-save').disabled = false;
+    if (error) { $('#azp-c-err').textContent = error.message; return; }
+    closeModal(); toast('Kart yadda saxlanıldı');
+    await azpLoad(m, true); azpRenderBoard(m);
+  };
+  const del = $('#azp-c-del');
+  if (del) del.onclick = async () => {
+    if (!confirm('Kart tamamilə silinsin? Bu geri qaytarılmır.')) return;
+    const { error } = await SB.rpc('azp_delete_card', { p_module: m, p_card_id: c.card_id });
+    if (error) { $('#azp-c-err').textContent = error.message; return; }
+    closeModal(); toast('Kart silindi');
+    await azpLoad(m, true); azpRenderBoard(m);
+  };
+}
+
+/* ---------- tək əməliyyatın əlavəsi ---------- */
+function azpMovModal(m) {
+  azpMod(m);
+  if (!azpNeedAdmin()) return;
+  const st = AZP.data[m], L = AZP_LABEL[m];
+  const act = st.cards.filter(c => c.active);
+  if (!act.length) { toast('Əvvəlcə ' + L.title + ' üçün kart əlavə edin', true); return; }
+  modal('Yeni əməliyyat — ' + L.title,
+    '<label class="f"><span>Kart *</span><select id="azp-m-card">' +
+    act.map(c => '<option value="' + esc(c.card_id) + '">' + esc(c.card_no) + ' — ' + esc(c.holder) + '</option>').join('') +
+    '</select></label>' +
+    '<label class="f"><span>Növ *</span><select id="azp-m-kind">' +
+    '<option value="medaxil">Mədaxil</option><option value="mexaric">' + esc(L.out) + '</option></select></label>' +
+    '<label class="f"><span>Məbləğ (₼) *</span><input type="number" id="azp-m-amt" step="0.01" min="0.01"></label>' +
+    '<label class="f"><span>Tarix</span><input type="date" id="azp-m-date" value="' + (m === 'araz' ? today() : '') + '"></label>' +
+    '<label class="f"><span>Qaimə №</span><input type="text" id="azp-m-doc"></label>' +
+    '<label class="f"><span>Qeyd</span><input type="text" id="azp-m-note"></label>' +
+    (L.vat ? '<p class="hint">Araz üçün məbləğlər <b>ƏDV daxil</b> qeyd olunur.</p>' :
+      '<p class="hint">Azpetrol mənbə cədvəlində tarix sütunu yoxdur — tarix boş buraxıla bilər.</p>') +
+    '<span class="err" id="azp-m-err"></span>',
+    '<button class="btn" data-close>İmtina</button><button class="btn pri" id="azp-m-save">Yaz</button>');
+
+  $('#azp-m-save').onclick = async () => {
+    const amt = Number($('#azp-m-amt').value);
+    if (!(amt > 0)) { $('#azp-m-err').textContent = 'Məbləğ müsbət olmalıdır.'; return; }
+    const row = {
+      card_id: $('#azp-m-card').value,
+      kind: $('#azp-m-kind').value,
+      amount: azpR2(amt),
+      op_date: $('#azp-m-date').value || null,
+      doc_num: $('#azp-m-doc').value.trim(),
+      note: $('#azp-m-note').value.trim(),
+      vat_included: L.vat
+    };
+    $('#azp-m-save').disabled = true;
+    const { error } = await SB.rpc('azp_post_movements', { p_module: m, p_rows: [row], p_source: 'manual' });
+    $('#azp-m-save').disabled = false;
+    if (error) { $('#azp-m-err').textContent = error.message; return; }
+    closeModal(); toast('Əməliyyat yazıldı');
+    await azpLoad(m, true); azpRenderBoard(m);
+  };
+}
+
+async function azpCancelMov(m, id) {
+  azpMod(m);
+  if (!azpNeedAdmin()) return;
+  const why = prompt('Ləğv səbəbi (istəyə bağlı):', '');
+  if (why === null) return;
+  const { error } = await SB.rpc('azp_cancel_movement', { p_module: m, p_id: id, p_reason: why });
+  if (error) { toast(error.message, true); return; }
+  toast('Əməliyyat ləğv edildi');
+  await azpLoad(m, true); azpRenderBoard(m);
+}
+
+/* ============================================================================
+   Excel idxalı — AZPETROL_SON_auto.xlsx-in doğma "blok" quruluşunu oxuyur.
+   Quruluş: başlıq sətrində hər kart üçün `Mədaxil | (Y/D|Məxaric) | Kart balansı`
+   üçlüyü var; kart nömrəsi bir yuxarı, sahib/obyekt adı iki yuxarı sətirdədir
+   (birləşdirilmiş xanalar səbəbindən sola doğru ilk dolu xana götürülür).
+   `Tarix` sütunu varsa (Araz), bütün bloklara tətbiq olunur.
+   ========================================================================== */
+function azpParseSheet(m, aoa) {
+  const L = AZP_LABEL[m];
+  const norm = v => String(v == null ? '' : v).replace(/\s+/g, ' ').trim().toLowerCase();
+  let hr = -1;
+  for (let r = 0; r < Math.min(aoa.length, 30); r++) {
+    if ((aoa[r] || []).some(v => norm(v) === 'mədaxil')) { hr = r; break; }
+  }
+  if (hr < 0) throw new Error('Başlıq sətri tapılmadı — “Mədaxil” sütunu yoxdur.');
+
+  const head = aoa[hr] || [];
+  const dateCol = head.findIndex(v => norm(v) === 'tarix');
+  const outNames = ['y/d', 'məxaric', 'mexaric'];
+  const balNames = ['kart balansı', 'kart balansi', 'balans'];
+  const num = v => {
+    if (v == null || String(v).trim() === '') return null;
+    const n = Number(String(v).replace(',', '.'));
+    return isFinite(n) ? n : NaN;
+  };
+
+  /* Blok sütunları: Mədaxil + (Y/D | Məxaric) cütü; varsa Kart balansı da. */
+  const blocks = [];
+  for (let c = 0; c < head.length; c++) {
+    if (norm(head[c]) !== 'mədaxil') continue;
+    if (outNames.indexOf(norm(head[c + 1])) < 0) continue;
+    blocks.push({ inCol: c, outCol: c + 1, balCol: balNames.indexOf(norm(head[c + 2])) >= 0 ? c + 2 : -1 });
+  }
+  if (!blocks.length) throw new Error('Kart bloku tapılmadı (Mədaxil + ' + L.out + ' cütü yoxdur).');
+
+  /* Kart nömrəsi və ad birləşdirilmiş xanalardadır, ona görə sola doğru axtarılır.
+     Axtarış ÖNCƏKİ blokun sərhədini keçməməlidir — əks halda başlığı boş olan
+     şablon bloku qonşunun kart nömrəsini “oğurlayır” və eyni kart iki dəfə
+     sayılır (ARAZ vərəqindəki boş K və O bloklarında məhz belə olur). */
+  blocks.forEach((b, i) => { b.left = i === 0 ? 0 : blocks[i - 1].outCol + 1; });
+  const back = (r, c, left) => {
+    for (let i = c; i >= left; i--) {
+      const v = aoa[r] && aoa[r][i];
+      if (v != null && String(v).trim() !== '') return String(v).trim();
+    }
+    return '';
+  };
+  blocks.forEach(b => {
+    b.cardNo = hr >= 1 ? back(hr - 1, b.inCol, b.left) : '';
+    b.holder = hr >= 2 ? back(hr - 2, b.inCol, b.left) : '';
+  });
+
+  const cards = [], rows = [], errs = [], warns = [];
+  let skippedTotals = 0;
+
+  blocks.forEach(b => {
+    /* Blokda ümumiyyətlə rəqəm varmı? */
+    let hasData = false;
+    for (let r = hr + 1; r < aoa.length && !hasData; r++) {
+      const line = aoa[r] || [];
+      if (num(line[b.inCol]) || num(line[b.outCol])) hasData = true;
+    }
+    if (!b.cardNo) {
+      /* Tamamilə boş şablon bloku — səssizcə buraxılır, idxalı bloklamır. */
+      if (hasData) errs.push('Sütun ' + (b.inCol + 1) + ': məlumat var, amma kart nömrəsi tapılmadı.');
+      return;
+    }
+    if (cards.some(c => c.card_no === b.cardNo)) {
+      errs.push('Kart ' + b.cardNo + ' vərəqdə iki dəfə rast gəlinir.');
+      return;
+    }
+    cards.push({ card_no: b.cardNo, holder: b.holder || b.cardNo, excel_balance: null });
+    const card = cards[cards.length - 1];
+
+    if (b.balCol >= 0) {
+      for (let r = hr + 1; r < aoa.length; r++) {
+        const v = num((aoa[r] || [])[b.balCol]);
+        if (v != null && !isNaN(v)) { card.excel_balance = azpR2(v); break; }
+      }
+    }
+
+    /* Sətirlərin oxunması. Excel-də blokun içində ARA CƏMİ sətirləri var
+       (AZPETROL_SON_auto.xlsx-də 58-ci və 70-ci sətirlər sütunun yuxarıdakı
+       cəminə bərabərdir). Onlar məlumat kimi götürülsə, hər kart iki dəfə
+       sayılır. Ona görə sütunun qaçan cəminə bərabər olan sətir ara cəmi kimi
+       tanınır və buraxılır. */
+    const run = { medaxil: 0, mexaric: 0 };
+    const cnt = { medaxil: 0, mexaric: 0 };
+    for (let r = hr + 1; r < aoa.length; r++) {
+      const line = aoa[r] || [];
+      const dt = dateCol >= 0 ? azpDate(line[dateCol]) : '';
+      [['medaxil', b.inCol], ['mexaric', b.outCol]].forEach(pair => {
+        const raw = line[pair[1]];
+        if (raw == null || String(raw).trim() === '') return;
+        const amt = num(raw);
+        if (amt == null || isNaN(amt)) {
+          errs.push('Sətir ' + (r + 1) + ', kart ' + b.cardNo + ': “' + raw + '” rəqəm deyil.');
+          return;
+        }
+        if (amt <= 0) return;
+        /* Ara cəmi yalnız ən azı İKİ sətrin cəminə bərabər olduqda tanınır.
+           Tək sətir şərti kifayət etmir: ardıcıl iki eyni məbləğ (məs. 200, 200)
+           əks halda yanlışlıqla cəm sayılıb real əməliyyatı itirərdi. */
+        if (cnt[pair[0]] >= 2 && Math.abs(amt - run[pair[0]]) < 0.005) {
+          skippedTotals++;
+          return;
+        }
+        run[pair[0]] = azpR2(run[pair[0]] + amt);
+        cnt[pair[0]]++;
+        rows.push({ card_no: b.cardNo, kind: pair[0], amount: azpR2(amt), op_date: dt || null, vat_included: L.vat });
+      });
+    }
+    card.parsed_balance = azpR2(run.medaxil - run.mexaric);
+    card.medaxil = run.medaxil;
+    card.mexaric = run.mexaric;
+    if (card.excel_balance != null && Math.abs(card.excel_balance - card.parsed_balance) >= 0.01) {
+      warns.push('Kart ' + b.cardNo + ': Excel “Kart balansı” = ' + card.excel_balance +
+        ', oxunan sətirlərdən çıxan balans = ' + card.parsed_balance + '.');
+    }
+  });
+
+  return { cards: cards, rows: rows, errs: errs, warns: warns, skippedTotals: skippedTotals };
+}
+
+function azpImportModal(m) {
+  azpMod(m);
+  if (!azpNeedAdmin()) return;
+  const L = AZP_LABEL[m];
+  AZP.imp[m] = null;
+  modal('Excel idxalı — ' + L.title,
+    '<p class="hint" style="margin-top:0">Yalnız <b>' + esc(L.title) + '</b> vərəqini seçin. Fayl ' +
+    '<span class="code">Mədaxil / ' + esc(L.out) + ' / Kart balansı</span> blok quruluşunda oxunur; kart nömrəsi və ad başlığın üstündəki sətirlərdən götürülür.</p>' +
+    '<label class="f"><span>Excel faylı (.xlsx / .xls)</span><input type="file" id="azp-i-file" accept=".xlsx,.xls"></label>' +
+    '<label class="f"><span>Vərəq</span><select id="azp-i-sheet" disabled><option>— əvvəlcə fayl seçin —</option></select></label>' +
+    '<div id="azp-i-prev"></div><span class="err" id="azp-i-err"></span>',
+    '<button class="btn" data-close>İmtina</button><button class="btn pri" id="azp-i-go" disabled>İdxal et</button>');
+
+  let WB = null;
+  $('#azp-i-file').onchange = e => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    const fr = new FileReader();
+    fr.onload = ev => {
+      try {
+        WB = XLSX.read(new Uint8Array(ev.target.result), { type: 'array' });
+        const sel = $('#azp-i-sheet');
+        sel.disabled = false;
+        sel.innerHTML = WB.SheetNames.map(n => '<option value="' + esc(n) + '">' + esc(n) + '</option>').join('');
+        const guess = WB.SheetNames.find(n => n.toLowerCase().indexOf(m === 'araz' ? 'araz' : 'azp') >= 0);
+        if (guess) sel.value = guess;
+        sel.onchange();
+      } catch (err) { $('#azp-i-err').textContent = 'Fayl oxunmadı: ' + err.message; }
+    };
+    fr.readAsArrayBuffer(f);
+  };
+
+  $('#azp-i-sheet').onchange = () => {
+    $('#azp-i-err').textContent = '';
+    try {
+      const ws = WB.Sheets[$('#azp-i-sheet').value];
+      const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null });
+      const p = azpParseSheet(m, aoa);
+      AZP.imp[m] = p;
+      const known = new Set(AZP.data[m].cards.map(c => String(c.card_no).trim().toLowerCase()));
+      const isNew = p.cards.filter(c => !known.has(String(c.card_no).trim().toLowerCase()));
+      $('#azp-i-prev').innerHTML =
+        '<div class="pill-row" style="margin:10px 0"><span class="tag t-az">' + nf(p.cards.length) + ' kart</span>' +
+        '<span class="tag t-in">' + nf(p.rows.filter(r => r.kind === 'medaxil').length) + ' mədaxil</span>' +
+        '<span class="tag t-out">' + nf(p.rows.filter(r => r.kind === 'mexaric').length) + ' ' + esc(L.out) + '</span>' +
+        (isNew.length ? '<span class="tag t-mv">' + nf(isNew.length) + ' yeni kart yaradılacaq</span>' : '') +
+        (p.skippedTotals ? '<span class="tag t-mut">' + nf(p.skippedTotals) + ' ara cəmi sətri buraxıldı</span>' : '') +
+        (p.warns.length ? '<span class="tag t-out">' + nf(p.warns.length) + ' balans fərqi</span>' : '') +
+        (p.errs.length ? '<span class="tag t-rm">' + nf(p.errs.length) + ' səhv</span>' : '') + '</div>' +
+        '<div class="tw" style="max-height:240px"><table><thead><tr><th>Kart №</th><th>' + esc(L.cardHead) +
+        '</th><th class="r">Mədaxil</th><th class="r">' + esc(L.out) + '</th>' +
+        '<th class="r">Oxunan balans</th><th class="r">Excel balansı</th><th class="r">Fərq</th>' +
+        '</tr></thead><tbody>' +
+        p.cards.map(c => {
+          const d = (c.excel_balance == null) ? null : azpR2(c.parsed_balance - c.excel_balance);
+          return '<tr><td class="code">' + esc(c.card_no) + '</td><td class="nm">' + esc(c.holder) +
+            '</td><td class="num">' + azpMoney(c.medaxil) + '</td><td class="num">' + azpMoney(c.mexaric) + '</td>' +
+            '<td class="num">' + azpMoney(c.parsed_balance) + '</td>' +
+            '<td class="num muted">' + (c.excel_balance == null ? '—' : azpMoney(c.excel_balance)) + '</td>' +
+            '<td class="num' + (d && Math.abs(d) >= 0.01 ? ' neg' : '') + '">' +
+            (d == null ? '—' : (Math.abs(d) < 0.01 ? '0' : azpMoney(d))) + '</td></tr>';
+        }).join('') + '</tbody></table></div>' +
+        (p.warns.length ?
+          '<div class="hint" style="margin-top:8px;color:var(--out)"><b>Diqqət — Excel balansı ilə fərq var.</b> ' +
+          'Mənbə faylda “Kart balansı” düsturları sabit sətir aralığına baxır (məs. <span class="code">SUM(B4:B57)</span>), ' +
+          'ona görə həmin aralıqdan kənarda qalan sətirlər Excel cəmində iştirak etmir. Aşağıdakı sətirlərin hansının ' +
+          'düzgün olduğunu təsdiqləyin — idxal oxunan sətirlərə əsaslanacaq.<br>' +
+          p.warns.slice(0, 12).map(esc).join('<br>') + '</div>' : '') +
+        (p.errs.length ? '<div class="err">' + p.errs.slice(0, 12).map(esc).join('<br>') + '</div>' : '');
+      /* Bir səhv belə varsa idxal bloklanır — qismən idxal olmur (I-14 dərsi). */
+      $('#azp-i-go').disabled = !p.rows.length || p.errs.length > 0;
+    } catch (err) {
+      AZP.imp[m] = null;
+      $('#azp-i-prev').innerHTML = '';
+      $('#azp-i-go').disabled = true;
+      $('#azp-i-err').textContent = err.message;
+    }
+  };
+
+  $('#azp-i-go').onclick = async () => {
+    const p = AZP.imp[m];
+    if (!p || !p.rows.length || p.errs.length) { $('#azp-i-err').textContent = 'İdxal bloklanıb.'; return; }
+    $('#azp-i-go').disabled = true;
+    try {
+      /* 1) çatışmayan kartlar yaradılır (modul daxilində) */
+      const known = new Map(AZP.data[m].cards.map(c => [String(c.card_no).trim().toLowerCase(), c.card_id]));
+      for (const c of p.cards) {
+        const k = String(c.card_no).trim().toLowerCase();
+        if (known.has(k)) continue;
+        const { data, error } = await SB.rpc('azp_save_card', { p_module: m, p_card: { card_no: c.card_no, holder: c.holder } });
+        if (error) throw error;
+        known.set(k, data);
+      }
+      /* 2) hərəkətlər bir atomar paketlə yazılır */
+      const rows = p.rows.map(r => ({
+        card_id: known.get(String(r.card_no).trim().toLowerCase()),
+        kind: r.kind, amount: r.amount, op_date: r.op_date, vat_included: r.vat_included
+      }));
+      if (rows.some(r => !r.card_id)) throw new Error('Bəzi kartlar yaradılmadı — idxal dayandırıldı.');
+      const { error } = await SB.rpc('azp_post_movements', { p_module: m, p_rows: rows, p_source: 'import' });
+      if (error) throw error;
+      closeModal();
+      toast(nf(rows.length) + ' sətir ' + L.title + ' modulunda idxal edildi');
+      await azpLoad(m, true); azpRenderBoard(m);
+    } catch (err) {
+      $('#azp-i-go').disabled = false;
+      $('#azp-i-err').textContent = err.message || String(err);
+    }
+  };
+}
+
+/* ---------- Excel ixracı — yalnız cari modulun məlumatı ---------- */
+function azpExport(m) {
+  azpMod(m);
+  const st = AZP.data[m], L = AZP_LABEL[m];
+  if (!st.ready) { toast('Məlumat yüklənməyib', true); return; }
+  if (typeof XLSX === 'undefined') { toast('Excel kitabxanası yüklənmədi', true); return; }
+  const byCard = new Map(st.cards.map(c => [c.card_id, c]));
+  const cardRows = [['Kart №', L.cardHead, 'Layihə', 'Mədaxil', L.out, 'Kart balansı', 'Əməliyyat sayı', 'Status']]
+    .concat(st.cards.map(c => [c.card_no, c.holder, c.project || '', azpN(c.medaxil_total), azpN(c.mexaric_total),
+      azpN(c.balance), azpN(c.mov_count), c.active ? 'aktiv' : 'deaktiv']));
+  const movRows = [['Tarix', 'Kart №', L.cardHead, 'Növ', 'Məbləğ', 'Qaimə №', 'Qeyd', 'ƏDV daxil', 'Status']]
+    .concat(azpMovRows(m).map(r => {
+      const c = byCard.get(r.card_id);
+      return [r.op_date || '', c ? c.card_no : '', c ? c.holder : '', azpKindLabel(m, r.kind),
+        azpN(r.amount), r.doc_num || '', r.note || '', r.vat_included ? 'bəli' : 'xeyr',
+        r.cancelled ? 'ləğv edilib' : 'qüvvədə'];
+    }));
+  const wb = XLSX.utils.book_new();
+  [[L.title + ' kartlar', cardRows], [L.title + ' əməliyyatlar', movRows]].forEach(p => {
+    const ws = XLSX.utils.aoa_to_sheet(p[1]);
+    ws['!cols'] = p[1][0].map((h, i) => ({
+      wch: Math.min(Math.max(String(h).length + 2,
+        ...p[1].slice(1, 300).map(r => String(r[i] == null ? '' : r[i]).length + 2)), 45)
+    }));
+    ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+    XLSX.utils.book_append_sheet(wb, ws, p[0].slice(0, 28));
+  });
+  XLSX.writeFile(wb, L.title + '_kart_hesabati_' + today() + '.xlsx');
+  toast(L.title + ' hesabatı yükləndi');
+}
+
+/* ---------- hadisələr ---------- */
+(function azpWire() {
+  const sw = document.getElementById('azp-switch');
+  if (!sw) return;
+  sw.addEventListener('click', e => {
+    const b = e.target.closest('button[data-board]');
+    if (!b) return;
+    AZP.board = b.dataset.board;
+    rAzp();
+  });
+  AZP_MODULES.forEach(m => {
+    const on = (id, ev, fn) => { const el = document.getElementById(id); if (el) el.addEventListener(ev, fn); };
+    on('azp-newcard-' + m, 'click', () => azpCardModal(m, null));
+    on('azp-newmov-' + m, 'click', () => azpMovModal(m));
+    on('azp-imp-' + m, 'click', () => azpImportModal(m));
+    on('azp-exp-' + m, 'click', () => azpExport(m));
+    const f = AZP.filter[m];
+    on('azp-f-card-' + m, 'change', e => { f.card = e.target.value; azpRenderMovs(m); });
+    on('azp-f-kind-' + m, 'change', e => { f.kind = e.target.value; azpRenderMovs(m); });
+    on('azp-f-d1-' + m, 'change', e => { f.d1 = e.target.value; azpRenderMovs(m); });
+    on('azp-f-d2-' + m, 'change', e => { f.d2 = e.target.value; azpRenderMovs(m); });
+    on('azp-f-q-' + m, 'input', debounce(e => { f.q = e.target.value; azpRenderMovs(m); }, 220));
+    on('azp-f-clr-' + m, 'click', () => {
+      AZP.filter[m] = { card: '', kind: '', d1: '', d2: '', q: '' };
+      ['card', 'kind', 'd1', 'd2', 'q'].forEach(k => {
+        const el = document.getElementById('azp-f-' + k + '-' + m); if (el) el.value = '';
+      });
+      azpRenderMovs(m);
+    });
+  });
+})();
 </script>
 </body>
 </html>
