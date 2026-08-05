@@ -4737,7 +4737,7 @@ const AZP_MODULES = ['azpetrol', 'araz'];
 
 /* Modul etiketləri — Azpetrol "Y/D" (yanacaq doldurma), Araz "Məxaric" işlədir */
 const AZP_LABEL = {
-  azpetrol: { title: 'Azpetrol', out: 'Y/D', total: 'Tədbiqin cari balansı', vat: false,
+  azpetrol: { title: 'Azpetrol', out: 'Y/D', total: 'Kartların balansı', vat: false,
               cardHead: 'Sahib / Layihə', unit: '₼' },
   araz:     { title: 'Araz',     out: 'Məxaric', total: 'Kartların cari balansı', vat: true,
               cardHead: 'Obyekt / Kart seriyası', unit: '₼' }
@@ -4746,8 +4746,8 @@ const AZP_LABEL = {
 const AZP = {
   board: 'azpetrol',
   data: {
-    azpetrol: { cards: [], movs: [], log: [], ready: false, err: null, loading: false },
-    araz:     { cards: [], movs: [], log: [], ready: false, err: null, loading: false }
+    azpetrol: { cards: [], movs: [], log: [], appBalance: 0, ready: false, err: null, loading: false },
+    araz:     { cards: [], movs: [], log: [], appBalance: 0, ready: false, err: null, loading: false }
   },
   filter: {
     azpetrol: { card: '', kind: '', d1: '', d2: '', q: '' },
@@ -4807,16 +4807,18 @@ async function azpLoad(m, force) {
   st.loading = true; st.err = null;
   try {
     if (!SB) throw new Error('Baza bağlantısı yoxdur');
-    const [cards, movs, log] = await Promise.all([
+    const [cards, movs, log, app] = await Promise.all([
       SB.from('azp_card_balances').select('*').eq('module', m).order('sort_order').order('card_no'),
       SB.from('azp_movements').select('*').eq('module', m).order('id', { ascending: false }).limit(5000),
-      SB.from('azp_audit_log').select('*').eq('module', m).order('at', { ascending: false }).limit(300)
+      SB.from('azp_audit_log').select('*').eq('module', m).order('at', { ascending: false }).limit(300),
+      SB.from('azp_application_balances').select('current_balance').eq('module', m).maybeSingle()
     ]);
-    const bad = cards.error || movs.error || log.error;
+    const bad = cards.error || movs.error || log.error || app.error;
     if (bad) throw bad;
     st.cards = cards.data || [];
     st.movs = movs.data || [];
     st.log = log.data || [];
+    st.appBalance = app.data ? azpR2(app.data.current_balance) : 0;
     st.ready = true;
   } catch (e) {
     st.err = (e && e.message) ? e.message : String(e);
@@ -4887,8 +4889,10 @@ function azpRenderKpis(m) {
     ['Aktiv kart', nf(act.length), st.cards.length + ' kartdan', ''],
     ['Ümumi mədaxil', azpMoney(inn), L.title + ' üzrə', 'gd'],
     ['Ümumi ' + L.out, azpMoney(out), L.title + ' üzrə', 'wn'],
-    [L.total, azpMoney(bal), L.vat ? 'ƏDV daxil' : 'cari vəziyyət', neg ? 'al' : '']
-  ].map(k => '<div class="kpi ' + k[3] + '"><div class="eyebrow">' + esc(k[0]) + '</div>' +
+    [L.total, azpMoney(bal), L.vat ? 'ƏDV daxil' : 'kartlar üzrə cari vəziyyət', neg ? 'al' : ''],
+    ['Tətbiqin cari balansı', azpMoney(st.appBalance), 'əl ilə idarə olunur', 'app',
+      azpIsAdmin() ? '<button class="btn sm" style="margin-left:8px" onclick="azpAppBalanceModal(\'' + m + '\')">✎ Düzəliş</button>' : '']
+  ].map(k => '<div class="kpi ' + k[3] + '"><div class="eyebrow">' + esc(k[0]) + (k[4] || '') + '</div>' +
     '<div class="v">' + esc(k[1]) + '</div><div class="s">' + esc(k[2]) + '</div></div>').join('') +
     (neg ? '<div class="kpi al"><div class="eyebrow">Mənfi balans</div><div class="v">' + nf(neg) +
       '</div><div class="s">kart yoxlanmalıdır</div></div>' : '');
@@ -5017,6 +5021,26 @@ function azpRenderLog(m) {
 }
 
 /* ---------- kart yaratma / redaktə ---------- */
+function azpAppBalanceModal(m) {
+  azpMod(m);
+  if (!azpNeedAdmin()) return;
+  const st = AZP.data[m], L = AZP_LABEL[m];
+  modal('Tətbiqin cari balansı — ' + L.title,
+    '<p class="hint">Bu məbləğ kartların balansı deyil. Mədaxil əməliyyatı bu fonddan çıxılır; Y/D məbləği yalnız kartdan çıxır.</p>' +
+    '<label class="f"><span>Yeni cari balans (₼)</span><input type="number" min="0" step="0.01" id="azp-app-bal" value="' + esc(st.appBalance) + '"></label>' +
+    '<span class="err" id="azp-app-bal-err"></span>',
+    '<button class="btn" data-close>İmtina</button><button class="btn pri" id="azp-app-bal-save">Yadda saxla</button>');
+  $('#azp-app-bal-save').onclick = async () => {
+    const val = Number($('#azp-app-bal').value);
+    if (!isFinite(val) || val < 0) { $('#azp-app-bal-err').textContent = 'Məbləğ sıfırdan kiçik ola bilməz'; return; }
+    $('#azp-app-bal-save').disabled = true;
+    const { data, error } = await SB.rpc('azp_set_application_balance', { p_module: m, p_balance: azpR2(val) });
+    if (error) { $('#azp-app-bal-save').disabled = false; $('#azp-app-bal-err').textContent = error.message; return; }
+    closeModal(); toast('Tətbiqin cari balansı yeniləndi');
+    await azpLoad(m, true); azpRenderBoard(m);
+  };
+}
+
 function azpCardModal(m, id) {
   azpMod(m);
   if (!azpNeedAdmin()) return;
