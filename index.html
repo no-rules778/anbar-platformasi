@@ -2158,7 +2158,8 @@ function captureOpHeader() {
     p: $('#o-p') ? $('#o-p').value : '',
     ch: $('#o-ch') ? $('#o-ch').value : '',
     ct: $('#o-ct') ? $('#o-ct').value : '',
-    iv: $('#o-iv') ? $('#o-iv').value : ''
+    iv: $('#o-iv') ? $('#o-iv').value : '',
+    note: $('#o-note') ? $('#o-note').value : ''
   };
 }
 function rOp() {
@@ -2192,7 +2193,9 @@ function rOp() {
       <label class="f"><span>Alınma kanalı</span><select id="o-ch"><option value="">—</option>${channelOptions().map(c => `<option ${c === H.ch ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>
       <label class="f"><span>Müqavilə №</span><input type="text" id="o-ct" value="${esc(H.ct || '')}" placeholder="məs. №06/2026"></label>
       <label class="f"><span>Qaimə №</span><input type="text" id="o-iv" value="${esc(H.iv || '')}" placeholder="məs. 83951"></label></div>` : ''}
-    <label class="f"><span>Qeyd</span><input type="text" id="o-note" placeholder="istəyə bağlı — əsaslandırma, sifariş nömrəsi, məsul şəxs"></label>
+    ${k === 'mv' ? `<div class="row" style="grid-template-columns:1fr">
+      <label class="f"><span>Qaimə nömrəsi</span><input type="text" id="o-iv" value="${esc(H.iv || '')}" placeholder="məs. YD-2026/041"><span class="hint">Anbarlararası təhvil-təslim sənədinin nömrəsi — əl ilə yazılır, kontragentə bağlı deyil.</span></label></div>` : ''}
+    <label class="f"><span>Qeyd</span><input type="text" id="o-note" value="${esc(H.note || '')}" placeholder="istəyə bağlı — əsaslandırma, sifariş nömrəsi, məsul şəxs"></label>
     <div style="display:flex;gap:8px"><button class="btn pri" id="o-add">Sətri əlavə et</button><span class="hint" id="o-err"></span></div>`;
 
   // item combobox
