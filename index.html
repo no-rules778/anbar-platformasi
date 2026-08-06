@@ -2084,11 +2084,11 @@ function refStaffCount(n) {
 function refUsage(kind, x) {
   const n = x.name || '';
   if (!n) return 0;
-  if (kind === 'channel') return DB.movs.filter(m => REF_EQ(m.ch, n)).length;
+  if (kind === 'channel') return normalMovements().filter(m => REF_EQ(m.ch, n)).length;
   if (kind === 'unit') return DB.items.filter(i => REF_EQ(i.unit, n)).length;
   if (kind === 'category') return DB.items.filter(i => REF_EQ(i.category, n)).length;
-  if (kind === 'partner') return DB.movs.filter(m => REF_EQ(m.p, n)).length;
-  const inMovs = DB.movs.filter(m => REF_EQ(m.w, n) || REF_EQ(m.p, n)).length;
+  if (kind === 'partner') return normalMovements().filter(m => REF_EQ(m.p, n)).length;
+  const inMovs = normalMovements().filter(m => REF_EQ(m.w, n) || REF_EQ(m.p, n)).length;
   return inMovs + refStaffCount(n);
 }
 /* Bütün növlərin sətirlərini tək cədvələ yığır */
@@ -2792,7 +2792,7 @@ function documentCancelView(m) {
 /* Yerdəyişmə sənədinə baxış + ləğv (orijinal sətirlər redaktə OLUNMUR) */
 function transferDocView(m) {
   const doc = m.doc || '';
-  const rows = doc ? DB.movs.filter(x => x.doc === doc && x.t === 'Yerdəyişmə') : [m];
+  const rows = doc ? stripRowLevelCancelled(DB.movs.filter(x => x.doc === doc && x.t === 'Yerdəyişmə')) : [m];
   const it = DB.itemBy.get(m.c) || {};
   const revDoc = docReversalDoc(doc);
   const isRev = isReversalDoc(doc);
