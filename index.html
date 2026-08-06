@@ -5636,16 +5636,331 @@ function azpBuildSheet(m) {
   return ws;
 }
 
-function azpExport(m) {
+/* ============================================================================
+   ŞABLON ƏSASLI İXRAC — platform/azpetrol-template.xlsx
+   ----------------------------------------------------------------------------
+   Şablon `AZPETROL_SON_auto.xlsx` faylının klonudur: bütün dizayn (rənglər,
+   çərçivələr, şriftlər, sütun enləri, sətir hündürlükləri, birləşdirmələr,
+   nömrə formatları) olduğu kimi saxlanılıb, yalnız MƏLUMAT xanaları
+   boşaldılıb (ad, kart nömrəsi, məbləğ — hamısı ixrac anında yazılır).
+
+   NİYƏ ZIP/XML SƏVİYYƏSİNDƏ? SheetJS-in açıq (CE) buraxılışı üslubları OXUYUR,
+   amma YAZMIR: `XLSX.write()` ilə yenidən yazılsa, bütün doldurmalar,
+   çərçivələr və şriftlər İTİR. Ona görə fayl JSZip ilə açılır, yalnız
+   `xl/worksheets/sheetN.xml` içindəki `<cols>`, `<sheetData>`, `<mergeCells>`
+   və `<dimension>` yenidən qurulur; `styles.xml`, `theme1.xml` və qalan hər şey
+   TOXUNULMUR. Nəticədə dizayn 100% eyni qalır.
+   ANBAR-ın `SON formatı` ixracı da məhz bu üsulla işləyir (fetch → JSZip →
+   XML patch), yəni bu, layihədə artıq sınanmış memarlıqdır.
+
+   DİNAMİKLİK. Kart sayı, adlar, nömrələr, tarixlər və məbləğlər sərbəst
+   dəyişir. Şablondan yalnız ÜSLUB LÜĞƏTİ götürülür (aşağıdakı `s:` indeksləri
+   şablonun öz `styles.xml`-inə işarə edir), ona görə 2 kart da, 20 kart da eyni
+   dizaynla yazılır: hər yeni blok şablonun blok üslubunu təkrar istifadə edir.
+
+   MODUL AYRILIĞI. Şablonda hər iki vərəq var, lakin ixracda YALNIZ cari
+   modulun vərəqi qalır — digəri workbook.xml, rels və [Content_Types].xml ilə
+   birlikdə arxivdən silinir. Beləliklə Azpetrol faylında Araz məlumatı (və
+   əksinə) heç vaxt olmur.
+   ========================================================================== */
+
+const AZP_TPL_URL = './azpetrol-template.xlsx';
+
+/* Şablondan çıxarılmış üslub və en lüğəti. Rəqəmlər şablonun `styles.xml`
+   faylındakı `cellXfs` indeksləridir — onları dəyişmək dizaynı dəyişir. */
+const AZP_TPL = {
+  azpetrol: {
+    part: 'xl/worksheets/sheet1.xml', other: 'xl/worksheets/sheet2.xml', otherName: 'ARAZ',
+    lead: 1, minLastRow: 14,
+    w: { lead: [3.88671875], in: 11.44140625, out: 8.44140625, bal: 8.5546875,
+         gap: 0.77734375, tot: 29, colSty: 2, gapSty: 3 },
+    s: { r1First: 38, r1Rest: 47, r2First: 45, r2Rest: 46,
+         hLead: [8], hIn: 9, hOut: 10, hBal: 10,
+         dLead: [8], dIn: 14, dOut0: 15, dOut: 16, dBal: 41,
+         tIn: 22, tOut: 23, tBal: 41, gap: 2,
+         totLbl: 48, totApp: 39, totAggLbl: 43, totAgg: 44 },
+    ht: { r1: '53.25', r2: '30', r3: '63', d: '20.25', t: '17.25' }
+  },
+  araz: {
+    part: 'xl/worksheets/sheet2.xml', other: 'xl/worksheets/sheet1.xml',
+    otherName: 'AZP kartların hesabatı ',
+    lead: 2, minLastRow: 4,
+    w: { lead: [12.44140625, 3.88671875], in: 9.6640625, out: 10.77734375, bal: 9,
+         gap: 0.77734375, tot: 31.77734375, colSty: 25, gapSty: 26 },
+    s: { r1First: 38, r1Rest: 47, r2First: 54, r2Rest: 55,
+         hLead: [29, 29], hIn: 30, hOut: 31, hBal: 31,
+         dLead: [37, 29], dIn: 32, dOut0: 33, dOut: 34, dBal: 51,
+         tIn: 35, tOut: 35, tBal: 51, gap: 25,
+         a1: 56, a2: 57, totLbl: 53, totAgg: 52 },
+    ht: { r1: '53.25', r2: '30', r3: '63', d: '20.25', t: '17.25' }
+  }
+};
+
+function azpXesc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+function azpColName(c) { let s = ''; c++; while (c > 0) { const r = (c - 1) % 26; s = String.fromCharCode(65 + r) + s; c = (c - r - 1) / 26; } return s; }
+function azpAddr(r, c) { return azpColName(c) + r; }
+/* ISO tarix → Excel seriya nömrəsi (şablonun tarix üslubu seriya gözləyir) */
+function azpSerial(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso == null ? '' : iso));
+  return m ? Math.round((Date.UTC(+m[1], +m[2] - 1, +m[3]) - Date.UTC(1899, 11, 30)) / 86400000) : null;
+}
+/* Bir <c> xanası. Mətnlər inline yazılır — sharedStrings.xml toxunulmur. */
+function azpXc(r, c, s, o) {
+  const a = ' r="' + azpAddr(r, c) + '"' + (s == null ? '' : ' s="' + s + '"');
+  if (!o) return '<c' + a + '/>';
+  if (o.t != null && o.t !== '') {
+    return '<c' + a + ' t="inlineStr"><is><t xml:space="preserve">' + azpXesc(o.t) + '</t></is></c>';
+  }
+  let body = '';
+  if (o.f) body += '<f>' + azpXesc(o.f) + '</f>';
+  if (o.v != null && isFinite(o.v)) body += '<v>' + o.v + '</v>';
+  return body ? '<c' + a + '>' + body + '</c>' : '<c' + a + '/>';
+}
+
+/* Cari modulun məlumatından şablonun vərəq XML-ini yenidən qurur. */
+function azpSheetXml(m, tplXml) {
+  azpMod(m);
+  const T = AZP_TPL[m], S = T.s, W = T.w, L = AZP_LABEL[m];
+  const st = AZP.data[m], cards = st.cards.slice();
+  const lists = azpCardLists(m);
+  const plan = azpRowPlan(m, lists);
+  const dated = (m === 'araz');
+  const lead = T.lead;
+  const nRows = plan.reduce((s, g) => s + g.n, 0);
+  const R0 = 4, R1 = R0 + nRows - 1, RT = R1 + 1;             // 1-əsaslı sətirlər
+  const totalsCol = lead + cards.length * 4;
+  const lastRow = Math.max(RT, T.minLastRow);
+  const lastColName = azpColName(totalsCol);
+  const merges = [];
+  const mc = b => lead + b * 4, oc = b => lead + b * 4 + 1, bc = b => lead + b * 4 + 2, gc = b => lead + b * 4 + 3;
+  const RNG = (c, r0, r1) => azpAddr(r0, c) + ':' + azpAddr(r1, c);
+  const grand = azpR2(cards.reduce((s, c) => s + azpN(c.balance), 0));
+  const grandF = cards.length ? cards.map((c, b) => azpAddr(R0, bc(b))).join('+') : null;
+
+  /* --- sütun enləri: şablonun blok naxışı kart sayına görə təkrarlanır --- */
+  let cols = '<cols>';
+  W.lead.forEach((w, i) => { cols += '<col min="' + (i + 1) + '" max="' + (i + 1) + '" width="' + w + '" style="' + W.colSty + '" customWidth="1"/>'; });
+  cards.forEach((c, b) => {
+    [[mc(b), W.in, W.colSty], [oc(b), W.out, W.colSty], [bc(b), W.bal, W.colSty], [gc(b), W.gap, W.gapSty]]
+      .forEach(p => { cols += '<col min="' + (p[0] + 1) + '" max="' + (p[0] + 1) + '" width="' + p[1] + '" style="' + p[2] + '" customWidth="1"/>'; });
+  });
+  cols += '<col min="' + (totalsCol + 1) + '" max="' + (totalsCol + 1) + '" width="' + W.tot + '" style="' + W.colSty + '" customWidth="1"/>';
+  cols += '<col min="' + (totalsCol + 2) + '" max="16384" width="8.88671875" style="' + W.colSty + '"/></cols>';
+
+  /* --- ən sağdakı sütunun üslubu hər sətir üçün --- */
+  const totSty = r => {
+    if (dated) return r <= 3 ? S.totLbl : S.totAgg;
+    if (r <= 2) return S.totLbl;
+    if (r <= 9) return S.totApp;
+    if (r <= 13) return S.totAggLbl;
+    return S.totAgg;
+  };
+  const totCell = r => {
+    const s = totSty(r);
+    if (dated) {
+      if (r === 1) return azpXc(r, totalsCol, s, { t: 'Kartların cari balansı' });
+      if (r === R0) return azpXc(r, totalsCol, s, { v: grand, f: grandF });
+      return azpXc(r, totalsCol, s);
+    }
+    if (r === 1) return azpXc(r, totalsCol, s, { t: 'Tədbiqin cari balansı' });
+    if (r === 3) return azpXc(r, totalsCol, s, st.appBalance == null ? null : { v: azpR2(azpN(st.appBalance)) });
+    if (r === 10) return azpXc(r, totalsCol, s, { t: 'Kartların cari balansı' });
+    if (r === 14) return azpXc(r, totalsCol, s, { v: grand, f: grandF });
+    return azpXc(r, totalsCol, s);
+  };
+
+  const row = (r, ht, cells) =>
+    '<row r="' + r + '" spans="1:' + (totalsCol + 1) + '" ht="' + ht + '" customHeight="1" x14ac:dyDescent="0.3">' + cells + '</row>';
+
+  let sd = '<sheetData>';
+
+  /* --- 1-ci sətir: sahib / obyekt adı --- */
+  let c1 = '';
+  if (dated) { c1 += azpXc(1, 0, S.a1, { t: 'ƏDV DAXİL' }); merges.push('A1:A2'); }
+  cards.forEach((c, b) => {
+    const first = (b === 0), sty = first ? S.r1First : S.r1Rest;
+    const from = first ? (dated ? 1 : 0) : mc(b);
+    const nm = c.holder + (c.project ? ' ' + c.project : '');
+    for (let cc = from; cc <= bc(b); cc++) c1 += azpXc(1, cc, sty, cc === from ? { t: nm } : null);
+    if (b < cards.length) c1 += azpXc(1, gc(b), S.gap);
+    merges.push(azpAddr(1, from) + ':' + azpAddr(1, bc(b)));
+  });
+  c1 += totCell(1);
+  sd += row(1, T.ht.r1, c1);
+
+  /* --- 2-ci sətir: kart nömrəsi (mətn kimi — nömrəyə çevrilmir) --- */
+  let c2 = '';
+  if (dated) c2 += azpXc(2, 0, S.a2);
+  cards.forEach((c, b) => {
+    const first = (b === 0), sty = first ? S.r2First : S.r2Rest;
+    const from = first ? (dated ? 1 : 0) : mc(b);
+    for (let cc = from; cc <= bc(b); cc++) c2 += azpXc(2, cc, sty, cc === from ? { t: String(c.card_no) } : null);
+    c2 += azpXc(2, gc(b), S.gap);
+    merges.push(azpAddr(2, from) + ':' + azpAddr(2, bc(b)));
+  });
+  c2 += totCell(2);
+  sd += row(2, T.ht.r2, c2);
+
+  /* --- 3-cü sətir: sütun başlıqları --- */
+  let c3 = '';
+  (dated ? ['Tarix', 's/s'] : ['s/s']).forEach((t, i) => { c3 += azpXc(3, i, S.hLead[i], { t: t }); });
+  cards.forEach((c, b) => {
+    c3 += azpXc(3, mc(b), S.hIn, { t: 'Mədaxil' });
+    c3 += azpXc(3, oc(b), S.hOut, { t: L.out });
+    c3 += azpXc(3, bc(b), S.hBal, { t: 'Kart balansı' });
+    c3 += azpXc(3, gc(b), S.gap);
+  });
+  c3 += totCell(3);
+  sd += row(3, T.ht.r3, c3);
+
+  /* --- məlumat sətirləri --- */
+  let r = R0, ss = 1;
+  plan.forEach(g => {
+    const slice = new Map();
+    cards.forEach(c => {
+      const b = lists.get(c.card_id) || { medaxil: [], mexaric: [] };
+      slice.set(c.card_id, dated ? {
+        medaxil: b.medaxil.filter(x => (x.op_date || '') === g.date),
+        mexaric: b.mexaric.filter(x => (x.op_date || '') === g.date)
+      } : b);
+    });
+    for (let k = 0; k < g.n; k++) {
+      let cc = '';
+      if (dated) {
+        const sr = azpSerial(g.date);
+        cc += azpXc(r, 0, S.dLead[0], sr == null ? null : { v: sr });
+        cc += azpXc(r, 1, S.dLead[1], { v: ss });
+      } else {
+        cc += azpXc(r, 0, S.dLead[0], { v: ss });
+      }
+      cards.forEach((c, b) => {
+        const s = slice.get(c.card_id) || { medaxil: [], mexaric: [] };
+        const mi = s.medaxil[k], mo = s.mexaric[k];
+        cc += azpXc(r, mc(b), S.dIn, mi ? { v: azpR2(azpN(mi.amount)) } : null);
+        cc += azpXc(r, oc(b), b === 0 ? S.dOut0 : S.dOut, mo ? { v: azpR2(azpN(mo.amount)) } : null);
+        /* Kart balansı yalnız birinci məlumat sətrində — qalanı birləşdirmə */
+        cc += (r === R0)
+          ? azpXc(r, bc(b), S.dBal, { v: azpR2(azpN(c.balance)),
+              f: 'ROUND(SUM(' + RNG(mc(b), R0, R1) + ')-SUM(' + RNG(oc(b), R0, R1) + '),2)' })
+          : azpXc(r, bc(b), S.dBal);
+        cc += azpXc(r, gc(b), S.gap);
+      });
+      cc += totCell(r);
+      sd += row(r, T.ht.d, cc);
+      r++; ss++;
+    }
+  });
+
+  /* --- CƏMİ sətri --- */
+  let ct = '';
+  ct += azpXc(RT, 0, S.dLead[0], { t: 'CƏMİ' });
+  if (dated) ct += azpXc(RT, 1, S.dLead[1]);
+  cards.forEach((c, b) => {
+    ct += azpXc(RT, mc(b), S.tIn, { v: azpR2(azpN(c.medaxil_total)), f: 'ROUND(SUM(' + RNG(mc(b), R0, R1) + '),2)' });
+    ct += azpXc(RT, oc(b), S.tOut, { v: azpR2(azpN(c.mexaric_total)), f: 'ROUND(SUM(' + RNG(oc(b), R0, R1) + '),2)' });
+    ct += azpXc(RT, bc(b), S.tBal);
+    ct += azpXc(RT, gc(b), S.gap);
+  });
+  ct += totCell(RT);
+  sd += row(RT, T.ht.t, ct);
+
+  /* --- şablonun sətir hündürlüyü ilə boş quyruq (cəm sütunu birləşməsi üçün) --- */
+  for (let rr = RT + 1; rr <= lastRow; rr++) {
+    let e = '';
+    for (let cc = 0; cc < totalsCol; cc++) e += azpXc(rr, cc, null);
+    e += totCell(rr);
+    sd += row(rr, T.ht.d, e);
+  }
+  sd += '</sheetData>';
+
+  /* --- birləşdirmələr --- */
+  cards.forEach((c, b) => merges.push(RNG(bc(b), R0, Math.max(R0, RT))));
+  if (dated) {
+    merges.push(RNG(totalsCol, 1, 3));
+    if (lastRow > R0) merges.push(RNG(totalsCol, R0, lastRow));
+  } else {
+    merges.push(RNG(totalsCol, 1, 2));
+    merges.push(RNG(totalsCol, 3, 9));
+    merges.push(RNG(totalsCol, 10, 13));
+    if (lastRow > 14) merges.push(RNG(totalsCol, 14, lastRow));
+  }
+  const mx = '<mergeCells count="' + merges.length + '">' +
+    merges.map(x => '<mergeCell ref="' + x + '"/>').join('') + '</mergeCells>';
+
+  /* --- şablon XML-inə yamaq: yalnız bu dörd hissə dəyişir --- */
+  let x = tplXml;
+  x = x.replace(/<dimension ref="[^"]*"\/>/, '<dimension ref="A1:' + lastColName + lastRow + '"/>');
+  x = x.replace(/<cols>[\s\S]*?<\/cols>/, cols);
+  x = x.replace(/<sheetData>[\s\S]*?<\/sheetData>/, sd);
+  x = /<mergeCells[\s\S]*?<\/mergeCells>/.test(x)
+    ? x.replace(/<mergeCells[\s\S]*?<\/mergeCells>/, mx)
+    : x.replace('</sheetData>', '</sheetData>' + mx);
+  return x;
+}
+
+/* Digər modulun vərəqini arxivdən tamamilə çıxarır (modul ayrılığı). */
+async function azpDropSheet(zip, part, sheetName) {
+  const wbPath = 'xl/workbook.xml', relPath = 'xl/_rels/workbook.xml.rels', ctPath = '[Content_Types].xml';
+  const base = part.split('/').pop();
+  let rels = await zip.file(relPath).async('text');
+  const rid = (new RegExp('Id="(rId\\d+)"[^>]*Target="worksheets/' + base + '"').exec(rels) ||
+               new RegExp('Target="worksheets/' + base + '"[^>]*Id="(rId\\d+)"').exec(rels) || [])[1];
+  let wb = await zip.file(wbPath).async('text');
+  wb = wb.replace(new RegExp('<sheet[^>]*name="' + sheetName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '"[^>]*/>'), '');
+  if (rid) {
+    wb = wb.replace(new RegExp('<sheet[^>]*r:id="' + rid + '"[^>]*/>'), '');
+    rels = rels.replace(new RegExp('<Relationship[^>]*Id="' + rid + '"[^>]*/>'), '');
+  }
+  let ct = await zip.file(ctPath).async('text');
+  ct = ct.replace(new RegExp('<Override[^>]*PartName="/' + part.replace(/\//g, '\\/') + '"[^>]*/>'), '');
+  zip.file(wbPath, wb); zip.file(relPath, rels); zip.file(ctPath, ct);
+  zip.remove(part);
+  zip.remove('xl/worksheets/_rels/' + base + '.rels');
+}
+
+async function azpExport(m) {
   azpMod(m);
   const st = AZP.data[m], L = AZP_LABEL[m];
   if (!st.ready) { toast('Məlumat yüklənməyib', true); return; }
-  if (typeof XLSX === 'undefined') { toast('Excel kitabxanası yüklənmədi', true); return; }
   if (!st.cards.length) { toast(L.title + ' üçün kart yoxdur', true); return; }
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, azpBuildSheet(m), AZP_SHEET_NAME[m].slice(0, 28));
-  XLSX.writeFile(wb, AZP_FILE_NAME[m] + '_' + today() + '.xlsx');
-  toast(L.title + ' hesabatı yükləndi');
+  const btn = document.getElementById('azp-exp-' + m);
+  const old = btn ? btn.textContent : null;
+  if (btn) { btn.disabled = true; btn.textContent = 'Hazırlanır…'; }
+  try {
+    if (typeof JSZip === 'undefined') throw new Error('JSZip kitabxanası yüklənmədi');
+    const resp = await fetch(AZP_TPL_URL);
+    if (!resp.ok) throw new Error('Şablon tapılmadı (azpetrol-template.xlsx)');
+    const zip = await JSZip.loadAsync(await resp.arrayBuffer());
+    const T = AZP_TPL[m];
+    const tpl = zip.file(T.part);
+    if (!tpl) throw new Error('Şablonda ' + T.part + ' vərəqi yoxdur');
+    zip.file(T.part, azpSheetXml(m, await tpl.async('text')));
+    await azpDropSheet(zip, T.other, T.otherName);
+    zip.remove('xl/calcChain.xml');   // köhnə hesablama zənciri — Excel yenidən qurur
+    const blob = await zip.generateAsync({
+      type: 'blob', compression: 'DEFLATE',
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    });
+    const url = URL.createObjectURL(blob), a = document.createElement('a');
+    a.href = url; a.download = AZP_FILE_NAME[m] + '_' + today() + '.xlsx';
+    document.body.appendChild(a); a.click();
+    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 4000);
+    toast(L.title + ' hesabatı yükləndi — ' + nf(st.cards.length) + ' kart');
+  } catch (e) {
+    /* Şablon əlçatan deyilsə, məlumat itməsin: SheetJS ilə sadə ixrac.
+       Bu halda quruluş eynidir, amma şablonun dizaynı olmur — istifadəçiyə deyilir. */
+    console.error(e);
+    if (typeof XLSX === 'undefined') { toast(e.message || 'İxrac alınmadı', true); return; }
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, azpBuildSheet(m), AZP_SHEET_NAME[m].slice(0, 28));
+    XLSX.writeFile(wb, AZP_FILE_NAME[m] + '_' + today() + '.xlsx');
+    toast('Şablonsuz ixrac (dizayn tətbiq olunmadı): ' + (e.message || ''), true);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = old; }
+  }
 }
 
 /* ---------- hadisələr ---------- */
