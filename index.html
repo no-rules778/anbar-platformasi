@@ -5149,7 +5149,12 @@ async function azpCancelMov(m, id) {
    ========================================================================== */
 function azpParseSheet(m, aoa) {
   const L = AZP_LABEL[m];
-  const norm = v => String(v == null ? '' : v).replace(/\s+/g, ' ').trim().toLowerCase();
+  /* Azərbaycan əlifbası üçün düzgün kiçiltmə. JS-in toLowerCase() funksiyası
+     nöqtəli böyük `İ` (U+0130) hərfini `i` + birləşən nöqtə (U+0069 U+0307)
+     kimi iki simvola çevirir, ona görə `CƏMİ` sadə /cəmi/i şablonuna UYĞUN
+     GƏLMİR. Eyni şəkildə nöqtəsiz `I` → `ı` olmalıdır, `i` yox. */
+  const azLower = v => String(v == null ? '' : v).replace(/İ/g, 'i').replace(/I/g, 'ı').toLowerCase();
+  const norm = v => azLower(v).replace(/\s+/g, ' ').trim();
   let hr = -1;
   for (let r = 0; r < Math.min(aoa.length, 30); r++) {
     if ((aoa[r] || []).some(v => norm(v) === 'mədaxil')) { hr = r; break; }
@@ -5195,11 +5200,27 @@ function azpParseSheet(m, aoa) {
   const cards = [], rows = [], errs = [], warns = [];
   let skippedTotals = 0;
 
+  /* Açıq etiketli cəm sətri. Bizim ixracımız `CƏMİ` sətrini sol (s/s / Tarix)
+     sütununda etiketlə yazır, ona görə onu running-sum evristikasını
+     gözləmədən dərhat atırıq. Bu, ixrac → idxal dövrəsini dəqiq edir: yalnız
+     BİR əməliyyatı olan kartda cəm sətri evristikaya düşmür (cnt < 2) və əks
+     halda ikiqat sayılardı. */
+  const TOTAL_RE = /^(cəmi|cemi|yekun|total|toplam)$/;
+  const leadEnd = blocks[0].inCol;
+  const isTotalRow = line => {
+    for (let i = 0; i < leadEnd; i++) {
+      const v = line[i];
+      if (v != null && TOTAL_RE.test(norm(v))) return true;
+    }
+    return false;
+  };
+
   blocks.forEach(b => {
     /* Blokda ümumiyyətlə rəqəm varmı? */
     let hasData = false;
     for (let r = hr + 1; r < aoa.length && !hasData; r++) {
       const line = aoa[r] || [];
+      if (isTotalRow(line)) continue;
       if (num(line[b.inCol]) || num(line[b.outCol])) hasData = true;
     }
     if (!b.cardNo) {
@@ -5230,6 +5251,15 @@ function azpParseSheet(m, aoa) {
     const cnt = { medaxil: 0, mexaric: 0 };
     for (let r = hr + 1; r < aoa.length; r++) {
       const line = aoa[r] || [];
+      if (isTotalRow(line)) {
+        /* Etiketli cəm sətri də `skippedTotals` sayğacına düşür ki, önizləmə
+           neçə sətrin məlumat sayılmadığını göstərə bilsin. */
+        [b.inCol, b.outCol].forEach(cc => {
+          const v = num(line[cc]);
+          if (v != null && !isNaN(v) && v > 0) skippedTotals++;
+        });
+        continue;
+      }
       const dt = dateCol >= 0 ? azpDate(line[dateCol]) : '';
       [['medaxil', b.inCol], ['mexaric', b.outCol]].forEach(pair => {
         const raw = line[pair[1]];
@@ -5375,34 +5405,224 @@ function azpImportModal(m) {
   };
 }
 
-/* ---------- Excel ixracı — yalnız cari modulun məlumatı ---------- */
+/* ============================================================================
+   Excel ixracı — mənbə iş kitabının (AZPETROL_SON_auto.xlsx) blok quruluşu
+   ----------------------------------------------------------------------------
+   İxrac artıq düz cədvəl deyil: hər kart ÜFÜQİ blok kimi yazılır, mənbə
+   vərəqlərdəki kimi.
+
+     "AZP kartların hesabatı"  →  s/s | [Mədaxil | Y/D | Kart balansı] × N
+     "ARAZ"                    →  Tarix | s/s | [Mədaxil | Məxaric | Kart balansı] × N
+
+   Bloklar bir boş sütunla ayrılır. 1-ci sətir — sahib/obyekt adı (blok üzərində
+   birləşdirilmiş), 2-ci sətir — kart nömrəsi, 3-cü sətir — sütun başlıqları.
+   Ən sağda cəm sütunu, ən altda `CƏMİ` sətri.
+
+   MODUL AYRILIĞI: hər ixrac YALNIZ bir modulun məlumatını daşıyır — Azpetrol və
+   Araz heç vaxt eyni iş kitabında birləşdirilmir. Ona görə mənbə faylın iki
+   vərəqi burada iki AYRI fayldır.
+
+   FİLTRLƏR TƏTBİQ EDİLMİR: bu, tam kart hesabatıdır. Filtrlənmiş ixracda blok
+   cəmləri kart balansı ilə uzlaşmazdı, ona görə modulun bütün ləğv edilməmiş
+   əməliyyatları yazılır.
+
+   DÜSTURLAR: `Kart balansı`, `CƏMİ` və ümumi balans xanaları həm düstur (`f`),
+   həm də hesablanmış dəyər (`v`) daşıyır. Diapazonlar məhz yazılan məlumatı
+   əhatə edir — mənbə faylda tapılan sabit diapazon qüsuru (SUM(B4:B57), halbuki
+   məlumat 70-ci sətrə qədər gedir) burada təkrarlana bilməz.
+   ========================================================================== */
+
+const AZP_SHEET_NAME = { azpetrol: 'AZP kartların hesabatı', araz: 'ARAZ' };
+const AZP_FILE_NAME = { azpetrol: 'Azpetrol_kart_hesabati', araz: 'Araz_kart_hesabati' };
+
+/* Kartın əməliyyatlarını Mədaxil və Y/D|Məxaric siyahılarına ayırır.
+   Mənbə vərəqdə bu iki sütun MÜSTƏQİL siyahılardır: bir sətirdə hər ikisi ola
+   bilər, amma onlar eyni əməliyyatın iki tərəfi deyil. Burada da elə saxlanılır. */
+function azpCardLists(m) {
+  azpMod(m);
+  const st = AZP.data[m];
+  const lists = new Map();
+  st.cards.forEach(c => lists.set(c.card_id, { medaxil: [], mexaric: [] }));
+  st.movs.forEach(r => {
+    if (r.cancelled) return;
+    const b = lists.get(r.card_id);
+    if (b && (r.kind === 'medaxil' || r.kind === 'mexaric')) b[r.kind].push(r);
+  });
+  const ord = (a, b) => {
+    const da = a.op_date || '', db = b.op_date || '';
+    if (da !== db) return da === '' ? 1 : db === '' ? -1 : (da < db ? -1 : 1);
+    return azpN(a.id) - azpN(b.id);
+  };
+  lists.forEach(b => { b.medaxil.sort(ord); b.mexaric.sort(ord); });
+  return lists;
+}
+
+/* Sətir oxunun planı.
+   Araz-da `Tarix` sütunu bütün bloklar üçün ORTAQdır, ona görə sətirlər tarixə
+   görə qruplaşdırılır: bir tarix üçün ayrılan sətir sayı = həmin tarixdə hər
+   hansı kartın ən uzun siyahısı. Beləliklə heç bir əməliyyat itmir və hər
+   rəqəm öz tarix sətrində qalır.
+   Azpetrol-da tarix sütunu yoxdur — bütün əməliyyatlar tək qrupda, paralel
+   siyahılar kimi düzülür (mənbə vərəqdəki kimi). */
+function azpRowPlan(m, lists) {
+  if (m !== 'araz') {
+    let n = 0;
+    lists.forEach(b => { n = Math.max(n, b.medaxil.length, b.mexaric.length); });
+    return [{ date: '', n: Math.max(n, 1) }];
+  }
+  const seen = [];
+  lists.forEach(b => b.medaxil.concat(b.mexaric).forEach(r => {
+    const d = r.op_date || '';
+    if (seen.indexOf(d) < 0) seen.push(d);
+  }));
+  seen.sort((a, b) => a === '' ? 1 : b === '' ? -1 : (a < b ? -1 : a > b ? 1 : 0));
+  const plan = seen.map(d => {
+    let n = 1;
+    lists.forEach(b => {
+      n = Math.max(n,
+        b.medaxil.filter(r => (r.op_date || '') === d).length,
+        b.mexaric.filter(r => (r.op_date || '') === d).length);
+    });
+    return { date: d, n: n };
+  });
+  return plan.length ? plan : [{ date: '', n: 1 }];
+}
+
+function azpBuildSheet(m) {
+  azpMod(m);
+  const st = AZP.data[m], L = AZP_LABEL[m];
+  const cards = st.cards.slice();
+  const lists = azpCardLists(m);
+  const plan = azpRowPlan(m, lists);
+  const dated = (m === 'araz');
+  const lead = dated ? 2 : 1;                       // Tarix+s/s  |  s/s
+  const R0 = 3;                                     // ilk məlumat sətri (0-əsaslı)
+  const nRows = plan.reduce((s, g) => s + g.n, 0);
+  const R1 = R0 + nRows - 1;
+  const SR = R1 + 1;                                // CƏMİ sətri
+  const totalsCol = lead + cards.length * 4;
+  const MONEY = '#,##0.00';
+
+  const ws = {}, merges = [];
+  const A1 = (r, c) => XLSX.utils.encode_cell({ r: r, c: c });
+  const RNG = (r0, r1, c) => A1(r0, c) + ':' + A1(r1, c);
+  const put = (r, c, v, o) => {
+    if (v == null || v === '') return;
+    const cell = (typeof v === 'number' && isFinite(v)) ? { t: 'n', v: v } : { t: 's', v: String(v) };
+    if (o && o.f) cell.f = o.f;
+    if (o && o.z) cell.z = o.z;
+    ws[A1(r, c)] = cell;
+  };
+  const mrg = (r0, c0, r1, c1) => {
+    if (r1 > r0 || c1 > c0) merges.push({ s: { r: r0, c: c0 }, e: { r: r1, c: c1 } });
+  };
+
+  /* --- sol (ortaq) sütunlar --- */
+  if (dated) {
+    put(0, 0, 'ƏDV DAXİL'); mrg(0, 0, 1, 0);
+    put(2, 0, 'Tarix');
+    put(2, 1, 's/s');
+  } else {
+    put(2, 0, 's/s');
+  }
+
+  /* --- kart blokları --- */
+  cards.forEach((c, b) => {
+    const mc = lead + b * 4, oc = mc + 1, bc = mc + 2;
+    /* 1-ci blokun başlığı s/s sütunundan başlayır (mənbədə A1:D1 / B1:E1) */
+    const hs = (b === 0) ? (dated ? 1 : 0) : mc;
+    put(0, hs, c.holder + (c.project ? ' ' + c.project : '')); mrg(0, hs, 0, bc);
+    put(1, hs, String(c.card_no), { z: '@' }); mrg(1, hs, 1, bc);
+    put(2, mc, 'Mədaxil');
+    put(2, oc, L.out);
+    put(2, bc, 'Kart balansı');
+  });
+
+  /* --- məlumat sətirləri --- */
+  let r = R0, ss = 1;
+  plan.forEach(g => {
+    const slice = new Map();
+    cards.forEach(c => {
+      const b = lists.get(c.card_id) || { medaxil: [], mexaric: [] };
+      slice.set(c.card_id, dated ? {
+        medaxil: b.medaxil.filter(x => (x.op_date || '') === g.date),
+        mexaric: b.mexaric.filter(x => (x.op_date || '') === g.date)
+      } : b);
+    });
+    for (let k = 0; k < g.n; k++) {
+      if (dated && g.date) put(r, 0, g.date);
+      put(r, lead - 1, ss);
+      cards.forEach((c, b) => {
+        const mc = lead + b * 4;
+        const s = slice.get(c.card_id) || { medaxil: [], mexaric: [] };
+        if (s.medaxil[k]) put(r, mc, azpR2(azpN(s.medaxil[k].amount)), { z: MONEY });
+        if (s.mexaric[k]) put(r, mc + 1, azpR2(azpN(s.mexaric[k].amount)), { z: MONEY });
+      });
+      r++; ss++;
+    }
+  });
+
+  /* --- kart balansı (mənbədəki kimi blok boyu birləşdirilmiş tək dəyər) --- */
+  cards.forEach((c, b) => {
+    const mc = lead + b * 4, oc = mc + 1, bc = mc + 2;
+    put(R0, bc, azpR2(azpN(c.balance)), {
+      z: MONEY,
+      f: 'ROUND(SUM(' + RNG(R0, R1, mc) + ')-SUM(' + RNG(R0, R1, oc) + '),2)'
+    });
+    mrg(R0, bc, R1, bc);
+  });
+
+  /* --- CƏMİ sətri --- */
+  put(SR, 0, 'CƏMİ');
+  cards.forEach((c, b) => {
+    const mc = lead + b * 4, oc = mc + 1;
+    put(SR, mc, azpR2(azpN(c.medaxil_total)), { z: MONEY, f: 'ROUND(SUM(' + RNG(R0, R1, mc) + '),2)' });
+    put(SR, oc, azpR2(azpN(c.mexaric_total)), { z: MONEY, f: 'ROUND(SUM(' + RNG(R0, R1, oc) + '),2)' });
+  });
+
+  /* --- ən sağdakı ümumi balans sütunu --- */
+  const grand = azpR2(cards.reduce((s, c) => s + azpN(c.balance), 0));
+  const grandF = cards.length
+    ? 'ROUND(' + cards.map((c, b) => A1(R0, lead + b * 4 + 2)).join('+') + ',2)' : null;
+  if (dated) {
+    put(0, totalsCol, 'Kartların cari balansı'); mrg(0, totalsCol, 2, totalsCol);
+    put(R0, totalsCol, grand, { z: MONEY, f: grandF }); mrg(R0, totalsCol, R1, totalsCol);
+  } else {
+    put(0, totalsCol, 'Tədbiqin cari balansı');
+    put(1, totalsCol, grand, { z: MONEY, f: grandF });
+    put(2, totalsCol, 'Kartların cari balansı');
+  }
+  put(SR, totalsCol, grand, { z: MONEY, f: grandF });
+
+  /* --- vərəq metaməlumatı --- */
+  ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: SR, c: totalsCol } });
+  ws['!merges'] = merges;
+  ws['!freeze'] = { xSplit: lead, ySplit: 3 };
+  const cols = [];
+  for (let c = 0; c <= totalsCol; c++) {
+    let w = 13;
+    if (c === totalsCol) w = 22;
+    else if (c < lead) w = (dated && c === 0) ? 12 : 6;
+    else {
+      const off = (c - lead) % 4;
+      if (off === 3) w = 2;                          // ayırıcı sütun
+      else if (off === 2) w = 15;                    // Kart balansı
+    }
+    cols.push({ wch: w });
+  }
+  ws['!cols'] = cols;
+  return ws;
+}
+
 function azpExport(m) {
   azpMod(m);
   const st = AZP.data[m], L = AZP_LABEL[m];
   if (!st.ready) { toast('Məlumat yüklənməyib', true); return; }
   if (typeof XLSX === 'undefined') { toast('Excel kitabxanası yüklənmədi', true); return; }
-  const byCard = new Map(st.cards.map(c => [c.card_id, c]));
-  const cardRows = [['Kart №', L.cardHead, 'Layihə', 'Mədaxil', L.out, 'Kart balansı', 'Əməliyyat sayı', 'Status']]
-    .concat(st.cards.map(c => [c.card_no, c.holder, c.project || '', azpN(c.medaxil_total), azpN(c.mexaric_total),
-      azpN(c.balance), azpN(c.mov_count), c.active ? 'aktiv' : 'deaktiv']));
-  const movRows = [['Tarix', 'Kart №', L.cardHead, 'Növ', 'Məbləğ', 'Qaimə №', 'Qeyd', 'ƏDV daxil', 'Status']]
-    .concat(azpMovRows(m).map(r => {
-      const c = byCard.get(r.card_id);
-      return [r.op_date || '', c ? c.card_no : '', c ? c.holder : '', azpKindLabel(m, r.kind),
-        azpN(r.amount), r.doc_num || '', r.note || '', r.vat_included ? 'bəli' : 'xeyr',
-        r.cancelled ? 'ləğv edilib' : 'qüvvədə'];
-    }));
+  if (!st.cards.length) { toast(L.title + ' üçün kart yoxdur', true); return; }
   const wb = XLSX.utils.book_new();
-  [[L.title + ' kartlar', cardRows], [L.title + ' əməliyyatlar', movRows]].forEach(p => {
-    const ws = XLSX.utils.aoa_to_sheet(p[1]);
-    ws['!cols'] = p[1][0].map((h, i) => ({
-      wch: Math.min(Math.max(String(h).length + 2,
-        ...p[1].slice(1, 300).map(r => String(r[i] == null ? '' : r[i]).length + 2)), 45)
-    }));
-    ws['!freeze'] = { xSplit: 0, ySplit: 1 };
-    XLSX.utils.book_append_sheet(wb, ws, p[0].slice(0, 28));
-  });
-  XLSX.writeFile(wb, L.title + '_kart_hesabati_' + today() + '.xlsx');
+  XLSX.utils.book_append_sheet(wb, azpBuildSheet(m), AZP_SHEET_NAME[m].slice(0, 28));
+  XLSX.writeFile(wb, AZP_FILE_NAME[m] + '_' + today() + '.xlsx');
   toast(L.title + ' hesabatı yükləndi');
 }
 
