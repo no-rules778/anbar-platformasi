@@ -1389,6 +1389,14 @@ function movFilters() {
   ['mf-w', 'mf-t', 'mf-p', 'mf-d1', 'mf-d2'].forEach(id => $('#' + id).onchange = upd);
   $('#mf-reset').onclick = () => { ['mf-q', 'mf-w', 'mf-t', 'mf-p', 'mf-d1', 'mf-d2'].forEach(id => $('#' + id).value = ''); upd(); };
 }
+/* Əvəzləmə sətrinin qeydində KÖHNƏ mal kodu saxlanılır ("Mal əvəzləndi:
+   0001170 → 0001260 · Səbəb: …"). Bu insan üçün faydalıdır, lakin axtarışda
+   qalsa, "1170" sorğusu 0001260 kodlu sətri tapır — yəni istifadəçi bir kod
+   axtarıb tamam başqa malı görür. Ona görə yalnız bu texniki hissə axtarış
+   sahəsindən çıxarılır; səbəb mətni axtarışda qalır. */
+function searchableNote(note) {
+  return String(note || '').replace(/Mal əvəzləndi:\s*\S+\s*→\s*\S+\s*·?\s*/g, '');
+}
 function movFiltered() {
   return normalMovements().filter(m => {
     if (MF.w && m.w !== MF.w) return false;
@@ -1398,7 +1406,7 @@ function movFiltered() {
     if (MF.d2 && m.d > MF.d2) return false;
     if (MF.q) {
       const it = DB.itemBy.get(m.c) || {};
-      const hay = (m.c + ' ' + (it.name || '') + ' ' + m.p + ' ' + m.t + ' ' + (m.iv || '') + ' ' + (m.ct || '') + ' ' + (m.note || '')).toLowerCase();
+      const hay = (m.c + ' ' + (it.name || '') + ' ' + m.p + ' ' + m.t + ' ' + (m.iv || '') + ' ' + (m.ct || '') + ' ' + searchableNote(m.note)).toLowerCase();
       if (hay.indexOf(MF.q) < 0) return false;
     }
     return true;
