@@ -1426,16 +1426,17 @@ function rMov() {
   const sin = all.reduce((s, m) => s + (m.i || 0), 0), sout = all.reduce((s, m) => s + (m.o || 0), 0);
   const sval = all.reduce((s, m) => s + (m.i || 0) * (m.pr || (DB.itemBy.get(m.c) || {}).price || 0), 0);
   $('#t-mov').innerHTML = tbl(
-    [{ t: 'Tarix' }, { t: 'Anbar' }, { t: 'Kod' }, { t: 'Malın adı' }, { t: 'Növü' }, { t: 'İstiqamət / Kontragent' }, { t: 'Kanal' }, { t: 'Giriş', r: 1 }, { t: 'Çıxış', r: 1 }, { t: 'Qiymət', r: 1 }, { t: 'Məbləğ', r: 1 }, { t: 'Qeyd edən' }, { t: '' }],
+    [{ t: 'Tarix' }, { t: 'Anbar' }, { t: 'Kod' }, { t: 'Malın adı' }, { t: 'Növü' }, { t: 'İstiqamət / Kontragent' }, { t: 'Kanal' }, { t: 'Qaimə №' }, { t: 'Giriş', r: 1 }, { t: 'Çıxış', r: 1 }, { t: 'Qiymət', r: 1 }, { t: 'Məbləğ', r: 1 }, { t: 'Qeyd edən' }, { t: '' }],
     rows.map(m => {
       const it = DB.itemBy.get(m.c) || {};
       const pr = m.pr || it.price || 0;
       return {
         _a: `data-mv="${esc(m.id)}"`, c: [
           esc(fmtD(m.d)), esc(m.w), `<span class="code">${esc(m.c)}</span>`,
-          `<div class="nm">${esc(it.name || '—')}</div>` + (m.iv || m.ct ? `<span class="hint">${esc([m.ct, m.iv].filter(Boolean).join(' · '))}</span>` : ''),
+          `<div class="nm">${esc(it.name || '—')}</div>` + (m.ct ? `<span class="hint">${esc(m.ct)}</span>` : ''),
           TYPE_TAG(m.t), esc(routeOrPartner(m)) + (cancelledDocFor(m) ? ' <span class="tag t-rm">ləğv edilib</span>' : ''),
           m.ch ? `<span class="hint">${esc(m.ch)}</span>` : '<span class="muted">—</span>',
+          m.iv ? `<span class="code">${esc(m.iv)}</span>` : '<span class="muted">—</span>',
           m.i ? `<span style="color:var(--in)">${nf(m.i, 2)}</span>` : '—',
           m.o ? `<span style="color:var(--out)">${nf(m.o, 2)}</span>` : '—',
           pr ? nf(pr, 2) : '—', pr ? money(((m.i || 0) + (m.o || 0)) * pr) : '—',
@@ -1487,8 +1488,8 @@ function itemCard(code) {
     bal.map(b => ({ c: [esc(b.w), nf(b.in, 2), nf(b.out, 2), `<b class="${b.q < 0 ? 'neg' : ''}">${nf(b.q, 2)}</b>`] })))}</div>
       ${obs.length > 1 ? `<h4 style="margin:16px 0 7px;font-size:12px" class="eyebrow">Qiymət tarixçəsi</h4><div class="card">${tbl([{ t: 'Tarix' }, { t: 'Kontragent' }, { t: 'Qiymət', r: 1 }], obs.slice().sort((a, b) => dsort(b.d, a.d)).map(o => ({ c: [esc(fmtD(o.d)), esc(o.k), nf(o.p, 2) + ' ₼'] })))}</div>` : ''}
       <h4 style="margin:16px 0 7px;font-size:12px" class="eyebrow">Hərəkət tarixçəsi</h4>
-      <div class="card">${tbl([{ t: 'Tarix' }, { t: 'Anbar' }, { t: 'Növ' }, { t: 'İstiqamət / Kontragent' }, { t: 'Giriş', r: 1 }, { t: 'Çıxış', r: 1 }],
-      movs.map(m => ({ c: [esc(fmtD(m.d)), esc(m.w), TYPE_TAG(m.t), esc(routeOrPartner(m)), m.i ? nf(m.i, 2) : '—', m.o ? nf(m.o, 2) : '—'] })))}</div>
+      <div class="card">${tbl([{ t: 'Tarix' }, { t: 'Anbar' }, { t: 'Növ' }, { t: 'İstiqamət / Kontragent' }, { t: 'Qaimə №' }, { t: 'Giriş', r: 1 }, { t: 'Çıxış', r: 1 }],
+      movs.map(m => ({ c: [esc(fmtD(m.d)), esc(m.w), TYPE_TAG(m.t), esc(routeOrPartner(m)), m.iv ? `<span class="code">${esc(m.iv)}</span>` : '<span class="muted">—</span>', m.i ? nf(m.i, 2) : '—', m.o ? nf(m.o, 2) : '—'] })))}</div>
       <div style="display:flex;gap:8px;margin-top:14px">
         <button class="btn pri" data-close onclick="prefillOp('${esc(code)}')">Bu mal üzrə əməliyyat</button>
         ${can('item.edit') ? `<button class="btn" onclick="editItem('${esc(code)}')">Malı redaktə et</button>` : ''}
@@ -2336,8 +2337,10 @@ function rOp() {
       <label class="f"><span>Alınma kanalı</span><select id="o-ch"><option value="">—</option>${channelOptions().map(c => `<option ${c === H.ch ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>
       <label class="f"><span>Müqavilə №</span><input type="text" id="o-ct" value="${esc(H.ct || '')}" placeholder="məs. №06/2026"></label>
       <label class="f"><span>Qaimə №</span><input type="text" id="o-iv" value="${esc(H.iv || '')}" placeholder="məs. 83951"></label></div>` : ''}
+    ${k === 'out' ? `<div class="row" style="grid-template-columns:1fr">
+      <label class="f"><span>Qaimə №</span><input type="text" id="o-iv" value="${esc(H.iv || '')}" placeholder="məs. 83951"><span class="hint">Məxaric sənədinin nömrəsi — əl ilə yazılır.</span></label></div>` : ''}
     ${k === 'mv' ? `<div class="row" style="grid-template-columns:1fr">
-      <label class="f"><span>Qaimə nömrəsi</span><input type="text" id="o-iv" value="${esc(H.iv || '')}" placeholder="məs. YD-2026/041"><span class="hint">Anbarlararası təhvil-təslim sənədinin nömrəsi — əl ilə yazılır, kontragentə bağlı deyil.</span></label></div>` : ''}
+      <label class="f"><span>Qaimə №</span><input type="text" id="o-iv" value="${esc(H.iv || '')}" placeholder="məs. YD-2026/041"><span class="hint">Anbarlararası təhvil-təslim sənədinin nömrəsi — əl ilə yazılır, kontragentə bağlı deyil. Hər iki sətirdə eyni saxlanılır.</span></label></div>` : ''}
     <label class="f"><span>Qeyd</span><input type="text" id="o-note" value="${esc(H.note || '')}" placeholder="istəyə bağlı — əsaslandırma, sifariş nömrəsi, məsul şəxs"></label>
     <div style="display:flex;gap:8px"><button class="btn pri" id="o-add">Sətri əlavə et</button><span class="hint" id="o-err"></span></div>`;
 
@@ -2614,6 +2617,18 @@ function cancelledDocFor(m) {
   return null;
 }
 /* Qeydin sənədinə baxış + universal Admin ləğvi (orijinal sətirlər redaktə OLUNMUR) */
+/* Sənəd rekvizitləri — istifadəçinin əl ilə yazdığı Qaimə № (movements.invoice_num)
+   və Müqavilə № (contract_num). Sistem sənəd nömrəsi (doc_num) ayrıca göstərilir və
+   bu sahələrlə qarışdırılmır. Köhnə qeydlərdə saxlanmış dəyərlər də burada görünür. */
+function docRefsLine(rows) {
+  const list = Array.isArray(rows) ? rows : [rows];
+  const uniq = k => Array.from(new Set(list.map(r => String((r && r[k]) || '').trim()).filter(Boolean)));
+  const iv = uniq('iv'), ct = uniq('ct');
+  const part = [];
+  part.push(`Qaimə №: ${iv.length ? iv.map(v => `<span class="code">${esc(v)}</span>`).join(', ') : '<span class="muted">—</span>'}`);
+  if (ct.length) part.push(`Müqavilə №: ${ct.map(v => `<span class="code">${esc(v)}</span>`).join(', ')}`);
+  return `<div class="hint" style="margin-bottom:10px">${part.join(' · ')}</div>`;
+}
 function documentCancelView(m) {
   const doc = m.doc || '';
   const rows = doc ? DB.movs.filter(x => x.doc === doc && x.t === m.t) : [m];
@@ -2644,6 +2659,7 @@ function documentCancelView(m) {
   }
   modal(m.t + ' sənədi' + (doc ? ' · ' + doc : ''), `
     <div class="hint" style="margin-bottom:10px">${esc(it.name || '')} · ${nf(rows.length)} sətir · qeyd edən: ${esc(m.by || '—')}</div>
+    ${docRefsLine(rows)}
     <div class="card"><div class="tw">${tbl([{ t: 'Tarix' }, { t: 'Mal' }, { t: 'İstiqamət' }, { t: 'Miqdar', r: 1 }], preview)}</div></div>
     <div style="margin-top:12px">${statusHtml}</div>`, actionsHtml);
   if ($('#dc-go')) $('#dc-go').onclick = () => {
@@ -2697,6 +2713,7 @@ function transferDocView(m) {
   }
   modal('Yerdəyişmə sənədi' + (doc ? ' · ' + doc : ''), `
     <div class="hint" style="margin-bottom:10px">${esc(it.name || '')} · ${nf(rows.length)} sətir · qeyd edən: ${esc(m.by || '—')}</div>
+    ${docRefsLine(rows)}
     <div class="card"><div class="tw">${tbl([{ t: 'Tarix' }, { t: 'Mal' }, { t: 'İstiqamət' }, { t: 'Miqdar', r: 1 }], preview)}</div></div>
     <div style="margin-top:12px">${statusHtml}</div>`, actionsHtml);
   if ($('#rev-go')) $('#rev-go').onclick = () => {
@@ -2730,7 +2747,7 @@ function legacyCancelView(m) {
   const actions = allowed
     ? `<div style="flex:1"></div><button class="btn" data-close>İmtina</button><button class="btn dgr" id="lc-go">Əməliyyatı ləğv et</button>`
     : `<div style="flex:1"></div><button class="btn" data-close>Bağla</button>`;
-  modal('Köhnə əməliyyat · ' + m.c, `<div class="hint" style="margin-bottom:10px">${esc(it.name || '')} · ${esc(fmtD(m.d))} · ${esc(m.w)} · ${nf((m.i || m.o) || 0, 2)} ${esc(it.unit || '')}</div>${info}`, actions);
+  modal('Köhnə əməliyyat · ' + m.c, `<div class="hint" style="margin-bottom:10px">${esc(it.name || '')} · ${esc(fmtD(m.d))} · ${esc(m.w)} · ${nf((m.i || m.o) || 0, 2)} ${esc(it.unit || '')}</div>${docRefsLine(m)}${info}`, actions);
   if ($('#lc-go')) $('#lc-go').onclick = async () => {
     $('#lc-go').disabled = true;
     try {
@@ -2751,7 +2768,7 @@ function legacyTransferCancelView(m) {
   const actions = allowed
     ? `<div style="flex:1"></div><button class="btn" data-close>İmtina</button><button class="btn dgr" id="lt-go">Yerdəyişməni ləğv et</button>`
     : `<div style="flex:1"></div><button class="btn" data-close>Bağla</button>`;
-  modal('Köhnə yerdəyişmə · ' + m.c, `<div class="hint" style="margin-bottom:10px">${esc(it.name || '')} · ${esc(fmtD(m.d))} · ${esc(route)} · ${nf((m.i || m.o) || 0, 2)} ${esc(it.unit || '')}</div>${info}`, actions);
+  modal('Köhnə yerdəyişmə · ' + m.c, `<div class="hint" style="margin-bottom:10px">${esc(it.name || '')} · ${esc(fmtD(m.d))} · ${esc(route)} · ${nf((m.i || m.o) || 0, 2)} ${esc(it.unit || '')}</div>${docRefsLine(m)}${info}`, actions);
   if ($('#lt-go')) $('#lt-go').onclick = async () => {
     $('#lt-go').disabled = true;
     try {
