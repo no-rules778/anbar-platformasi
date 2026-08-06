@@ -2629,6 +2629,79 @@ function docRefsLine(rows) {
   if (ct.length) part.push(`Müqavilə №: ${ct.map(v => `<span class="code">${esc(v)}</span>`).join(', ')}`);
   return `<div class="hint" style="margin-bottom:10px">${part.join(' · ')}</div>`;
 }
+/* Sətir səviyyəsində ləğv/əvəz markeri: 'Ləğv ID: <id>'. Bu marker yalnız bir
+   sətri gizlədir (operationalMovements → hiddenLegacyIds), sənədə toxunmur. */
+function rowReplacedOrCancelled(r) {
+  const marker = 'Ləğv ID: ' + r.id;
+  return DB.movs.some(x => String(x.note || '').trim() === marker);
+}
+/* Sənədin İÇİNDƏ bir sətrin malını əvəz edir: server eyni doc_num altında əks
+   sətir + yeni mal sətri yazır. Orijinal sətir dəyişmir, sənəd parçalanmır.
+   Yerdəyişmə dəstəklənmir — server də onu rədd edir. */
+function replaceItemDialog(m) {
+  if (!isAdmin()) return toast('Malı yalnız Rəhbər (Admin) əvəz edə bilər', true);
+  if (m.t === 'Yerdəyişmə') return toast('Yerdəyişmə sətrində mal əvəzlənmir — sənədi ləğv edin', true);
+  if (rowReplacedOrCancelled(m)) return toast('Bu sətir artıq ləğv edilib və ya əvəzlənib', true);
+  const it = DB.itemBy.get(m.c) || {};
+  const dir = (m.i || 0) > 0 ? 'Mədaxil' : 'Məxaric';
+  let picked = null;
+  modal('Malı əvəz et · sətir üzrə', `
+    <div class="hint" style="margin-bottom:10px">
+      ${esc(fmtD(m.d))} · ${esc(m.w)} · ${esc(dir)} ${nf((m.i || m.o) || 0, 2)} ${esc(it.unit || '')}
+      · sənəd: <span class="code">${esc(m.doc || '—')}</span></div>
+    <div class="hint" style="padding:9px;background:var(--out-l);border-radius:4px;margin-bottom:10px">
+      Orijinal sətir dəyişmir. Eyni sənədin içində əks sətir və yeni mal sətri yazılır —
+      sənəd nömrəsi, tarix, anbar, miqdar, qiymət, kontragent və Qaimə № saxlanılır.</div>
+    <label class="f"><span>Köhnə mal</span>
+      <input type="text" readonly value="${esc((it.name || '') + ' · ' + m.c)}"></label>
+    <label class="f"><span>Yeni mal (ad və ya kod yazın)</span>
+      <div style="position:relative"><input type="text" id="rp-item" autocomplete="off" placeholder="məs. kabel, 0000123…">
+      <div id="rp-res" style="position:absolute;left:0;right:0;top:100%;background:#fff;border:1px solid var(--line);border-radius:0 0 4px 4px;max-height:230px;overflow:auto;z-index:20;display:none"></div></div>
+      <span class="hint" id="rp-sel">Seçilməyib</span></label>
+    <label class="f"><span>Əvəzləmənin səbəbi (audit üçün məcburi)</span>
+      <input type="text" id="rp-why" placeholder="məs. qaimədə səhv mal kodu göstərilib"></label>`,
+    `<div style="flex:1"></div><button class="btn" data-close>İmtina</button>
+     <button class="btn pri" id="rp-go" disabled>Malı əvəz et</button>`);
+  const inp = $('#rp-item'), res = $('#rp-res');
+  const sync = () => { $('#rp-go').disabled = !(picked && $('#rp-why').value.trim()); };
+  $('#rp-why').oninput = sync;
+  inp.oninput = debounce(() => {
+    const q = inp.value.trim().toLowerCase();
+    if (q.length < 2) { res.style.display = 'none'; return; }
+    const hit = DB.items.filter(i => i.code !== m.c &&
+      (i.name.toLowerCase().indexOf(q) >= 0 || i.code.indexOf(q) >= 0)).slice(0, 12);
+    res.innerHTML = hit.length
+      ? hit.map(i => `<div data-c="${esc(i.code)}" style="padding:7px 9px;cursor:pointer;border-bottom:1px solid var(--line-2)"><b>${esc(i.name)}</b><div class="hint"><span class="code">${esc(i.code)}</span> · ${esc(i.unit)}</div></div>`).join('')
+      : '<div style="padding:9px" class="hint">Tapılmadı</div>';
+    res.style.display = 'block';
+    $$('#rp-res [data-c]').forEach(d => d.onclick = () => {
+      picked = d.dataset.c;
+      const pi = DB.itemBy.get(picked) || {};
+      $('#rp-sel').innerHTML = `Seçildi: <b>${esc(pi.name || picked)}</b> · <span class="code">${esc(picked)}</span>`;
+      inp.value = pi.name || picked; res.style.display = 'none'; sync();
+    });
+  }, 160);
+  inp.onblur = () => setTimeout(() => res.style.display = 'none', 200);
+  $('#rp-go').onclick = async () => {
+    const why = $('#rp-why').value.trim();
+    if (!picked || !why) return;
+    $('#rp-go').disabled = true;
+    try {
+      const { data, error } = await SB.rpc('replace_movement_item',
+        { p_movement_id: m.id, p_new_item_code: picked, p_reason: why });
+      if (error) throw error;
+      closeModal();
+      await loadFromDB(); if (typeof loadAuditTotal === 'function') loadAuditTotal();
+      renderAll();
+      toast('Mal əvəzləndi: ' + (data && data.old_item_code ? data.old_item_code : m.c) +
+            ' → ' + (data && data.new_item_code ? data.new_item_code : picked) +
+            ' · sənəd: ' + (data && data.doc_num ? data.doc_num : '—'));
+    } catch (err) {
+      $('#rp-go').disabled = false;
+      toast('Əvəzlənmədi: ' + (err.message || 'server xətası'), true);
+    }
+  };
+}
 function documentCancelView(m) {
   const doc = m.doc || '';
   const rows = doc ? DB.movs.filter(x => x.doc === doc && x.t === m.t) : [m];
@@ -2636,11 +2709,19 @@ function documentCancelView(m) {
   const revDoc = docCancelledBy(doc);
   const isRev = isCancelDoc(doc);
   const inbound = rows.some(r => (r.i || 0) > 0);
+  /* Sətir üzrə mal əvəzləmə yalnız o halda təklif olunur ki, sənəd bütövlükdə
+     ləğv edilməyib və həmin sətir ayrıca ləğv/əvəz edilməyib. Sənəd nömrəsi
+     saxlanılır — əvəz sətri eyni sənədin içində yaranır. */
+  const canReplaceRows = isAdmin() && !isRev && !revDoc;
   const preview = rows.map(r => {
     const ri = DB.itemBy.get(r.c) || {};
     const dir = (r.i || 0) > 0 ? 'Mədaxil: ' + r.w : 'Məxaric: ' + r.w;
+    const done = rowReplacedOrCancelled(r);
+    const act = !canReplaceRows ? ''
+      : done ? '<span class="tag t-rm">ləğv edilib</span>'
+      : `<button class="btn sm" data-repl="${esc(r.id)}">Malı əvəz et</button>`;
     return { c: [esc(fmtD(r.d)), `<div class="nm">${esc(ri.name || r.c)}</div><span class="code">${esc(r.c)}</span>`,
-      esc(dir), nf((r.i || r.o) || 0, 2) + ' ' + esc(ri.unit || '')] };
+      esc(dir), nf((r.i || r.o) || 0, 2) + ' ' + esc(ri.unit || ''), act] };
   });
   let statusHtml = '', actionsHtml = `<div style="flex:1"></div><button class="btn" data-close>Bağla</button>`;
   if (isRev) {
@@ -2660,8 +2741,12 @@ function documentCancelView(m) {
   modal(m.t + ' sənədi' + (doc ? ' · ' + doc : ''), `
     <div class="hint" style="margin-bottom:10px">${esc(it.name || '')} · ${nf(rows.length)} sətir · qeyd edən: ${esc(m.by || '—')}</div>
     ${docRefsLine(rows)}
-    <div class="card"><div class="tw">${tbl([{ t: 'Tarix' }, { t: 'Mal' }, { t: 'İstiqamət' }, { t: 'Miqdar', r: 1 }], preview)}</div></div>
+    <div class="card"><div class="tw">${tbl([{ t: 'Tarix' }, { t: 'Mal' }, { t: 'İstiqamət' }, { t: 'Miqdar', r: 1 }, { t: '' }], preview)}</div></div>
     <div style="margin-top:12px">${statusHtml}</div>`, actionsHtml);
+  $$('[data-repl]').forEach(b => b.onclick = () => {
+    const row = DB.movs.find(x => String(x.id) === b.dataset.repl);
+    if (row) replaceItemDialog(row);
+  });
   if ($('#dc-go')) $('#dc-go').onclick = () => {
     if (!doc) return;
     $('#dc-go').disabled = true;
@@ -2745,9 +2830,10 @@ function legacyCancelView(m) {
     ? `<div class="hint" style="margin:4px 0 8px">Sənəd nömrəsi olmayan bu köhnə qeyd yalnız əks ${inbound ? 'məxaric' : 'mədaxil'} ilə ləğv edilir. Orijinal qeyd dəyişmir.${inbound ? ' Qalıq çatmırsa, heç nə yazılmır.' : ''}</div><label class="f" style="max-width:220px"><span>Ləğv tarixi</span><input type="date" id="lc-date" value="${today()}"></label>`
     : `<div class="hint" style="padding:9px;background:var(--out-l);border-radius:4px">Köhnə qeyd yalnız Rəhbər (Admin) tərəfindən ləğv edilə bilər.</div>`;
   const actions = allowed
-    ? `<div style="flex:1"></div><button class="btn" data-close>İmtina</button><button class="btn dgr" id="lc-go">Əməliyyatı ləğv et</button>`
+    ? `<button class="btn" id="lc-repl">Malı əvəz et</button><div style="flex:1"></div><button class="btn" data-close>İmtina</button><button class="btn dgr" id="lc-go">Əməliyyatı ləğv et</button>`
     : `<div style="flex:1"></div><button class="btn" data-close>Bağla</button>`;
   modal('Köhnə əməliyyat · ' + m.c, `<div class="hint" style="margin-bottom:10px">${esc(it.name || '')} · ${esc(fmtD(m.d))} · ${esc(m.w)} · ${nf((m.i || m.o) || 0, 2)} ${esc(it.unit || '')}</div>${docRefsLine(m)}${info}`, actions);
+  if ($('#lc-repl')) $('#lc-repl').onclick = () => replaceItemDialog(m);
   if ($('#lc-go')) $('#lc-go').onclick = async () => {
     $('#lc-go').disabled = true;
     try {
