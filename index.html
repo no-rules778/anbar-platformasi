@@ -2635,6 +2635,20 @@ function rowReplacedOrCancelled(r) {
   const marker = 'Ləğv ID: ' + r.id;
   return DB.movs.some(x => String(x.note || '').trim() === marker);
 }
+/* Sətir üzrə ləğv edilmiş orijinal və onun texniki marker sətri sənəd
+   siyahılarında GÖSTƏRİLMİR: sənədin özü ləğv edilməyib, yalnız bir sətir
+   əvəzlənib. operationalMovements() eyni qaydanı tətbiq edir — sənəd
+   görünüşləri DB.movs-u birbaşa oxuduğuna görə burada təkrarlanır.
+   Sənəd səviyyəsindəki ləğv ('Ləğv: <sənəd>') bundan təsirlənmir. */
+function stripRowLevelCancelled(rows) {
+  const hidden = new Set();
+  for (const m of DB.movs) {
+    const mm = String(m.note || '').trim().match(/^Ləğv ID:\s*(.+)$/);
+    if (mm) hidden.add(mm[1].trim());
+  }
+  return rows.filter(r => !hidden.has(String(r.id))
+    && !/^Ləğv ID:/.test(String(r.note || '').trim()));
+}
 /* Sənədin İÇİNDƏ bir sətrin malını əvəz edir: server eyni doc_num altında əks
    sətir + yeni mal sətri yazır. Orijinal sətir dəyişmir, sənəd parçalanmır.
    Yerdəyişmə dəstəklənmir — server də onu rədd edir. */
@@ -2704,7 +2718,7 @@ function replaceItemDialog(m) {
 }
 function documentCancelView(m) {
   const doc = m.doc || '';
-  const rows = doc ? DB.movs.filter(x => x.doc === doc && x.t === m.t) : [m];
+  const rows = doc ? stripRowLevelCancelled(DB.movs.filter(x => x.doc === doc && x.t === m.t)) : [m];
   const it = DB.itemBy.get(m.c) || {};
   const revDoc = docCancelledBy(doc);
   const isRev = isCancelDoc(doc);
@@ -2885,7 +2899,8 @@ function buildBatchDocs() {
   }
   const out = [];
   for (const g of byDoc.values()) {
-    const rows = g.rows;
+    const rows = stripRowLevelCancelled(g.rows);
+    if (!rows.length) continue;   // bütün sətirləri əvəzlənib/ləğv edilib
     const types = Array.from(new Set(rows.map(r => r.t)));
     const isTransfer = types.includes('Yerdəyişmə');
     const hasOther = types.some(t => t !== 'Yerdəyişmə');
