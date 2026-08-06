@@ -5580,22 +5580,44 @@ function azpBuildSheet(m) {
     put(SR, oc, azpR2(azpN(c.mexaric_total)), { z: MONEY, f: 'ROUND(SUM(' + RNG(R0, R1, oc) + '),2)' });
   });
 
-  /* --- ən sağdakı ümumi balans sütunu --- */
+  /* --- ən sağdakı sütun: İKİ AYRI GÖSTƏRİCİ ---------------------------------
+     `Tədbiqin cari balansı` (tətbiqin fond qalığı) və `Kartların cari balansı`
+     (kart balanslarının cəmi) FƏRQLİ rəqəmlərdir və bir-birini əvəz etmir.
+     Mənbə vərəqdə (AJ sütunu) onlar ayrı-ayrı koordinatlardadır:
+
+       AJ1:AJ2   (indeks 0..1)   'Tədbiqin cari balansı'   — etiket
+       AJ3:AJ9   (indeks 2..8)   fond qalığı               — dəyər   (məs. 2660.00)
+       AJ10:AJ13 (indeks 9..12)  'Kartların cari balansı'  — etiket
+       AJ14:AJ57 (indeks 13..)   Σ kart balansları         — dəyər   (məs. 1233.55)
+
+     ARAZ vərəqində fond qalığı sütunu yoxdur:
+       S1:S3     (indeks 0..2)   'Kartların cari balansı'  — etiket
+       S4:S27    (indeks 3..)    Σ kart balansları         — dəyər
+
+     Fond qalığı bilinmirsə xana BOŞ qalır — kart cəmi onun yerinə YAZILMIR. */
   const grand = azpR2(cards.reduce((s, c) => s + azpN(c.balance), 0));
   const grandF = cards.length
     ? 'ROUND(' + cards.map((c, b) => A1(R0, lead + b * 4 + 2)).join('+') + ',2)' : null;
+  let lastRow = SR;
   if (dated) {
-    put(0, totalsCol, 'Kartların cari balansı'); mrg(0, totalsCol, 2, totalsCol);
-    put(R0, totalsCol, grand, { z: MONEY, f: grandF }); mrg(R0, totalsCol, R1, totalsCol);
+    const AGG_R = 3;
+    put(0, totalsCol, 'Kartların cari balansı'); mrg(0, totalsCol, AGG_R - 1, totalsCol);
+    put(AGG_R, totalsCol, grand, { z: MONEY, f: grandF });
+    mrg(AGG_R, totalsCol, Math.max(AGG_R, R1), totalsCol);
+    lastRow = Math.max(SR, AGG_R, R1);
   } else {
-    put(0, totalsCol, 'Tədbiqin cari balansı');
-    put(1, totalsCol, grand, { z: MONEY, f: grandF });
-    put(2, totalsCol, 'Kartların cari balansı');
+    const APP_R = 2, AGG_LBL_R = 9, AGG_R = 13;
+    put(0, totalsCol, 'Tədbiqin cari balansı'); mrg(0, totalsCol, APP_R - 1, totalsCol);
+    put(APP_R, totalsCol, (st.appBalance == null ? null : azpR2(azpN(st.appBalance))), { z: MONEY });
+    mrg(APP_R, totalsCol, AGG_LBL_R - 1, totalsCol);
+    put(AGG_LBL_R, totalsCol, 'Kartların cari balansı'); mrg(AGG_LBL_R, totalsCol, AGG_R - 1, totalsCol);
+    put(AGG_R, totalsCol, grand, { z: MONEY, f: grandF });
+    mrg(AGG_R, totalsCol, Math.max(AGG_R, R1), totalsCol);
+    lastRow = Math.max(SR, AGG_R, R1);
   }
-  put(SR, totalsCol, grand, { z: MONEY, f: grandF });
 
   /* --- vərəq metaməlumatı --- */
-  ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: SR, c: totalsCol } });
+  ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: lastRow, c: totalsCol } });
   ws['!merges'] = merges;
   ws['!freeze'] = { xSplit: lead, ySplit: 3 };
   const cols = [];
