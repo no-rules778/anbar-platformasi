@@ -308,7 +308,8 @@ label.f>span{display:block;font-size:10.5px;text-transform:uppercase;letter-spac
       <!-- MOVEMENTS -->
       <section class="page" id="p-mov">
         <div class="phead"><div><h2>Mal hərəkəti</h2><p>Bütün mədaxil, məxaric və yerdəyişmələrin vahid registri.</p></div><div class="sp"></div>
-          <button class="btn" id="mov-exp">Excel</button><button class="btn" id="mov-print">Çap</button><button class="btn dgr" id="mov-batch" style="display:none">Qrup üzrə ləğv</button><button class="btn pri" data-goto="op">Yeni əməliyyat</button></div>
+          <span class="hint" id="mov-wo-hint" style="display:none;max-width:220px">Əvvəlcə əməliyyat növü olaraq «Silinmə» seçin</span>
+          <button class="btn" id="mov-exp">Excel</button><button class="btn" id="mov-wo-exp">Silinmə hesabatının ixracı</button><button class="btn" id="mov-print">Çap</button><button class="btn dgr" id="mov-batch" style="display:none">Qrup üzrə ləğv</button><button class="btn pri" data-goto="op">Yeni əməliyyat</button></div>
         <div class="filters" id="mov-filters"></div>
         <div class="card"><div class="tw" id="t-mov"></div><div class="pad" id="mov-pager" style="border-top:1px solid var(--line-2);display:flex;align-items:center;gap:10px"></div></div>
       </section>
@@ -1427,6 +1428,69 @@ function cutNote(rows, key, rerender) {
   return ` · <b>${nf(SHOW_MAX)}</b> göstərilir <button class="btn sm" id="showall-${key}">Hamısını göstər (${nf(rows.length)})</button>`;
 }
 
+/* ---------- Silinmə hesabatı (mühasibat üçün ixrac) ----------
+   Mənbə: yalnız movFiltered() — ekranda görünən registrin eyni süzgəci.
+   Ayrıca sorğu, ayrıca filtr məntiqi və ayrıca önizləmə YOXDUR.
+   Ləğv edilmiş sənədlər və əks sətirlər artıq normalMovements() tərəfindən
+   çıxarılıb — burada ləğv məntiqinə toxunulmur.
+   Qiymət yalnız hərəkətin öz qiymətidir (m.pr); nomenklatura qiyməti
+   əvəzedici kimi İSTİFADƏ EDİLMİR — boş xana boş qalmalıdır. */
+const SILINME_EXPORT_HEADER = ['Sənəd №', 'Tarix', 'Anbar', 'Kod', 'Malın adı', 'Ölçü vahidi', 'Silinən miqdar', 'Vahid qiyməti', 'Məbləğ', 'Qaimə №', 'Qeyd', 'Qeyd edən'];
+function writeOffExportRows(movs, itemBy) {
+  return (movs || []).filter(m => m && m.t === 'Silinmə').map(m => {
+    const it = (itemBy && itemBy.get ? itemBy.get(m.c) : null) || {};
+    const qty = +(m.o || 0);
+    const pr = (m.pr != null && +m.pr > 0) ? +m.pr : null;
+    return {
+      doc: String(m.doc == null ? '' : m.doc),
+      date: String(m.d == null ? '' : m.d),
+      wh: String(m.w == null ? '' : m.w),
+      code: String(m.c == null ? '' : m.c),
+      name: String(it.name == null ? '' : it.name),
+      unit: String(it.unit == null ? '' : it.unit),
+      qty,
+      price: pr,
+      amount: pr == null ? null : +(qty * pr).toFixed(2),
+      invoice: String(m.iv == null ? '' : m.iv),
+      note: String(m.note == null ? '' : m.note),
+      by: String(m.by == null ? '' : m.by)
+    };
+  });
+}
+/* Yalnız bu hesabat üçün ayrıca XLSX strukturu. Paylaşılan xls() TOXUNULMUR.
+   Sənəd №, Kod və Qaimə № mətn kimi yazılır — leading zero qorunur.
+   Qiymət/Məbləğ/Qeyd yoxdursa — xana yaradılmır və boş qalır. */
+function xlsWriteOff(rows) {
+  if (typeof XLSX === 'undefined') { toast('Excel kitabxanası yüklənmədi', true); return; }
+  const ws = {};
+  const S = (r, c, v) => { ws[XLSX.utils.encode_cell({ r, c })] = { t: 's', v: String(v) }; };
+  const T = (r, c, v) => { ws[XLSX.utils.encode_cell({ r, c })] = { t: 's', v: String(v), z: '@' }; };
+  const N = (r, c, v) => { ws[XLSX.utils.encode_cell({ r, c })] = { t: 'n', v: +v }; };
+  SILINME_EXPORT_HEADER.forEach((h, c) => S(0, c, h));
+  rows.forEach((row, i) => {
+    const r = i + 1;
+    if (row.doc) T(r, 0, row.doc);            // köhnə sənədsiz silinmələrdə boş qalır
+    S(r, 1, row.date);
+    S(r, 2, row.wh);
+    T(r, 3, row.code);
+    S(r, 4, row.name);
+    S(r, 5, row.unit);
+    N(r, 6, row.qty);
+    if (row.price != null) N(r, 7, row.price);
+    if (row.amount != null) N(r, 8, row.amount);
+    if (row.invoice) T(r, 9, row.invoice);
+    if (row.note) S(r, 10, row.note);
+    S(r, 11, row.by);
+  });
+  ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: rows.length, c: SILINME_EXPORT_HEADER.length - 1 } });
+  ws['!cols'] = [{ wch: 16 }, { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 42 }, { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 36 }, { wch: 22 }];
+  ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Silinmə hesabatı');
+  XLSX.writeFile(wb, 'Silinme_hesabati_' + today() + '.xlsx');
+  toast('Silinme_hesabati.xlsx yükləndi (' + rows.length + ' sətir)');
+}
+
 function rMov() {
   movFilters();
   const all = movFiltered();
@@ -1461,6 +1525,18 @@ function rMov() {
     $('#mov-batch').onclick = batchCancelOpen;
   }
   $('#mov-print').onclick = () => { printHead('Mal hərəkəti', nf(all.length) + ' qeyd'); setTimeout(() => window.print(), 60); };
+  if ($('#mov-wo-exp')) {
+    const woOn = MF.t === 'Silinmə';
+    $('#mov-wo-exp').disabled = !woOn;
+    $('#mov-wo-exp').title = woOn ? 'Süzülmüş silinmə sətirlərini Excel-ə ixrac et' : 'Əvvəlcə əməliyyat növü olaraq «Silinmə» seçin';
+    if ($('#mov-wo-hint')) $('#mov-wo-hint').style.display = woOn ? 'none' : '';
+    $('#mov-wo-exp').onclick = () => {
+      if (MF.t !== 'Silinmə') { toast('Əvvəlcə əməliyyat növü olaraq «Silinmə» seçin', true); return; }
+      const woRows = writeOffExportRows(all, DB.itemBy);   // bütün süzülmüş sətirlər, səhifələmədən asılı deyil
+      if (!woRows.length) { toast('Seçilmiş filtrlərə uyğun silinmə qeydi yoxdur', true); return; }
+      xlsWriteOff(woRows);
+    };
+  }
   $('#mov-exp').onclick = () => xls([['Tarix', 'Anbar', 'Kod', 'Malın adı', 'Ölçü', 'Növü', 'Kontragent/Layihə', 'Alınma kanalı', 'Giriş', 'Çıxış', 'Vahid qiyməti', 'Məbləğ', 'Müqavilə', 'Qaimə', 'Qeyd edən']]
     .concat(all.map(m => { const it = DB.itemBy.get(m.c) || {}; const pr = m.pr || it.price || 0; return [m.d, m.w, m.c, it.name || '', it.unit || '', m.t, m.p, m.ch || '', m.i || '', m.o || '', pr || '', pr ? (((m.i || 0) + (m.o || 0)) * pr).toFixed(2) : '', m.ct || '', m.iv || '', m.by || '']; })), 'mal_hereketi');
 }
