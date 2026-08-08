@@ -247,6 +247,7 @@ label.f>span{display:block;font-size:10.5px;text-transform:uppercase;letter-spac
       <a data-p="bal">Anbar qalıqları <b id="c-bal"></b></a>
       <div class="grp">Bazalar</div>
       <a data-p="nom">Nomenklatura <b id="c-nom"></b></a>
+      <a data-p="nreq" id="nav-nreq" style="display:none">Nomenklatura sorğuları <b id="c-nreq"></b></a>
       <a data-p="grp">Mal qrupları</a>
       <a data-p="knt">Kontragentlər <b id="c-knt"></b></a>
       <a data-p="anb">Anbar və layihələr <b id="c-anb"></b></a>
@@ -329,6 +330,16 @@ label.f>span{display:block;font-size:10.5px;text-transform:uppercase;letter-spac
           <button class="btn" id="nom-exp">Excel</button><button class="btn" id="nom-print">Çap</button><button class="btn" id="nom-catimp" title="Yalnız Rəhbər: nəzərdən keçirilmiş CSV-dən kateqoriyaları idxal et">Kateqoriya idxalı (CSV)</button><button class="btn" id="nom-import">Excel-dən yeni mallar idxalı</button><button class="btn" id="nom-bulk">Siyahı əlavə et</button><button class="btn pri" id="nom-add">Yeni mal</button></div>
         <div class="filters" id="nom-filters"></div>
         <div class="card"><div class="tw" id="t-nom"></div><div class="pad" id="nom-pager" style="border-top:1px solid var(--line-2);display:flex;align-items:center;gap:10px"></div></div>
+      </section>
+
+      <!-- NOMENCLATURE REQUESTS — anbardar proposes, Admin approves (sql/017).
+           Gözləyən sorğu HEÇ VAXT items-də deyil: kodu yoxdur, qalıqda, hərəkətdə,
+           ixracda və mal axtarışında görünmür. Yalnız təsdiqdən sonra mal yaranır. -->
+      <section class="page" id="p-nreq">
+        <div class="phead"><div><h2>Nomenklatura sorğuları</h2><p id="nreq-sub">Anbardar yeni mal təklif edir, Admin təsdiqləyir. Təsdiqə qədər mal nomenklaturada yaranmır və kod almır.</p></div><div class="sp"></div>
+          <button class="btn pri" id="nreq-new" style="display:none">Yeni nomenklatura sorğusu</button></div>
+        <div class="filters" id="nreq-filters"></div>
+        <div class="card"><div class="tw" id="t-nreq"></div><div class="pad" id="nreq-note" style="border-top:1px solid var(--line-2)"></div></div>
       </section>
 
       <!-- ITEM GROUPS (read-only selection + dedicated XLSX export) -->
@@ -831,6 +842,26 @@ async function loadFromDB() {
     id: r.id, name: r.name, voen: r.voen || '', contract: r.contract || '',
     cdate: r.contract_date || '', active: r.active !== false, seed: true
   }));
+  /* Nomenklatura sorğuları (sql/017). AYRI cədvəldir və DB.items-ə HEÇ VAXT
+     qarışdırılmır — gözləyən sorğu qalıqda, hərəkətdə, ixracda və mal
+     axtarışında görünməməlidir. RLS özü süzgəcləyir: anbardar yalnız öz
+     sətirlərini görür. Cədvəl hələ yaradılmayıbsa (017 tətbiq edilməyib),
+     sükutla boş qalır və platformanın qalan hissəsi işləməyə davam edir. */
+  DB.itemReqs = [];
+  try {
+    const { data: reqRows, error: reqErr } = await SB.from('item_requests')
+      .select('*').order('created_at', { ascending: false });
+    if (!reqErr) {
+      DB.itemReqs = (reqRows || []).map(r => ({
+        id: r.id, name: r.name, unit: r.unit || '', category: r.category || '',
+        note: r.note || '', status: r.status || 'pending',
+        by: r.created_by || '', w: r.created_warehouse || '',
+        ts: r.created_at ? new Date(r.created_at).getTime() : 0,
+        decidedBy: r.decided_by || '', decidedAt: r.decided_at || '',
+        reason: r.decision_reason || '', code: r.item_code || ''
+      }));
+    }
+  } catch (e) { /* 017 tətbiq edilməyib — sorğu bölməsi sadəcə boş olur */ }
   DB.whs = (warehouses.data || []).filter(r => r.active && r.type === 'anbar').map(r => r.name);
   DB.transferDests = DB.whs.slice();
   DB.locs = (warehouses.data || []).map(r => ({ id: r.id, name: r.name, kind: r.type, active: r.active !== false, seed: true }));
@@ -1287,6 +1318,11 @@ function routeOrPartner(m) { return transferRoute(m) || (m.p || '—'); }
 let PAGE = 'dash';
 function go(p) {
   if (p === 'refs' && !isAdmin()) return toast('Sorğuçalar yalnız Admin üçündür', true);
+  /* Nomenklatura sorğuları — admin (baxış+qərar), anbardar (öz sorğuları),
+     rehber (yalnız oxu). Server tərəfdə RLS eyni qaydanı tətbiq edir. */
+  if (p === 'nreq' && !(isAdmin() || isAnbardar() || isRehber())) {
+    return toast('Nomenklatura sorğularına girişiniz yoxdur', true);
+  }
   /* Azpetrol/Araz — ayrıca modul, öz hüquq modeli ilə (anbardar üçün bağlıdır) */
   if (p === 'azp' && !(typeof azpCanRead === 'function' && azpCanRead())) return toast('Azpetrol / Araz moduluna girişiniz yoxdur', true);
   PAGE = p;
@@ -1300,7 +1336,7 @@ $$('.rail a').forEach(a => a.onclick = () => go(a.dataset.p));
 $('#burger').onclick = () => $('#rail').classList.toggle('open');
 
 function render(p) {
-  ({ dash: rDash, op: rOp, mov: rMov, bal: rBal, nom: rNom, grp: rGroups, knt: rKnt, anb: rAnb, refs: rRefs, rep: rRep, fin: rFin, ctrl: rCtrl, log: rLog, set: rSet, azp: (typeof rAzp === 'function' ? rAzp : null) }[p] || (() => { }))();
+  ({ dash: rDash, op: rOp, mov: rMov, bal: rBal, nom: rNom, nreq: rNreq, grp: rGroups, knt: rKnt, anb: rAnb, refs: rRefs, rep: rRep, fin: rFin, ctrl: rCtrl, log: rLog, set: rSet, azp: (typeof rAzp === 'function' ? rAzp : null) }[p] || (() => { }))();
   counters();
 }
 function renderAll() { render(PAGE); }
@@ -1910,6 +1946,255 @@ function rNom() {
   $('#nom-import').disabled = !can('item.add');
   const catimpBtn = $('#nom-catimp');
   if (catimpBtn) { catimpBtn.onclick = () => categoryImport(); catimpBtn.style.display = isAdmin() ? '' : 'none'; }
+}
+
+/* ================= NOMENCLATURE REQUESTS (sql/017) =================
+   Anbardar yeni mal TƏKLİF edir; həqiqi items sətri YALNIZ Admin təsdiqindən
+   sonra yaranır. Gözləyən sorğu ayrıca cədvəldədir (DB.itemReqs) və heç vaxt
+   DB.items-ə qarışdırılmır — ona görə qalıqda, mal hərəkətində, ixracda,
+   hesabatlarda və mal axtarışında görünə bilmir və kodu olmur.
+   Bütün yazılar RPC üzərindəndir; brauzer yoxlamaları yalnız erkən xəbərdarlıqdır. */
+const NREQ = { q: '', status: 'pending' };
+const NREQ_STATUS_TAG = {
+  pending:   '<span class="tag t-op">Gözləyir</span>',
+  approved:  '<span class="tag t-in">Təsdiqlənib</span>',
+  rejected:  '<span class="tag t-rm">Rədd edilib</span>',
+  cancelled: '<span class="tag">Ləğv edilib</span>'
+};
+/* Serverdəki item_request_norm() ilə eyni qayda: NFKC → trim → nom_norm
+   (kiçik hərf + boşluq/durğu işarələrinin silinməsi). Yalnız erkən
+   xəbərdarlıq üçündür; son sözü server deyir. */
+function nreqNorm(s) {
+  return String(s == null ? '' : s).normalize('NFKC').trim().toLowerCase()
+    .replace(/[\s/.,"'`’()\-–—]+/g, '');
+}
+function nreqCanCreate() { return isAnbardar(); }
+function rNreq() {
+  const el = $('#nreq-filters');
+  if (!el.dataset.done) {
+    el.dataset.done = 1;
+    el.innerHTML = `<input type="search" id="nrq-q" placeholder="Ad üzrə axtarış…">
+      <div class="seg" id="nrq-s">
+        <button data-s="pending" class="on">Gözləyən</button>
+        <button data-s="approved">Təsdiqlənən</button>
+        <button data-s="rejected">Rədd edilən</button>
+        <button data-s="">Hamısı</button></div>`;
+    $('#nrq-q').oninput = debounce(() => { NREQ.q = $('#nrq-q').value.trim().toLowerCase(); rNreq(); }, 200);
+    $$('#nrq-s button').forEach(b => b.onclick = () => {
+      NREQ.status = b.dataset.s;
+      $$('#nrq-s button').forEach(x => x.classList.toggle('on', x === b));
+      rNreq();
+    });
+  }
+  const btn = $('#nreq-new');
+  if (btn) { btn.style.display = nreqCanCreate() ? '' : 'none'; btn.onclick = () => nreqCreateDialog(); }
+  if ($('#nreq-sub')) {
+    $('#nreq-sub').textContent = isAdmin()
+      ? 'Anbardarların təklifləri. Təsdiq zamanı mal yaranır və 7 rəqəmli kod verilir; rədd üçün səbəb məcburidir.'
+      : (isAnbardar()
+        ? 'Yeni mal təklif edin. Təsdiqə qədər mal nomenklaturada yaranmır və kod almır — yalnız Admin təsdiqləyə bilər.'
+        : 'Yalnız oxu. Sorğuları Admin təsdiqləyir və ya rədd edir.');
+  }
+
+  const rows = (DB.itemReqs || []).filter(r => {
+    if (NREQ.status && r.status !== NREQ.status) return false;
+    if (NREQ.q && (r.name + ' ' + (r.unit || '') + ' ' + (r.category || '') + ' ' + (r.code || ''))
+      .toLowerCase().indexOf(NREQ.q) < 0) return false;
+    return true;
+  });
+
+  $('#t-nreq').innerHTML = tbl(
+    [{ t: 'Tarix' }, { t: 'Malın adı' }, { t: 'Ölçü' }, { t: 'Kateqoriya' }, { t: 'Anbar' },
+     { t: 'Status' }, { t: 'Kod' }, { t: '' }],
+    rows.map(r => {
+      const acts = [];
+      if (isAdmin() && r.status === 'pending') {
+        acts.push(`<button class="btn sm pri" data-nrq-rev="${esc(r.id)}">Nəzərdən keçir</button>`);
+      }
+      if (r.status === 'pending' && (isAdmin() || (isAnbardar() && r.by === (ME && ME.id)))) {
+        acts.push(`<button class="btn sm" data-nrq-cx="${esc(r.id)}">Geri götür</button>`);
+      }
+      return {
+        c: [esc(fmtD(new Date(r.ts).toISOString().slice(0, 10))),
+        `<div class="nm">${esc(r.name)}</div>` + (r.note ? `<span class="hint">${esc(r.note)}</span>` : '')
+          + (r.status === 'rejected' && r.reason ? `<div class="hint" style="color:var(--alarm)">Səbəb: ${esc(r.reason)}</div>` : ''),
+        esc(r.unit || '—'), esc(r.category || '—'), esc(r.w || '—'),
+        NREQ_STATUS_TAG[r.status] || esc(r.status),
+        r.code ? `<span class="code">${esc(r.code)}</span>` : '<span class="muted">—</span>',
+        acts.join(' ')]
+      };
+    }), { empty: NREQ.status === 'pending' ? 'Gözləyən sorğu yoxdur.' : 'Sorğu tapılmadı.' });
+
+  $('#nreq-note').innerHTML = `<span class="hint">${nf(rows.length)} sorğu`
+    + (isAnbardar() ? ' · yalnız sizin yaratdığınız sorğular göstərilir' : '')
+    + `</span>`;
+  $$('[data-nrq-rev]').forEach(b => b.onclick = () =>
+    nreqReviewDialog((DB.itemReqs || []).find(x => String(x.id) === b.dataset.nrqRev)));
+  $$('[data-nrq-cx]').forEach(b => b.onclick = () =>
+    nreqCancel((DB.itemReqs || []).find(x => String(x.id) === b.dataset.nrqCx)));
+  if ($('#c-nreq')) {
+    $('#c-nreq').textContent = nf((DB.itemReqs || []).filter(r => r.status === 'pending').length);
+  }
+}
+/* Oxşar adların siyahısı — brauzerdə DB.items üzərində, server isə eyni işi
+   item_request_candidates() ilə görür (o, başqa anbardarın gözləyən sorğusunu
+   da tapır). Dəqiq uyğunluq bloklayır, oxşarlıq yalnız xəbərdarlıqdır. */
+function nreqSimilar(name) {
+  const n = nreqNorm(name);
+  if (n.length < 2) return { exact: null, items: [], reqs: [] };
+  const hit = i => { const k = nreqNorm(i.name); return k === n
+    || (n.length >= 4 && k.indexOf(n) >= 0) || (k.length >= 4 && n.indexOf(k) >= 0); };
+  const items = (DB.items || []).filter(hit).slice(0, 10);
+  const reqs = (DB.itemReqs || []).filter(r => r.status === 'pending' && hit(r)).slice(0, 10);
+  return {
+    exact: items.find(i => nreqNorm(i.name) === n) || null,
+    exactReq: reqs.find(r => nreqNorm(r.name) === n) || null,
+    items, reqs
+  };
+}
+function nreqCreateDialog() {
+  if (!nreqCanCreate()) return toast('Nomenklatura sorğusunu yalnız anbardar yarada bilər', true);
+  /* Mövcud paylaşılan seçim mənbələri — ikinci tərif yaradılmır. Server
+     eyni dəyərləri reference_values-dən yenidən yoxlayır. */
+  const units = unitOptions() || [], cats = categoryOptions() || [];
+  modal('Yeni nomenklatura sorğusu', `
+    <div class="hint" style="padding:9px;background:var(--out-l);border-radius:4px;margin-bottom:10px">
+      Bu, mal yaratmır. Sorğu Admin təsdiqinə göndərilir; təsdiqə qədər mal nomenklaturada
+      görünmür, kod almır və əməliyyatlarda istifadə edilə bilməz.</div>
+    <label class="f"><span>Malın tam adı</span>
+      <input type="text" id="nq-name" autocomplete="off" placeholder="məs. Kabel NYM 3x1.5"></label>
+    <div id="nq-sim"></div>
+    <div class="row" style="grid-template-columns:1fr 1fr">
+      <label class="f"><span>Ölçü vahidi (istəyə bağlı)</span>
+        <select id="nq-unit"><option value="">Seçilməyib</option>${units.map(u => `<option>${esc(u)}</option>`).join('')}</select></label>
+      <label class="f"><span>Kateqoriya (istəyə bağlı)</span>
+        <select id="nq-cat"><option value="">Seçilməyib</option>${cats.map(c => `<option>${esc(c)}</option>`).join('')}</select></label>
+    </div>
+    <label class="f"><span>Qeyd (istəyə bağlı)</span>
+      <input type="text" id="nq-note" placeholder="məs. hansı iş üçün lazımdır"></label>`,
+    `<div style="flex:1"></div><button class="btn" data-close>İmtina</button>
+     <button class="btn pri" id="nq-go" disabled>Sorğu göndər</button>`);
+  const sync = () => {
+    const nm = $('#nq-name').value.trim();
+    const s = nreqSimilar(nm);
+    let html = '';
+    if (nm.length && nm.length < 3) {
+      html = `<div class="hint" style="color:var(--alarm)">Ad ən azı 3 simvol olmalıdır.</div>`;
+    } else if (s.exact) {
+      html = `<div class="hint" style="color:var(--alarm)"><b>Bu mal nomenklaturada artıq var:</b>
+        ${esc(s.exact.name)} · <span class="code">${esc(s.exact.code)}</span> — sorğu göndərilə bilməz.</div>`;
+    } else if (s.exactReq) {
+      html = `<div class="hint" style="color:var(--alarm)"><b>Bu ad üzrə gözləyən sorğu artıq var</b> — təkrar göndərilə bilməz.</div>`;
+    } else if (s.items.length || s.reqs.length) {
+      html = `<div class="hint" style="padding:8px;background:var(--out-l);border-radius:4px">
+        <b>Oxşar adlar tapıldı</b> — sorğu göndərilə bilər, qərarı Admin verir.<ul style="margin:5px 0 0 16px">`
+        + s.items.map(i => `<li>${esc(i.name)} · <span class="code">${esc(i.code)}</span></li>`).join('')
+        + s.reqs.map(r => `<li>${esc(r.name)} — gözləyən sorğu</li>`).join('') + `</ul></div>`;
+    }
+    $('#nq-sim').innerHTML = html;
+    $('#nq-go').disabled = !(nm.length >= 3 && !s.exact && !s.exactReq);
+  };
+  $('#nq-name').oninput = debounce(sync, 160);
+  $('#nq-go').onclick = async () => {
+    const nm = $('#nq-name').value.trim();
+    if (nm.length < 3) return;
+    $('#nq-go').disabled = true;
+    try {
+      const { error } = await SB.rpc('request_new_item', {
+        p_name: nm,
+        p_unit: $('#nq-unit').value || null,
+        p_category: $('#nq-cat').value || null,
+        p_note: $('#nq-note').value.trim() || null
+      });
+      if (error) throw error;
+      closeModal();
+      await loadFromDB(); if (typeof loadAuditTotal === 'function') loadAuditTotal();
+      go('nreq'); renderAll();
+      toast('Sorğu göndərildi — Admin təsdiqini gözləyir');
+    } catch (err) {
+      $('#nq-go').disabled = false;
+      toast('Sorğu göndərilmədi: ' + (err.message || 'server xətası'), true);
+    }
+  };
+}
+function nreqReviewDialog(r) {
+  if (!r) return;
+  if (!isAdmin()) return toast('Sorğunu yalnız Admin nəzərdən keçirə bilər', true);
+  if (r.status !== 'pending') return toast('Sorğu artıq qapanıb', true);
+  const units = unitOptions() || [], cats = categoryOptions() || [];
+  const s = nreqSimilar(r.name);
+  const simHtml = (s.items.length || s.reqs.length)
+    ? `<div class="hint" style="padding:8px;background:var(--out-l);border-radius:4px;margin-bottom:10px">
+        <b>Oxşar mövcud mallar</b><ul style="margin:5px 0 0 16px">`
+      + s.items.map(i => `<li>${esc(i.name)} · <span class="code">${esc(i.code)}</span></li>`).join('')
+      + (s.items.length ? '' : '<li class="muted">yoxdur</li>') + `</ul></div>`
+    : `<div class="hint" style="margin-bottom:10px">Oxşar mövcud mal tapılmadı.</div>`;
+  modal('Sorğunu nəzərdən keçir', `
+    <div class="hint" style="margin-bottom:10px">
+      ${esc(r.w || '—')} · ${esc(fmtD(new Date(r.ts).toISOString().slice(0, 10)))}
+      ${r.note ? ' · qeyd: ' + esc(r.note) : ''}</div>
+    ${simHtml}
+    <label class="f"><span>Malın adı (təsdiqdən əvvəl düzəldilə bilər)</span>
+      <input type="text" id="nv-name" value="${esc(r.name)}"></label>
+    <div class="row" style="grid-template-columns:1fr 1fr">
+      <label class="f"><span>Ölçü vahidi</span>
+        <select id="nv-unit"><option value="">Seçilməyib (ədəd)</option>${units.map(u => `<option ${u === r.unit ? 'selected' : ''}>${esc(u)}</option>`).join('')}</select></label>
+      <label class="f"><span>Kateqoriya</span>
+        <select id="nv-cat"><option value="">Seçilməyib</option>${cats.map(c => `<option ${c === r.category ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>
+    </div>
+    <label class="f"><span>Rədd səbəbi (yalnız rədd üçün məcburidir)</span>
+      <input type="text" id="nv-why" placeholder="məs. bu mal artıq başqa adla mövcuddur"></label>
+    <div class="hint">Təsdiq zamanı mal yaradılır və növbəti 7 rəqəmli kod verilir. Əməliyyat atomikdir.</div>`,
+    `<button class="btn dgr" id="nv-rej">Rədd et</button><div style="flex:1"></div>
+     <button class="btn" data-close>Bağla</button><button class="btn pri" id="nv-ok">Təsdiqlə və mal yarat</button>`);
+  const done = async (msg) => {
+    closeModal();
+    await loadFromDB(); if (typeof loadAuditTotal === 'function') loadAuditTotal();
+    renderAll(); toast(msg);
+  };
+  $('#nv-ok').onclick = async () => {
+    const nm = $('#nv-name').value.trim();
+    if (nm.length < 3) return toast('Ad ən azı 3 simvol olmalıdır', true);
+    $('#nv-ok').disabled = true;
+    try {
+      const { data, error } = await SB.rpc('approve_item_request', {
+        p_request_id: r.id, p_name: nm,
+        p_unit: $('#nv-unit').value || null,
+        p_category: $('#nv-cat').value || null
+      });
+      if (error) throw error;
+      await done(data && data.already_approved
+        ? 'Sorğu artıq təsdiqlənib — kod: ' + ((data && data.code) || '—')
+        : 'Təsdiqləndi — yeni mal kodu: ' + ((data && data.code) || '—'));
+    } catch (err) {
+      $('#nv-ok').disabled = false;
+      toast('Təsdiqlənmədi: ' + (err.message || 'server xətası'), true);
+    }
+  };
+  $('#nv-rej').onclick = async () => {
+    const why = $('#nv-why').value.trim();
+    if (!why) return toast('Rədd səbəbi tələb olunur', true);
+    $('#nv-rej').disabled = true;
+    try {
+      const { error } = await SB.rpc('reject_item_request', { p_request_id: r.id, p_reason: why });
+      if (error) throw error;
+      await done('Sorğu rədd edildi');
+    } catch (err) {
+      $('#nv-rej').disabled = false;
+      toast('Rədd edilmədi: ' + (err.message || 'server xətası'), true);
+    }
+  };
+}
+async function nreqCancel(r) {
+  if (!r || r.status !== 'pending') return;
+  try {
+    const { error } = await SB.rpc('cancel_item_request', { p_request_id: r.id, p_reason: null });
+    if (error) throw error;
+    await loadFromDB(); renderAll();
+    toast('Sorğu geri götürüldü');
+  } catch (err) {
+    toast('Ləğv edilmədi: ' + (err.message || 'server xətası'), true);
+  }
 }
 
 /* ================= ITEM GROUPS (read-only selection + xlsGroups) =================
@@ -4826,6 +5111,7 @@ async function enterApp(userId, email) {
   $('#gate').style.display = 'none';
   $('#app').style.display = 'block';
   if ($('#nav-refs')) $('#nav-refs').style.display = isAdmin() ? '' : 'none';
+  if ($('#nav-nreq')) $('#nav-nreq').style.display = (isAdmin() || isAnbardar() || isRehber()) ? '' : 'none';
   if ($('#nav-azp')) $('#nav-azp').style.display = (typeof azpCanRead === 'function' && azpCanRead()) ? '' : 'none';
   $('#btn-me').textContent = ME.name.split(' ')[0] + ' · ' + (ROLES[ME.role] ? ROLES[ME.role].name : ME.role);
   $('#btn-me').onclick = sessionDialog;
