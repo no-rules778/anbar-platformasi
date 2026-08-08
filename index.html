@@ -2439,7 +2439,8 @@ function rOp() {
     ${k === 'mv' ? `<div class="row" style="grid-template-columns:1fr">
       <label class="f"><span>Qaimə №</span><input type="text" id="o-iv" value="${esc(H.iv || '')}" placeholder="məs. YD-2026/041"><span class="hint">Anbarlararası təhvil-təslim sənədinin nömrəsi — əl ilə yazılır, kontragentə bağlı deyil. Hər iki sətirdə eyni saxlanılır.</span></label></div>` : ''}
     <label class="f"><span>Qeyd</span><input type="text" id="o-note" value="${esc(H.note || '')}" placeholder="istəyə bağlı — əsaslandırma, sifariş nömrəsi, məsul şəxs"></label>
-    <div style="display:flex;gap:8px"><button class="btn pri" id="o-add">Sətri əlavə et</button><span class="hint" id="o-err"></span></div>`;
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="btn pri" id="o-add">Sətri əlavə et</button>${k === 'out' ? `<button class="btn" id="o-bulk">Qrup üzrə silinmə</button>` : ''}<span class="hint" id="o-err"></span></div>
+    ${k === 'out' ? `<div class="hint" id="o-bulk-hint" style="margin-top:6px"></div>` : ''}`;
 
   // item combobox
   const inp = $('#o-item'), res = $('#o-res');
@@ -2458,11 +2459,24 @@ function rOp() {
   inp.oninput = debounce(search, 160);
   inp.onblur = () => setTimeout(() => res.style.display = 'none', 200);
   // Silinmə üçün təhvil alan həmişə "Sahə üzrə məsul şəxs"
+  // Eyni yerdə «Qrup üzrə silinmə» düyməsi də sinxronlaşdırılır: o, YALNIZ
+  // əməliyyat növü dəqiq «Silinmə» olduqda aktivdir (Mal hərəkətindəki
+  // «Silinmə hesabatının ixracı» düyməsi ilə eyni davranış).
   if (k === 'out' && $('#o-type') && $('#o-p')) {
-    const syncSil = () => { if ($('#o-type').value === 'Silinmə') $('#o-p').value = 'Sahə üzrə məsul şəxs'; };
+    const syncSil = () => {
+      const isWo = $('#o-type').value === 'Silinmə';
+      if (isWo) $('#o-p').value = 'Sahə üzrə məsul şəxs';
+      const b = $('#o-bulk'), h = $('#o-bulk-hint');
+      if (b) b.disabled = !isWo;
+      if (h) h.textContent = isWo
+        ? 'Bir neçə malı seçib bir atomar «Silinmə» sənədi kimi qeyd edin — seçilmiş anbar: ' + ($('#o-wh') ? $('#o-wh').value : '—') + '.'
+        : 'Əvvəlcə əməliyyat növü olaraq «Silinmə» seçin.';
+    };
     $('#o-type').onchange = syncSil;
+    if ($('#o-wh')) $('#o-wh').onchange = syncSil;
     syncSil();
   }
+  if ($('#o-bulk')) $('#o-bulk').onclick = bulkWriteOffOpen;
   $('#o-add').onclick = addLine;
   if (OP.pick) pickItem(OP.pick, true);
   renderLines();
@@ -2588,6 +2602,238 @@ function editLine(i) {
     if (OP.pick) renderItemBalance(OP.pick);
   };
 }
+/* ================= QRUP ÜZRƏ SİLİNMƏ (Məxaric → Silinmə) =================
+   Bir anbar, əl ilə sətir seçimi, qalıqdan artıq silinmənin qadağası, bir
+   atomar sənəd (WORK_QUEUE bənd 3).
+
+   Yeni cədvəl, yeni RPC, yeni SQL və yeni icazə YOXDUR:
+     · mənbə — mövcud IX.bal (operationalMovements() üzərində qurulub, ləğv
+       edilmiş və əks sətirlər onsuz da çıxarılıb);
+     · yazı — mövcud `post_movement_document` RPC-si, TƏK çağırışla, yəni
+       serverdə bir `doc_num` və tam atomarlıq (bir sətir keçməzsə, heç biri
+       yazılmır);
+     · rol və anbar məhdudiyyəti — mövcud `need('mv.add')` + `allowedWarehouses()`,
+       serverdə isə 007-nin öz anbar yoxlaması;
+     · qiymət — `addLine()` ilə eyni qayda (nomenklatura qiyməti), ona görə
+       `Silinmə hesabatının ixracı` bu sənədləri əvvəlki kimi oxuyur;
+     · kod mətn kimi saxlanılır — baş sıfırlar itmir.
+
+   Qaralama (`Sənədin sətirləri`) toxunulmur: qrup silinməsi ayrıca sənəddir,
+   lakin mövcudluq hesablanarkən həmin anbar+mal üzrə gözləyən çıxış sətirləri
+   ÇIXILIR ki, qaralama + qrup silinməsi birlikdə də qalığı aşa bilməsin. */
+const BW = { wh: '', q: '', sel: new Map(), note: '' };
+
+/* Seçilmiş anbarda müsbət qalığı olan, nomenklaturada mövcud olan mövqelər.
+   `avail` = cari qalıq − həmin anbar+mal üzrə gözləyən (hələ qeyd edilməmiş)
+   çıxış/yerdəyişmə sətirləri. */
+function bulkWriteOffRows(wh) {
+  const rows = [];
+  for (const b of IX.bal) {
+    if (b.w !== wh || !(b.q > 1e-9)) continue;
+    const it = DB.itemBy.get(b.c);
+    if (!it) continue;                       // nomenklaturada yoxdur — server onsuz da rədd edər
+    const pending = OP.lines
+      .filter(l => l.kind !== 'in' && l.w === wh && l.c === b.c)
+      .reduce((s, l) => s + l.q, 0);
+    const avail = +(b.q - pending).toFixed(4);
+    if (!(avail > 1e-9)) continue;
+    rows.push({ c: b.c, name: it.name, unit: it.unit, price: it.price || 0, bal: b.q, pending, avail });
+  }
+  return rows.sort((a, b) => String(a.name).localeCompare(String(b.name), 'az'));
+}
+/* Axtarış: kod və ya ad. Kod mətn kimi müqayisə olunur — baş sıfırlar qorunur. */
+function bulkWriteOffFiltered() {
+  const q = String(BW.q || '').trim().toLowerCase();
+  const rows = bulkWriteOffRows(BW.wh);
+  if (!q) return rows;
+  return rows.filter(r => r.c.toLowerCase().indexOf(q) >= 0
+    || String(r.name || '').toLowerCase().indexOf(q) >= 0);
+}
+/* Seçilmiş sətirlərin yekunu. `bad` — qalığı aşan və ya sıfır miqdarlı seçimlər. */
+function bulkWriteOffSummary() {
+  const byCode = new Map(bulkWriteOffRows(BW.wh).map(r => [r.c, r]));
+  let n = 0, qty = 0, amount = 0;
+  const bad = [];
+  for (const [code, q] of BW.sel) {
+    const r = byCode.get(code);
+    if (!r) { bad.push({ code, why: 'mövcud deyil' }); continue; }
+    if (!(q > 0)) { bad.push({ code, why: 'miqdar sıfırdır' }); continue; }
+    if (q > r.avail + 1e-9) { bad.push({ code, why: 'qalıqdan çoxdur' }); continue; }
+    n++; qty += q; amount += q * (r.price || 0);
+  }
+  return { n, qty, amount, bad };
+}
+function bulkWriteOffOpen() {
+  if (!need('mv.add')) return;
+  if (!$('#o-type') || $('#o-type').value !== 'Silinmə') {
+    return toast('Əvvəlcə əməliyyat növü olaraq «Silinmə» seçin', true);
+  }
+  const wh = $('#o-wh') ? $('#o-wh').value : '';
+  if (!wh) return toast('Əvvəlcə anbar seçin', true);
+  // Anbardar yalnız öz anbarında — serverdə də (007) eyni yoxlama var.
+  if (!allowedWarehouses().includes(wh)) {
+    return toast('Bu anbarda əməliyyat aparmağa icazəniz yoxdur', true);
+  }
+  BW.wh = wh;
+  BW.q = '';
+  BW.sel = new Map();
+  BW.note = $('#o-note') ? $('#o-note').value.trim() : '';
+  renderBulkWriteOff();
+}
+function renderBulkWriteOff() {
+  modal('Qrup üzrə silinmə · ' + BW.wh, `
+    <div class="hint" style="margin-bottom:8px">Yalnız <b>${esc(BW.wh)}</b> anbarında müsbət qalığı olan mallar. Seçilmiş sətirlər BİR atomar «Silinmə» sənədi kimi qeyd olunur — bir sətir keçməzsə, heç biri yazılmır. Miqdar mövcud qalıqdan çox ola bilməz.</div>
+    <div class="row" style="grid-template-columns:2fr 1fr">
+      <label class="f"><span>Axtarış (kod və ya ad)</span><input type="text" id="bw-q" value="${esc(BW.q)}" placeholder="məs. kabel və ya 0000123"></label>
+      <label class="f"><span>Anbar</span><input type="text" id="bw-wh" value="${esc(BW.wh)}" readonly></label>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;margin:6px 0">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="bw-all"><span class="hint">Süzülmüş sətirlərin hamısını seç</span></label>
+      <div style="flex:1"></div><span class="hint" id="bw-cnt"></span>
+    </div>
+    <div class="card"><div class="tw" id="bw-list" style="max-height:42vh"></div></div>
+    <label class="f" style="margin-top:10px"><span>Ümumi qeyd (bütün sətirlərə eyni yazılır)</span><input type="text" id="bw-note" value="${esc(BW.note)}" placeholder="məs. yararsız hala düşüb — akt №12"></label>
+    <div class="hint" id="bw-err" style="margin-top:6px"></div>`,
+    `<span class="hint" id="bw-sum" style="margin-right:auto"></span><button class="btn" data-close>İmtina</button><button class="btn pri" id="bw-post" disabled>Sənədi qeyd et</button>`);
+  $('#bw-q').oninput = debounce(() => { BW.q = $('#bw-q').value; renderBulkWriteOffList(); }, 160);
+  $('#bw-note').oninput = () => { BW.note = $('#bw-note').value; };
+  $('#bw-all').onchange = () => {
+    const rows = bulkWriteOffFiltered();
+    if ($('#bw-all').checked) rows.forEach(r => { if (!BW.sel.has(r.c)) BW.sel.set(r.c, r.avail); });
+    else rows.forEach(r => BW.sel.delete(r.c));
+    renderBulkWriteOffList();
+  };
+  $('#bw-post').onclick = bulkWriteOffPost;
+  renderBulkWriteOffList();
+}
+function renderBulkWriteOffList() {
+  const rows = bulkWriteOffFiltered();
+  const byCode = new Map(rows.map(r => [r.c, r]));
+  $('#bw-list').innerHTML = tbl(
+    [{ t: '' }, { t: 'Kod' }, { t: 'Malın adı' }, { t: 'Ölçü' }, { t: 'Mövcud qalıq', r: 1 }, { t: 'Silinən miqdar', r: 1 }, { t: 'Məbləğ', r: 1 }],
+    rows.map(r => {
+      const on = BW.sel.has(r.c);
+      const q = on ? BW.sel.get(r.c) : '';
+      return {
+        c: [`<input type="checkbox" data-bw="${esc(r.c)}" ${on ? 'checked' : ''}>`,
+          `<span class="code">${esc(r.c)}</span>`,
+          `<div class="nm">${esc(r.name)}</div>`,
+          esc(r.unit),
+          nf(r.avail, 2) + (r.pending ? ` <span class="hint">(qaralamada ${esc(nf(r.pending, 2))})</span>` : ''),
+          `<input type="number" data-bwq="${esc(r.c)}" step="0.01" min="0" max="${esc(String(r.avail))}" value="${on ? esc(String(q)) : ''}" ${on ? '' : 'disabled'} style="width:112px;text-align:right">`,
+          `<span data-bwa="${esc(r.c)}">${on && r.price ? money(q * r.price) : '—'}</span>`]
+      };
+    }), { empty: BW.q ? 'Axtarışa uyğun mal tapılmadı.' : 'Bu anbarda müsbət qalığı olan mal yoxdur.' });
+
+  $$('#bw-list [data-bw]').forEach(cb => cb.onchange = () => {
+    const code = cb.dataset.bw, r = byCode.get(code);
+    const qi = $('#bw-list [data-bwq="' + code + '"]');
+    if (!r) return;
+    if (cb.checked) { BW.sel.set(code, r.avail); if (qi) { qi.disabled = false; qi.value = String(r.avail); } }
+    else { BW.sel.delete(code); if (qi) { qi.disabled = true; qi.value = ''; } }
+    updateBulkWriteOffTotals();
+  });
+  // Miqdar dəyişəndə siyahı YENİDƏN qurulmur (fokus itməsin) — yalnız model,
+  // sətir məbləği və yekunlar yenilənir. Qalıqdan artıq dəyər dərhal maksimuma
+  // endirilir; serverdə də eyni qadağa var.
+  $$('#bw-list [data-bwq]').forEach(inp => inp.oninput = () => {
+    const code = inp.dataset.bwq, r = byCode.get(code);
+    if (!r) return;
+    let v = parseFloat(inp.value);
+    if (!(v > 0)) { BW.sel.set(code, 0); updateBulkWriteOffTotals(); return; }
+    if (v > r.avail) { v = r.avail; inp.value = String(v); toast(`${r.name}: maksimum ${nf(r.avail, 2)} ${r.unit} mövcuddur`, true); }
+    BW.sel.set(code, v);
+    updateBulkWriteOffTotals();
+  });
+  updateBulkWriteOffTotals();
+}
+function updateBulkWriteOffTotals() {
+  const rows = bulkWriteOffFiltered();
+  const byCode = new Map(bulkWriteOffRows(BW.wh).map(r => [r.c, r]));
+  // sətir məbləğləri
+  for (const r of rows) {
+    const el = $('#bw-list [data-bwa="' + r.c + '"]');
+    if (!el) continue;
+    const q = BW.sel.has(r.c) ? BW.sel.get(r.c) : 0;
+    el.textContent = (q > 0 && r.price) ? money(q * r.price) : '—';
+  }
+  const s = bulkWriteOffSummary();
+  const all = $('#bw-all');
+  if (all) all.checked = rows.length > 0 && rows.every(r => BW.sel.has(r.c));
+  const cnt = $('#bw-cnt');
+  if (cnt) cnt.textContent = `${nf(rows.length)} mövqe göstərilir · ${nf(BW.sel.size)} seçilib`;
+  const sum = $('#bw-sum');
+  if (sum) {
+    sum.textContent = s.n
+      ? `${nf(s.n)} sətir · ${nf(s.qty, 2)} vahid${s.amount ? ' · ' + money(s.amount) : ''}`
+      : 'Silinəcək mal seçin';
+  }
+  const err = $('#bw-err');
+  if (err) {
+    err.innerHTML = s.bad.length
+      ? `<span style="color:var(--alarm)">${esc(nf(s.bad.length))} sətir hazır deyil: ${esc(s.bad.slice(0, 4).map(b => b.code + ' — ' + b.why).join(', '))}${s.bad.length > 4 ? ' …' : ''}</span>`
+      : '';
+  }
+  const btn = $('#bw-post');
+  if (btn) {
+    btn.disabled = !(s.n > 0) || s.bad.length > 0;
+    btn.textContent = s.n ? nf(s.n) + ' sətri sənəd kimi qeyd et' : 'Sənədi qeyd et';
+  }
+}
+async function bulkWriteOffPost() {
+  if (!need('mv.add')) return;
+  const btn = $('#bw-post'), err = $('#bw-err');
+  const s = bulkWriteOffSummary();
+  if (!s.n || s.bad.length) {
+    if (err) err.innerHTML = '<span style="color:var(--alarm)">Etibarsız seçim var — sənəd yazılmadı.</span>';
+    return;
+  }
+  if (!allowedWarehouses().includes(BW.wh)) {
+    if (err) err.innerHTML = '<span style="color:var(--alarm)">Bu anbarda əməliyyat aparmağa icazəniz yoxdur.</span>';
+    return;
+  }
+  const byCode = new Map(bulkWriteOffRows(BW.wh).map(r => [r.c, r]));
+  const dt = ($('#o-date') && $('#o-date').value) || today();
+  const iv = $('#o-iv') ? $('#o-iv').value.trim() : '';
+  // Silinmə üçün təhvil alan formadakı dəyərdir (syncSil onu «Sahə üzrə məsul
+  // şəxs» kimi sabitləyir) — addLine() ilə eyni mənbə.
+  const pt = ($('#o-p') && $('#o-p').value) || 'Sahə üzrə məsul şəxs';
+  const note = String(BW.note || '').trim();
+  const p_lines = [];
+  for (const [code, q] of BW.sel) {
+    const r = byCode.get(code);
+    if (!r || !(q > 0)) continue;
+    p_lines.push({
+      date: dt, warehouse: BW.wh, code, type: 'Silinmə',
+      in_qty: 0, out_qty: q,
+      partner: pt, channel: '', contract: '', invoice: iv,
+      price: r.price || 0, note
+    });
+  }
+  if (!p_lines.length) {
+    if (err) err.innerHTML = '<span style="color:var(--alarm)">Yazılacaq etibarlı sətir yoxdur.</span>';
+    return;
+  }
+  if (btn) { btn.disabled = true; btn.textContent = 'Yazılır…'; }
+  try {
+    // TƏK çağırış = serverdə TƏK doc_num = atomar sənəd.
+    const { error } = await SB.rpc('post_movement_document', { p_lines });
+    if (error) throw error;
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.textContent = nf(p_lines.length) + ' sətri sənəd kimi qeyd et'; }
+    if (err) err.innerHTML = `<span style="color:var(--alarm)">Sənəd qeyd edilmədi: ${esc((e && e.message) || 'server xətası')} — heç bir sətir yazılmadı.</span>`;
+    return;
+  }
+  const n = p_lines.length;
+  BW.sel = new Map();
+  closeModal();
+  captureOpHeader();
+  if (OP.hdr) OP.hdr.iv = '';                 // yeni sənəd — yeni qaimə nömrəsi
+  await loadFromDB();
+  renderAll();
+  toast(n + ' sətir bir «Silinmə» sənədi kimi qeyd edildi');
+}
+
 $('#op-clear').onclick = () => { OP.lines = []; renderLines(); };
 $('#op-post').onclick = async () => {
   if (!need('mv.add') || !OP.lines.length) return;
