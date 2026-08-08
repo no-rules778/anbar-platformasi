@@ -2371,6 +2371,9 @@ async function refSend(kind, action, id) {
 <script>
 /* ================= OPERATION ENTRY ================= */
 const OP = { kind: 'in', lines: [], pick: null };
+/* Hər tabın icazəli əməliyyat növləri — TƏK mənbə. rOp() forması, sətir
+   validasiyası və sətir redaktoru eyni siyahını oxuyur. */
+const OP_TYPES = { in: ['Satınalma', 'Qaytarma', 'Əvvələ qalıq'], out: ['Sahəyə', 'Silinmə', 'Satış'], mv: ['Yerdəyişmə'] };
 $$('#op-seg button').forEach(b => b.onclick = () => { OP.kind = b.dataset.k; $$('#op-seg button').forEach(x => x.classList.toggle('on', x === b)); rOp(); });
 
 const DEFAULT_CHANNELS = ['Nağd alış', 'Kommersiya şirkəti', 'Köçürmə', 'Sahə üzrə məsul şəxs'];
@@ -2407,7 +2410,7 @@ function rOp() {
   const k = OP.kind;
   captureOpHeader();
   const H = (OP.hdr && OP.hdr.kind === k) ? OP.hdr : {};
-  const typeOpts = k === 'in' ? ['Satınalma', 'Qaytarma', 'Əvvələ qalıq'] : k === 'out' ? ['Sahəyə', 'Silinmə', 'Satış'] : ['Yerdəyişmə'];
+  const typeOpts = k === 'in' ? OP_TYPES.in : k === 'out' ? OP_TYPES.out : OP_TYPES.mv;
   $('#op-form').innerHTML = `
     <div class="row" style="grid-template-columns:1fr 1fr">
       <label class="f"><span>Tarix</span><input type="date" id="o-date" value="${H.d || today()}"></label>
@@ -2501,6 +2504,72 @@ function renderItemBalance(code) {
     tbl([{ t: 'Anbar' }, { t: 'Qalıq', r: 1 }], bal.length ? bal.map(b => ({ c: [esc(b.w), `<b class="${b.q < 0 ? 'neg' : ''}">${nf(b.q, 2)} ${esc(b.unit)}</b>`] })) : [], { empty: 'Bu mal üzrə hələ hərəkət yoxdur.' });
 }
 function prefillOp(code) { OP.pick = code; go('op'); setTimeout(() => pickItem(code), 60); }
+/* ---------- Sətir validasiyası — YEGANƏ mənbə ----------
+   Həm `Sətri əlavə et` (addLine), həm də qaralama sətrinin redaktoru
+   (editLine) EYNİ bu funksiyanı çağırır; ikinci validasiya sistemi YOXDUR.
+
+   Yoxlanılanlar (sıra ilə):
+     1) mal nomenklaturada var;                    code: 'item'
+     2) miqdar > 0;                                code: 'qty'
+     3) növ həmin tab üçün icazəlidir;             code: 'type'
+     4) marşrut/anbar hüquqları:                   code: 'route' | 'same-wh' | 'wh'
+        · Yerdəyişmə: mənbə mənbə-qrupunda (Astara/Harmony paylaşır),
+          təyinat serverin verdiyi `DB.transferDests` siyahısında, mənbə ≠ təyinat;
+        · digər növlər: anbar `allowedWarehouses()` daxilində (anbardar yalnız öz anbarı);
+     5) «Əvvələ qalıq» + «Anbar qalığı» yalnız Admin;  code: 'initbal'
+     6) mənfi qalıq qadağası (yalnız stok azaldan sətirlər): code: 'stock'
+        mövcudluq = anbar qalığı − eyni anbar+mal üzrə DİGƏR gözləyən çıxış/
+        yerdəyişmə sətirləri. `opts.skipIndex` redaktə olunan sətri bu
+        hesablamadan çıxarır. Qalıq <= 0 → rədd; miqdar > qalıq → `q` mövcud
+        maksimuma endirilir və `warn` qaytarılır.
+
+   Qaytarır: { ok:false, code, error } və ya { ok:true, q, warn, item }.
+   Mətnlərin sonluğu çağırana aiddir — hər iki yol öz kontekst sonluğunu əlavə edir. */
+function validateOpLine(line, opts) {
+  opts = opts || {};
+  const skip = (opts.skipIndex == null) ? -1 : opts.skipIndex;
+  const it = DB.itemBy.get(line.c);
+  if (!it) return { ok: false, code: 'item', error: 'Əvvəlcə malı seçin.' };
+  if (!(line.q > 0)) return { ok: false, code: 'qty', error: 'Miqdar sıfırdan böyük olmalıdır.' };
+  if (!(OP_TYPES[line.kind] || []).includes(line.t)) {
+    return { ok: false, code: 'type', error: `Bu tab üçün etibarsız əməliyyat növü: "${line.t}".` };
+  }
+  if (line.kind === 'mv') {
+    if (!sourceWarehouses().includes(line.w)) {
+      return { ok: false, code: 'route', error: `"${line.w}" anbarından yerdəyişmə etməyə icazəniz yoxdur.` };
+    }
+    if (!(DB.transferDests || DB.whs).includes(line.w2)) {
+      return { ok: false, code: 'route', error: `"${line.w2}" anbarına yerdəyişmə etməyə icazəniz yoxdur.` };
+    }
+    if (line.w === line.w2) {
+      return { ok: false, code: 'same-wh', error: 'Mənbə və təyinat anbarı eyni ola bilməz.' };
+    }
+  } else if (!allowedWarehouses().includes(line.w)) {
+    return { ok: false, code: 'wh', error: `"${line.w}" anbarında əməliyyat aparmağa icazəniz yoxdur.` };
+  }
+  // Tarixi ilkin qalıq («Əvvələ qalıq» + «Anbar qalığı») yalnız Admin üçündür.
+  // Server də bunu rədd edir (sql/016) — bu yoxlama sətir sənədə heç düşməsin deyə.
+  if (!isAdmin() && isInitialBalanceLine(line.t, line.p, line.ch)) {
+    return { ok: false, code: 'initbal', error: INIT_BAL_ADMIN_ONLY_MSG };
+  }
+  let q = line.q, warn = '';
+  if (line.kind !== 'in') {
+    const b = IX.bal.find(x => x.w === line.w && x.c === line.c);
+    const have = b ? b.q : 0;
+    const pending = OP.lines
+      .filter((x, j) => j !== skip && x.c === line.c && x.w === line.w && x.kind !== 'in')
+      .reduce((s, x) => s + x.q, 0);
+    const avail = have - pending;
+    if (avail <= 0) {
+      return { ok: false, code: 'stock', error: `${line.w} anbarında "${it.name}" üzrə mövcud qalıq yoxdur` };
+    }
+    if (q > avail) {
+      q = avail;
+      warn = `${line.w} anbarında maksimum ${nf(avail, 2)} ${it.unit} mövcuddur — miqdar bu maksimuma endirildi.`;
+    }
+  }
+  return { ok: true, q, warn, item: it };
+}
 function addLine() {
   const err = $('#o-err'); err.textContent = '';
   const it = DB.itemBy.get(OP.pick);
@@ -2517,31 +2586,16 @@ function addLine() {
     ct: $('#o-ct') ? $('#o-ct').value.trim() : '', iv: $('#o-iv') ? $('#o-iv').value.trim() : '',
     note: $('#o-note').value.trim()
   };
-  if (OP.kind === 'mv' && line.w === line.w2) return err.textContent = 'Mənbə və təyinat anbarı eyni ola bilməz.';
-  // Tarixi ilkin qalıq («Əvvələ qalıq» + «Anbar qalığı») yalnız Admin üçündür.
-  // Server də bunu rədd edir (sql/016) — bu yoxlama sətri sənədə heç düşməsin deyə.
-  if (!isAdmin() && isInitialBalanceLine(line.t, line.p, line.ch)) {
-    return err.innerHTML = `<span style="color:var(--alarm)">${esc(INIT_BAL_ADMIN_ONLY_MSG)} Sətir əlavə edilmədi.</span>`;
+  // Bütün yoxlama paylaşılan validateOpLine()-dadır; burada yalnız mövcud
+  // mesaj formatı saxlanılır (mətnlər dəyişməyib).
+  const v = validateOpLine(line, {});
+  if (!v.ok) {
+    if (v.code === 'stock') return err.innerHTML = `<span style="color:var(--alarm)">${esc(v.error)} — sətir əlavə edilmədi.</span>`;
+    if (v.code === 'initbal') return err.innerHTML = `<span style="color:var(--alarm)">${esc(v.error)} Sətir əlavə edilmədi.</span>`;
+    return err.textContent = v.error;
   }
-  // Stok azaldan əməliyyatlar (Məxaric və Yerdəyişmə) üçün sətir-səviyyəli
-  // validasiya ƏLAVƏ ANINDA aparılır (əvvəlki eyni anbar+mal sətirləri nəzərə
-  // alınmaqla mövcud qalıq hesablanır):
-  //   · mövcud qalıq <= 0  → sətir ƏLAVƏ EDİLMİR, malın həmin anbarda olmadığı bildirilir;
-  //   · tələb > qalıq       → miqdar dərhal mövcud maksimuma endirilir və sətir belə əlavə olunur;
-  //   · tələb <= qalıq      → dəyişmədən əlavə olunur.
-  if (OP.kind !== 'in') {
-    const b = IX.bal.find(x => x.w === w && x.c === it.code);
-    const have = b ? b.q : 0;
-    const pending = OP.lines.filter(l => l.c === it.code && l.w === w && l.kind !== 'in').reduce((s, l) => s + l.q, 0);
-    const avail = have - pending;
-    if (avail <= 0) {
-      return err.innerHTML = `<span style="color:var(--alarm)">${esc(w)} anbarında "${esc(it.name)}" üzrə mövcud qalıq yoxdur — sətir əlavə edilmədi.</span>`;
-    }
-    if (qty > avail) {
-      line.q = avail;
-      err.innerHTML = `<span style="color:var(--alarm)">${esc(w)} anbarında maksimum ${nf(avail, 2)} ${esc(it.unit)} mövcuddur — miqdar bu maksimuma endirildi.</span>`;
-    }
-  }
+  line.q = v.q;
+  if (v.warn) err.innerHTML = `<span style="color:var(--alarm)">${esc(v.warn)}</span>`;
   OP.lines.push(line);
   OP.pick = null;
   $('#o-item').value = ''; $('#o-qty').value = ''; $('#o-unit').value = ''; $('#o-itemsel').textContent = 'Seçilməyib';
@@ -2561,46 +2615,163 @@ function renderLines() {
     })), { empty: 'Sətir əlavə edin — sənəd bir neçə maldan ibarət ola bilər.' });
   $('#op-post').disabled = !L.length || !can('mv.add');
 }
-/* Gözləyən sənəd sətrinin YALNIZ miqdarını redaktə edir (mal, anbar, təyinat,
-   növ, tarix, kontragent, qiymət, qeyd DƏYİŞMİR). Stok azaldan sətirlər üçün
-   mövcudluq = mənbə anbar qalığı − eyni anbar+mal üzrə DİGƏR gözləyən çıxış/
-   yerdəyişmə sətirləri (redaktə olunan sətir istisna). Artıq miqdar dərhal
-   mövcud maksimuma kəsilir; qalıq <= 0 olduqda redaktə rədd edilir və əvvəlki
-   etibarlı miqdar saxlanılır. Mədaxil qalıqla məhdudlaşdırılmır. */
+/* ================= QARALAMA SƏTRİNİN GENİŞ REDAKTƏSİ (WORK_QUEUE bənd 9) ==========
+   `Sənədin sətirləri` blokundakı hər QEYD EDİLMƏMİŞ sətir üçün yalnız miqdar
+   deyil, həmin tabda mənası olan BÜTÜN sahələr dəyişdirilə bilər: mal/kod,
+   anbar və ya marşrut, əməliyyat növü, miqdar, ölçü vahidi (maldan gəlir),
+   vahid qiyməti, kontragent/layihə, alınma kanalı, qaimə №, müqavilə № və Qeyd.
+
+   Prinsiplər:
+     · Sahələr və seçim siyahıları formanın özündən götürülür — `OP_TYPES`,
+       `allowedWarehouses()`, `sourceWarehouses()`, `DB.transferDests`,
+       `partnerOptions()`, `channelOptions()`. Yeni sahə uydurulmur.
+     · Tabların fərqi qorunur: `w2` yalnız Yerdəyişmədə, kontragent/layihə
+       yalnız qeyri-yerdəyişmədə, kanal + müqavilə yalnız Mədaxildə, qiymət
+       Yerdəyişmədə yoxdur (transfer RPC-si qiymət qəbul etmir). Tabın özü
+       (kind) dəyişmir — istiqamət dəyişikliyi ayrı sətir deməkdir.
+     · Validasiya TAM olaraq paylaşılan `validateOpLine()`-dır (mənfi qalıq,
+       qalıqdan artıq silinmə, anbardar hüququ, marşrut qaydaları,
+       Astara/Harmony istisnası, «Əvvələ qalıq» + «Anbar qalığı» yalnız Admin).
+       İkinci validasiya sistemi YOXDUR.
+     · Redaktə İŞÇİ NÜSXƏ üzərində gedir: `EL.d`. Orijinal sətir yalnız uğurlu
+       `Yadda saxla`-dan sonra əvəzlənir, ona görə `İmtina` heç nəyi dəyişmir və
+       digər qaralama sətirlərinə toxunulmur.
+     · Etibarsız redaktə redaktorda QALIR və səbəbi göstərilir — səssizcə
+       atılmır və əvvəlki dəyər itmir.
+     · Supabase-ə heç nə yazılmır: dəyişiklik yalnız `OP.lines` massivindədir,
+       real hərəkət yalnız `Sənədi qeyd et` zamanı yaranır.
+     · Artıq QEYD EDİLMİŞ hərəkətlər bu yolla redaktə OLUNMUR — onlar üçün
+       ləğv + düzəliş sənədi tələb olunur (editMov / documentCancelView). */
+const EL = { i: -1, d: null };
+/* Cari dəyər siyahıda yoxdursa (məs. Sorğuçalarda sonradan gizlədilib) onu
+   itirmirik — siyahıya əlavə edirik. unitOptionsFor() ilə eyni yanaşma. */
+function optsWith(list, cur) {
+  return (cur && list.indexOf(cur) < 0) ? list.concat([cur]) : list;
+}
 function editLine(i) {
   const l = OP.lines[i];
   if (!l) return;
-  modal('Miqdarı redaktə et',
-    `<div style="font-weight:650;margin-bottom:4px">${esc(l.name)} <span class="code">${esc(l.c)}</span></div>
-     <div class="hint" style="margin-bottom:10px">${TYPE_TAG(l.t)} ${esc(l.kind === 'mv' ? l.w + ' → ' + l.w2 : (l.kind === 'in' ? l.p + ' → ' + l.w : l.w + ' → ' + l.p))}</div>
-     <label class="f"><span>Miqdar (${esc(l.unit)})</span><input type="number" id="edit-q" step="0.01" min="0" value="${l.q}"></label>
-     <div class="hint" id="edit-err" style="margin-top:6px"></div>`,
-    `<button class="btn" data-close>İmtina</button><button class="btn pri" id="edit-save">Yadda saxla</button>`);
-  setTimeout(() => { const inp = $('#edit-q'); if (inp) { inp.focus(); inp.select(); } }, 30);
-  $('#edit-save').onclick = () => {
-    const err = $('#edit-err');
-    const q = parseFloat($('#edit-q').value);
-    if (!(q > 0)) { err.innerHTML = '<span style="color:var(--alarm)">Miqdar sıfırdan böyük olmalıdır.</span>'; return; }
-    let nq = q;
-    if (l.kind !== 'in') {
-      const b = IX.bal.find(x => x.w === l.w && x.c === l.c);
-      const have = b ? b.q : 0;
-      const pending = OP.lines.filter((x, j) => j !== i && x.c === l.c && x.w === l.w && x.kind !== 'in').reduce((s, x) => s + x.q, 0);
-      const avail = have - pending;
-      if (avail <= 0) {
-        err.innerHTML = `<span style="color:var(--alarm)">${esc(l.w)} anbarında "${esc(l.name)}" üzrə mövcud qalıq yoxdur — əvvəlki miqdar (${nf(l.q, 2)} ${esc(l.unit)}) saxlanıldı.</span>`;
-        return;
-      }
-      if (nq > avail) {
-        nq = avail;
-        toast(`${l.w} anbarında maksimum ${nf(avail, 2)} ${l.unit} mövcuddur — miqdar bu maksimuma endirildi.`, true);
-      }
-    }
-    l.q = nq;
-    closeModal();
-    renderLines();
-    if (OP.pick) renderItemBalance(OP.pick);
+  if (!can('mv.add')) return need('mv.add');
+  EL.i = i;
+  EL.d = Object.assign({}, l);   // işçi nüsxə — orijinal toxunulmur
+  renderEditLine('');
+}
+function renderEditLine(msg) {
+  const d = EL.d, k = d.kind;
+  const types = OP_TYPES[k] || [];
+  const whList = optsWith(k === 'mv' ? sourceWarehouses() : allowedWarehouses(), d.w);
+  const dstList = optsWith((DB.transferDests || DB.whs).slice(), d.w2);
+  const pList = optsWith(partnerOptions(k), d.p);
+  const chList = optsWith(channelOptions(), d.ch);
+  const sel = (v, cur) => `<option ${v === cur ? 'selected' : ''}>${esc(v)}</option>`;
+  modal('Sətri redaktə et · ' + (EL.i + 1) + '-ci sətir', `
+    <div class="hint" style="margin-bottom:8px">Bu sətir hələ qeyd edilməyib. Dəyişiklik yalnız qaralamaya tətbiq olunur — Supabase-ə heç nə yazılmır. Real hərəkət yalnız «Sənədi qeyd et» ilə yaranır.</div>
+    <div class="row" style="grid-template-columns:1fr 1fr">
+      <label class="f"><span>Əməliyyatın növü</span>${types.length > 1
+        ? `<select id="el-t">${types.map(t => sel(t, d.t)).join('')}</select>`
+        : `<input type="text" id="el-t" value="${esc(d.t)}" readonly>`}</label>
+      ${k === 'mv'
+        ? `<label class="f"><span>Haradan (anbar)</span><select id="el-w">${whList.map(w => sel(w, d.w)).join('')}</select></label>`
+        : `<label class="f"><span>Anbar</span><select id="el-w">${whList.map(w => sel(w, d.w)).join('')}</select></label>`}
+    </div>
+    ${k === 'mv'
+      ? `<div class="row" style="grid-template-columns:1fr"><label class="f"><span>Hara (anbar)</span><select id="el-w2">${dstList.map(w => sel(w, d.w2)).join('')}</select><span class="hint">Kontragent sahəsi yerdəyişmədə təyinat anbarından qurulur.</span></label></div>`
+      : `<div class="row" style="grid-template-columns:1fr"><label class="f"><span>${k === 'in' ? 'Kontragent' : 'Təhvil alan / layihə'}</span><select id="el-p">${pList.map(p => sel(p, d.p)).join('')}</select></label></div>`}
+    <label class="f"><span>Mal (ad və ya kod yazın)</span>
+      <div style="position:relative"><input type="text" id="el-item" autocomplete="off" placeholder="dəyişmək üçün yazın — məs. kabel, 0000123…">
+      <div id="el-res" style="position:absolute;left:0;right:0;top:100%;background:#fff;border:1px solid var(--line);border-radius:0 0 4px 4px;max-height:200px;overflow:auto;z-index:20;display:none"></div></div>
+      <span class="hint" id="el-itemsel">Seçilib: <b>${esc(d.name)}</b> · <span class="code">${esc(d.c)}</span></span></label>
+    <div class="row" style="grid-template-columns:1fr 1fr ${k === 'mv' ? '' : '1fr'}">
+      <label class="f"><span>Miqdar</span><input type="number" id="el-q" step="0.01" min="0" value="${esc(String(d.q))}"></label>
+      <label class="f"><span>Ölçü vahidi</span><input type="text" id="el-unit" value="${esc(d.unit)}" readonly><span class="hint">Nomenklaturadan gəlir.</span></label>
+      ${k === 'mv' ? '' : `<label class="f"><span>Vahidin qiyməti (₼)</span><input type="number" id="el-pr" step="0.01" min="0" value="${d.pr ? esc(String(d.pr)) : ''}" placeholder="0.00"></label>`}
+    </div>
+    ${k === 'in' ? `<div class="row" style="grid-template-columns:1fr 1fr">
+      <label class="f"><span>Alınma kanalı</span><select id="el-ch"><option value="">—</option>${chList.map(c => sel(c, d.ch)).join('')}</select></label>
+      <label class="f"><span>Müqavilə №</span><input type="text" id="el-ct" value="${esc(d.ct || '')}" placeholder="məs. №06/2026"></label></div>` : ''}
+    <div class="row" style="grid-template-columns:1fr">
+      <label class="f"><span>Qaimə №</span><input type="text" id="el-iv" value="${esc(d.iv || '')}" placeholder="məs. 83951"><span class="hint">Mətn kimi saxlanılır — baş sıfırlar itmir.</span></label>
+    </div>
+    <label class="f"><span>Qeyd</span><input type="text" id="el-note" value="${esc(d.note || '')}" placeholder="istəyə bağlı — əsaslandırma, sifariş nömrəsi, məsul şəxs"></label>
+    <div class="hint" id="el-err" style="margin-top:6px">${msg || ''}</div>`,
+    `<button class="btn" id="el-cancel">İmtina</button><div style="flex:1"></div><button class="btn pri" id="el-save">Yadda saxla</button>`);
+
+  // Mal axtarışı — yalnız seçim vasitəsidir; seçilən kod işçi nüsxəyə yazılır,
+  // ad/ölçü/qiymət nomenklaturadan yenilənir. Validasiya save zamanı olur.
+  const inp = $('#el-item'), res = $('#el-res');
+  const search = () => {
+    const q = inp.value.trim().toLowerCase();
+    if (q.length < 2) { res.style.display = 'none'; return; }
+    const hit = DB.items.filter(x => x.name.toLowerCase().indexOf(q) >= 0 || x.code.indexOf(q) >= 0).slice(0, 12);
+    res.innerHTML = hit.length
+      ? hit.map(x => `<div data-c="${esc(x.code)}" style="padding:7px 9px;cursor:pointer;border-bottom:1px solid var(--line-2)"><b>${esc(x.name)}</b><div class="hint"><span class="code">${esc(x.code)}</span> · ${esc(x.unit)}${x.price ? ' · ' + nf(x.price, 2) + ' ₼' : ''}</div></div>`).join('')
+      : '<div style="padding:9px" class="hint">Tapılmadı.</div>';
+    res.style.display = 'block';
+    $$('#el-res [data-c]').forEach(el => el.onclick = () => {
+      const it = DB.itemBy.get(el.dataset.c);
+      if (!it) return;
+      captureEditLine();                       // digər sahələrin cari dəyəri itməsin
+      EL.d.c = it.code; EL.d.name = it.name; EL.d.unit = it.unit;
+      if (!EL.d.pr) EL.d.pr = it.price || 0;   // qiymət əl ilə verilibsə saxlanılır
+      renderEditLine('');
+    });
   };
+  inp.oninput = debounce(search, 160);
+  inp.onblur = () => setTimeout(() => { if (res) res.style.display = 'none'; }, 200);
+
+  // Silinmə üçün təhvil alan həmişə «Sahə üzrə məsul şəxs» — forma ilə eyni qayda.
+  if (k === 'out' && $('#el-t') && $('#el-p')) {
+    $('#el-t').onchange = () => { if ($('#el-t').value === 'Silinmə') $('#el-p').value = 'Sahə üzrə məsul şəxs'; };
+  }
+  $('#el-cancel').onclick = () => { EL.i = -1; EL.d = null; closeModal(); };
+  $('#el-save').onclick = saveEditLine;
+  setTimeout(() => { const q = $('#el-q'); if (q) { q.focus(); q.select(); } }, 30);
+}
+/* Ekrandakı dəyərləri işçi nüsxəyə yığır (captureOpHeader() ilə eyni üsul). */
+function captureEditLine() {
+  const d = EL.d; if (!d || !$('#el-q')) return;
+  const k = d.kind;
+  d.t = $('#el-t') ? $('#el-t').value : d.t;
+  d.w = $('#el-w') ? $('#el-w').value : d.w;
+  if (k === 'mv') {
+    d.w2 = $('#el-w2') ? $('#el-w2').value : d.w2;
+    d.p = d.w2;                                  // yerdəyişmədə kontragent = təyinat anbarı
+  } else {
+    d.p = $('#el-p') ? $('#el-p').value : d.p;
+    d.w2 = '';
+  }
+  d.q = parseFloat($('#el-q').value);
+  if ($('#el-pr')) d.pr = parseFloat($('#el-pr').value) || 0;
+  if ($('#el-ch')) d.ch = $('#el-ch').value.trim();
+  if ($('#el-ct')) d.ct = $('#el-ct').value.trim();
+  d.iv = $('#el-iv') ? $('#el-iv').value.trim() : d.iv;
+  d.note = $('#el-note') ? $('#el-note').value.trim() : d.note;
+}
+function saveEditLine() {
+  const i = EL.i;
+  if (i < 0 || !OP.lines[i] || !EL.d) return;
+  captureEditLine();
+  const d = EL.d;
+  const err = $('#el-err');
+  const fail = m => { if (err) err.innerHTML = `<span style="color:var(--alarm)">${esc(m)}</span>`; };
+  if (!(d.q > 0)) return fail('Miqdar sıfırdan böyük olmalıdır — dəyişiklik saxlanılmadı.');
+  // Paylaşılan validasiya. skipIndex: redaktə olunan sətir öz mövcudluq
+  // hesabından çıxarılır, digər qaralama sətirləri isə nəzərə alınır.
+  const v = validateOpLine(d, { skipIndex: i });
+  if (!v.ok) {
+    if (v.code === 'stock') return fail(`${v.error} — dəyişiklik saxlanılmadı.`);
+    return fail(v.error + ' Dəyişiklik saxlanılmadı.');
+  }
+  d.q = v.q;
+  d.name = v.item.name;
+  d.unit = v.item.unit;
+  OP.lines[i] = Object.assign({}, d);           // yalnız İNDİ orijinal əvəzlənir
+  EL.i = -1; EL.d = null;
+  closeModal();
+  renderLines();                                 // sətir və sənəd yekunları dərhal yenilənir
+  if (OP.pick) renderItemBalance(OP.pick);
+  if (v.warn) toast(v.warn, true);
+  else toast('Sətir yeniləndi');
 }
 /* ================= QRUP ÜZRƏ SİLİNMƏ (Məxaric → Silinmə) =================
    Bir anbar, əl ilə sətir seçimi, qalıqdan artıq silinmənin qadağası, bir
