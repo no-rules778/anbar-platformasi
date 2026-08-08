@@ -1605,6 +1605,19 @@ const _INIT_BAL_NORMS = new Set(INIT_BAL_PARTNERS.map(_normPartner));
    (no ğ/q tolerance). Partner allows the legacy ğ/q variants. */
 function _isInitBalType(t) { return _normBase(t) === _INIT_BAL_TYPE_NORM; }
 function _isInitBalPartner(p) { return _INIT_BAL_NORMS.has(_normPartner(p)); }
+/* ---------- Tarixi ilkin qalıq — yalnız Admin (CLAUDE.md §11, WORK_QUEUE 10) ----------
+   «Əvvələ qalıq» + «Anbar qalığı» kombinasiyası inventarizasiyadan əvvəlki tarixi
+   qalığı ifadə edir: bu sətir yoxdan qalıq yaradır, ona görə yalnız aktiv Admin
+   yarada bilər. Marker həm kontragent, həm də alınma kanalı sahəsində sayılır —
+   eyni məna, iki sahə (kanal siyahısında «Əvvələ anbar qalığı» dəyəri var).
+   Bu YALNIZ rahatlıq üçün UI yoxlamasıdır; məcburi qadağa serverdədir
+   (sql/016_initial_balance_admin_only.sql — movements üzərində BEFORE INSERT).
+   «Əvvələ qalıq» adi kontragentlə məhdudlaşdırılMIR — qayda yalnız bu
+   kombinasiyaya aiddir. */
+function isInitialBalanceLine(type, partner, channel) {
+  return _isInitBalType(type) && (_isInitBalPartner(partner) || _isInitBalPartner(channel));
+}
+const INIT_BAL_ADMIN_ONLY_MSG = '«Əvvələ qalıq» + «Anbar qalığı» tarixi ilkin qalığı yalnız Admin yarada bilər.';
 function getInitialBalanceRows() {
   const agg = new Map();                         // "wh|code" -> opening layer
   const lots = new Map();                        // FIFO provenance lots
@@ -2491,6 +2504,11 @@ function addLine() {
     note: $('#o-note').value.trim()
   };
   if (OP.kind === 'mv' && line.w === line.w2) return err.textContent = 'Mənbə və təyinat anbarı eyni ola bilməz.';
+  // Tarixi ilkin qalıq («Əvvələ qalıq» + «Anbar qalığı») yalnız Admin üçündür.
+  // Server də bunu rədd edir (sql/016) — bu yoxlama sətri sənədə heç düşməsin deyə.
+  if (!isAdmin() && isInitialBalanceLine(line.t, line.p, line.ch)) {
+    return err.innerHTML = `<span style="color:var(--alarm)">${esc(INIT_BAL_ADMIN_ONLY_MSG)} Sətir əlavə edilmədi.</span>`;
+  }
   // Stok azaldan əməliyyatlar (Məxaric və Yerdəyişmə) üçün sətir-səviyyəli
   // validasiya ƏLAVƏ ANINDA aparılır (əvvəlki eyni anbar+mal sətirləri nəzərə
   // alınmaqla mövcud qalıq hesablanır):
@@ -2573,6 +2591,16 @@ function editLine(i) {
 $('#op-clear').onclick = () => { OP.lines = []; renderLines(); };
 $('#op-post').onclick = async () => {
   if (!need('mv.add') || !OP.lines.length) return;
+
+  // ---- Tarixi ilkin qalıq yalnız Admin ----
+  // addLine() belə sətrin əlavə olunmasına icazə vermir; bu ikinci yoxlama rol
+  // sessiya ərzində dəyişdiyi (və ya sətir başqa yolla düşdüyü) hal üçündür.
+  // Sənəd tam rədd edilir — sətir səssizcə atılmır, çünki bu icazə pozuntusudur,
+  // qalıq yarışı deyil. Yekun məcburi qadağa serverdədir (sql/016).
+  if (!isAdmin() && OP.lines.some(l => isInitialBalanceLine(l.t, l.p, l.ch))) {
+    toast(INIT_BAL_ADMIN_ONLY_MSG + ' Sənəd qeyd edilmədi.', true);
+    return;
+  }
 
   // ---- Minimal təsdiq-zamanı təhlükəsizlik yoxlaması (yalnız köhnəlmiş/race
   // halları üçün) ----
