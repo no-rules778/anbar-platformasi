@@ -471,7 +471,7 @@ label.f>span{display:block;font-size:10.5px;text-transform:uppercase;letter-spac
             <div class="kpis" id="azp-kpi-azpetrol"></div>
             <div class="card" style="margin-top:12px">
               <header><h3>Kartların hesabatı</h3><div class="sp"></div>
-                <button class="btn sm" id="azp-newcard-azpetrol">+ Kart</button>
+                <button class="btn sm" id="azp-newcard-azpetrol">+ Kart</button><button class="btn sm" id="azp-rep-azpetrol">Hesabat</button>
                 <button class="btn sm" id="azp-newmov-azpetrol">+ Əməliyyat</button>
                 <button class="btn sm" id="azp-imp-azpetrol">⬆ Excel idxalı</button>
                 <button class="btn sm" id="azp-exp-azpetrol">⬇ Excel ixracı</button>
@@ -507,7 +507,7 @@ label.f>span{display:block;font-size:10.5px;text-transform:uppercase;letter-spac
             <div class="kpis" id="azp-kpi-araz"></div>
             <div class="card" style="margin-top:12px">
               <header><h3>Kartların hesabatı</h3><span class="tag t-az">ƏDV DAXİL</span><div class="sp"></div>
-                <button class="btn sm" id="azp-newcard-araz">+ Kart</button>
+                <button class="btn sm" id="azp-newcard-araz">+ Kart</button><button class="btn sm" id="azp-rep-araz">Hesabat</button>
                 <button class="btn sm" id="azp-newmov-araz">+ Əməliyyat</button>
                 <button class="btn sm" id="azp-imp-araz">⬆ Excel idxalı</button>
                 <button class="btn sm" id="azp-exp-araz">⬇ Excel ixracı</button>
@@ -5731,6 +5731,37 @@ function azpDate(v) {
   return '';
 }
 
+/* ---------- tarix süzgəci — BÜTÜN yerlərdə eyni məntiq ----------
+   Canlı problem: kart, növ və tarix aralığı seçiləndə «Əməliyyat yoxdur»
+   çıxırdı. İki əsl səbəb var idi, hər ikisi burada həll olunur:
+
+   1) Azpetrol mənbə cədvəlində TARİX SÜTUNU YOXDUR (sql/020 şərhi), ona görə
+      idxal olunmuş və əl ilə tarixsiz yazılmış sətirlərdə `op_date` NULL-dur.
+      Köhnə süzgəc `!r.op_date` şərtinə görə hər hansı tarix həddi qoyulan kimi
+      BÜTÜN tarixsiz sətirləri sükutla atırdı — nəticədə siyahı boşalırdı.
+      İndi də tarixsiz sətir dövrə düşmür (dövr hesabatı yalnış olmasın), lakin
+      neçə sətrin bu səbəbdən gizləndiyi istifadəçiyə AÇIQ bildirilir.
+   2) Müqayisə xam mətn üzərində aparılırdı. Dəyər `2026-08-08T00:00:00+04:00`
+      kimi gəlsəydi, `> '2026-08-08'` doğru olur və SON TARİX aralığa
+      düşmürdü. İndi hər iki tərəf azpDate() ilə normallaşdırılır — həm ISO,
+      həm DD.MM.YYYY, həm də Excel seriya nömrəsi eyni açara gəlir və
+      başlanğıc/son tarix HƏR İKİSİ daxildir. Boş hədd = məhdudiyyət yoxdur. */
+function azpDayKey(v) { return azpDate(v); }
+function azpInRange(rowDate, d1, d2) {
+  const a = azpDate(d1), b = azpDate(d2);
+  if (!a && !b) return true;                 // hədd yoxdursa hər şey keçir
+  const d = azpDayKey(rowDate);
+  if (!d) return false;                      // tarixsiz sətir dövrə aid edilə bilməz
+  if (a && d < a) return false;              // başlanğıc DAXİLDİR
+  if (b && d > b) return false;              // son tarix DAXİLDİR
+  return true;
+}
+/* Tarix həddi aktivdirsə, yalnız tarixsizliyə görə kənarda qalan sətirlərin sayı */
+function azpUndatedHidden(rows, d1, d2) {
+  if (!azpDate(d1) && !azpDate(d2)) return 0;
+  return rows.filter(r => !azpDayKey(r.op_date)).length;
+}
+
 /* ---------- məlumatın yüklənməsi (yalnız azp_* cədvəlləri) ---------- */
 async function azpLoad(m, force) {
   azpMod(m);
@@ -5848,7 +5879,7 @@ function azpRenderCards(m) {
   el.innerHTML = '<table><thead><tr>' +
     '<th>Kart №</th><th>' + esc(L.cardHead) + '</th><th>Layihə</th>' +
     '<th class="r">Mədaxil</th><th class="r">' + esc(L.out) + '</th><th class="r">Kart balansı</th>' +
-    '<th class="r">Əməliyyat</th><th>Status</th>' + (admin ? '<th></th>' : '') +
+    '<th class="r">Əməliyyat</th><th>Status</th><th></th>' +
     '</tr></thead><tbody>' +
     st.cards.map(c =>
       '<tr><td class="code">' + esc(c.card_no) + '</td>' +
@@ -5859,14 +5890,30 @@ function azpRenderCards(m) {
       '<td class="num' + (azpN(c.balance) < 0 ? ' neg' : '') + '">' + azpMoney(c.balance) + '</td>' +
       '<td class="num">' + nf(c.mov_count) + '</td>' +
       '<td>' + (c.active ? '<span class="tag t-az">aktiv</span>' : '<span class="tag t-mut">deaktiv</span>') + '</td>' +
-      (admin ? '<td class="r"><button class="btn sm" onclick="azpCardModal(\'' + m + '\',\'' + esc(c.card_id) + '\')">Redaktə</button></td>' : '') +
-      '</tr>').join('') +
+      /* Sürətli əməliyyatlar — modul, kart və növ ƏVVƏLCƏDƏN seçilmiş halda
+         eyni yazı yolunu (azpMovModal → azp_post_movements) açır. İkinci biznes
+         məntiqi yaradılmır. Tarixçə hər oxuya bilən üçün açıqdır. */
+      '<td class="r" style="white-space:nowrap">' +
+      (admin && c.active
+        ? '<button class="btn sm" onclick="azpQuick(\'' + m + '\',\'' + esc(c.card_id) + '\',\'medaxil\')">Mədaxil</button> ' +
+          '<button class="btn sm" onclick="azpQuick(\'' + m + '\',\'' + esc(c.card_id) + '\',\'mexaric\')">' + esc(L.out) + '</button> '
+        : '') +
+      '<button class="btn sm" onclick="azpCardHistory(\'' + m + '\',\'' + esc(c.card_id) + '\')">Tarixçə</button>' +
+      (admin ? ' <button class="btn sm" onclick="azpCardModal(\'' + m + '\',\'' + esc(c.card_id) + '\')">Redaktə</button>' : '') +
+      '</td></tr>').join('') +
     '</tbody><tfoot><tr>' +
     '<td colspan="3"><b>' + esc(L.total) + '</b></td>' +
     '<td class="num"><b>' + azpMoney(tot.i) + '</b></td>' +
     '<td class="num"><b>' + azpMoney(tot.o) + '</b></td>' +
     '<td class="num"><b>' + azpMoney(azpR2(tot.b)) + '</b></td>' +
-    '<td colspan="' + (admin ? 3 : 2) + '"></td></tr></tfoot></table>';
+    '<td colspan="3"></td></tr></tfoot></table>';
+}
+
+/* Sürətli əməliyyat: mövcud modal, hazır seçilmiş kart və növlə */
+function azpQuick(m, cardId, kind) {
+  azpMod(m);
+  if (!azpNeedAdmin()) return;
+  azpMovModal(m, { card: cardId, kind: kind });
 }
 
 /* ---------- əməliyyat filtrləri ---------- */
@@ -5879,15 +5926,19 @@ function azpRenderCardFilter(m) {
   if (sel.value !== cur) { AZP.filter[m].card = ''; sel.value = ''; }
 }
 
-function azpMovRows(m) {
-  const st = AZP.data[m], f = AZP.filter[m];
-  const byCard = new Map(st.cards.map(c => [c.card_id, c]));
+/* Paylaşılan süzgəc — register, kart tarixçəsi, Hesabat və hesabat ixracı
+   EYNİ funksiyadan keçir, ona görə heç vaxt bir-birindən fərqli nəticə verə
+   bilməzlər. `cards` yalnız mətn axtarışı üçündür. */
+function azpFilterRows(m, movs, f, cards) {
+  const byCard = new Map((cards || []).map(c => [c.card_id, c]));
   const q = (f.q || '').trim().toLowerCase();
-  return st.movs.filter(r => {
-    if (f.card && r.card_id !== f.card) return false;
+  const cardSet = f.cards && f.cards.length ? new Set(f.cards) : null;
+  return movs.filter(r => {
+    if (r.module && r.module !== m) return false;      // modullararası sızma qadağan
+    if (cardSet) { if (!cardSet.has(r.card_id)) return false; }
+    else if (f.card && r.card_id !== f.card) return false;
     if (f.kind && r.kind !== f.kind) return false;
-    if (f.d1 && (!r.op_date || r.op_date < f.d1)) return false;
-    if (f.d2 && (!r.op_date || r.op_date > f.d2)) return false;
+    if (!azpInRange(r.op_date, f.d1, f.d2)) return false;
     if (q) {
       const c = byCard.get(r.card_id);
       const hay = [r.doc_num, r.note, c && c.card_no, c && c.holder].join(' ').toLowerCase();
@@ -5896,22 +5947,59 @@ function azpMovRows(m) {
     return true;
   });
 }
+function azpMovRows(m) {
+  const st = AZP.data[m];
+  return azpFilterRows(m, st.movs, AZP.filter[m], st.cards);
+}
+/* Dövrün ƏVVƏLİNƏ qalıq: başlanğıc tarixdən ƏVVƏLKİ ləğv edilməmiş sətirlər.
+   Başlanğıc yoxdursa açılış qalığı sıfırdır (bütün tarix seçilib deməkdir). */
+function azpOpeningBalance(m, movs, cardId, d1) {
+  const a = azpDate(d1);
+  if (!a) return 0;
+  return azpR2(movs.reduce((s, r) => {
+    if (r.cancelled) return s;
+    if (r.module && r.module !== m) return s;
+    if (cardId && r.card_id !== cardId) return s;
+    const d = azpDayKey(r.op_date);
+    if (!d || d >= a) return s;
+    return s + (r.kind === 'medaxil' ? azpN(r.amount) : -azpN(r.amount));
+  }, 0));
+}
+/* Ləğv edilmiş sətirlər cəmlərə DAXİL EDİLMİR — hər yerdə eyni qayda */
+function azpTotals(rows) {
+  const live = rows.filter(r => !r.cancelled);
+  const i = azpR2(live.filter(r => r.kind === 'medaxil').reduce((s, r) => s + azpN(r.amount), 0));
+  const o = azpR2(live.filter(r => r.kind === 'mexaric').reduce((s, r) => s + azpN(r.amount), 0));
+  return { medaxil: i, mexaric: o, net: azpR2(i - o), live: live.length,
+           cancelled: rows.length - live.length };
+}
 
 function azpRenderMovs(m) {
   const el = $('#azp-movs-' + m), st = AZP.data[m], L = AZP_LABEL[m];
   const na = azpNotReady(m);
   if (na) { el.innerHTML = na; return; }
   const rows = azpMovRows(m);
+  const f = AZP.filter[m];
+  /* Tarixsizliyə görə gizlənən sətirlər AÇIQ bildirilir — köhnə davranışda
+     siyahı səbəbsiz boş görünürdü (Azpetrol sətirlərinin çoxunda tarix yoxdur). */
+  const hidden = azpUndatedHidden(
+    st.movs.filter(r => (!f.card || r.card_id === f.card) && (!f.kind || r.kind === f.kind)),
+    f.d1, f.d2);
+  const hiddenNote = hidden
+    ? '<div class="hint" style="padding:8px;background:var(--out-l);border-radius:4px;margin-bottom:8px">'
+      + nf(hidden) + ' tarixsiz qeyd seçilmiş tarix aralığına daxil edilmədi — '
+      + 'tarixi olmayan sətir dövrə aid edilə bilməz. Onları görmək üçün tarix sahələrini boşaldın.</div>'
+    : '';
   if (!rows.length) {
-    el.innerHTML = '<div class="empty"><b>Əməliyyat yoxdur</b>Seçilmiş filtrlərə uyğun qeyd tapılmadı.</div>';
+    el.innerHTML = hiddenNote + '<div class="empty"><b>Əməliyyat yoxdur</b>Seçilmiş filtrlərə uyğun qeyd tapılmadı.</div>';
     return;
   }
   const byCard = new Map(st.cards.map(c => [c.card_id, c]));
   const admin = azpIsAdmin();
+  const T = azpTotals(rows);
   const live = rows.filter(r => !r.cancelled);
-  const sIn = live.filter(r => r.kind === 'medaxil').reduce((s, r) => s + azpN(r.amount), 0);
-  const sOut = live.filter(r => r.kind === 'mexaric').reduce((s, r) => s + azpN(r.amount), 0);
-  el.innerHTML = '<table><thead><tr>' +
+  const sIn = T.medaxil, sOut = T.mexaric;
+  el.innerHTML = hiddenNote + '<table><thead><tr>' +
     '<th>Tarix</th><th>Kart</th><th>' + esc(L.cardHead) + '</th><th>Növ</th>' +
     '<th class="r">Məbləğ</th><th>Qaimə №</th><th>Qeyd</th>' + (admin ? '<th></th>' : '') +
     '</tr></thead><tbody>' +
@@ -5928,6 +6016,7 @@ function azpRenderMovs(m) {
         '<td class="code">' + esc(r.doc_num || '—') + '</td>' +
         '<td class="muted">' + esc(r.note || (r.cancel_reason ? 'Ləğv səbəbi: ' + r.cancel_reason : '')) + '</td>' +
         (admin ? '<td class="r">' + (r.cancelled ? '' :
+          '<button class="btn sm" onclick="azpCorrectMov(\'' + m + '\',' + Number(r.id) + ')">Düzəliş et</button> ' +
           '<button class="btn sm dgr" onclick="azpCancelMov(\'' + m + '\',' + Number(r.id) + ')">Ləğv et</button>') + '</td>' : '') +
         '</tr>';
     }).join('') +
@@ -6020,24 +6109,43 @@ function azpCardModal(m, id) {
 }
 
 /* ---------- tək əməliyyatın əlavəsi ---------- */
-function azpMovModal(m) {
+/* preset: { card, kind } — sürətli düymələrdən gəlir. Forma və yazı yolu
+   eynidir, sadəcə sahələr əvvəlcədən doldurulur. */
+function azpMovModal(m, preset) {
   azpMod(m);
   if (!azpNeedAdmin()) return;
   const st = AZP.data[m], L = AZP_LABEL[m];
+  const p = preset || {};
   const act = st.cards.filter(c => c.active);
   if (!act.length) { toast('Əvvəlcə ' + L.title + ' üçün kart əlavə edin', true); return; }
-  modal('Yeni əməliyyat — ' + L.title,
+  const pc = act.find(c => c.card_id === p.card);
+  const pk = (p.kind === 'medaxil' || p.kind === 'mexaric') ? p.kind : '';
+  /* Yeni yazmazdan əvvəl həmin kartın son əməliyyatlarını göstərir ki,
+     istifadəçi keçmiş Mədaxil/Y/D-ni yoxlaya bilsin. */
+  const recent = pc ? st.movs.filter(r => r.card_id === pc.card_id && !r.cancelled).slice(0, 5) : [];
+  modal((pc ? azpKindLabel(m, pk || 'medaxil') + ' — ' + pc.card_no : 'Yeni əməliyyat') + ' · ' + L.title,
+    (pc ? '<div class="hint" style="margin-bottom:8px">' + esc(pc.holder) +
+          ' · cari kart balansı <b>' + azpMoney(pc.balance) + '</b></div>' : '') +
     '<label class="f"><span>Kart *</span><select id="azp-m-card">' +
-    act.map(c => '<option value="' + esc(c.card_id) + '">' + esc(c.card_no) + ' — ' + esc(c.holder) + '</option>').join('') +
+    act.map(c => '<option value="' + esc(c.card_id) + '"' + (c.card_id === p.card ? ' selected' : '') + '>' +
+      esc(c.card_no) + ' — ' + esc(c.holder) + '</option>').join('') +
     '</select></label>' +
     '<label class="f"><span>Növ *</span><select id="azp-m-kind">' +
-    '<option value="medaxil">Mədaxil</option><option value="mexaric">' + esc(L.out) + '</option></select></label>' +
+    '<option value="medaxil"' + (pk === 'medaxil' ? ' selected' : '') + '>Mədaxil</option>' +
+    '<option value="mexaric"' + (pk === 'mexaric' ? ' selected' : '') + '>' + esc(L.out) + '</option></select></label>' +
     '<label class="f"><span>Məbləğ (₼) *</span><input type="number" id="azp-m-amt" step="0.01" min="0.01"></label>' +
     '<label class="f"><span>Tarix</span><input type="date" id="azp-m-date" value="' + (m === 'araz' ? today() : '') + '"></label>' +
     '<label class="f"><span>Qaimə №</span><input type="text" id="azp-m-doc"></label>' +
     '<label class="f"><span>Qeyd</span><input type="text" id="azp-m-note"></label>' +
     (L.vat ? '<p class="hint">Araz üçün məbləğlər <b>ƏDV daxil</b> qeyd olunur.</p>' :
-      '<p class="hint">Azpetrol mənbə cədvəlində tarix sütunu yoxdur — tarix boş buraxıla bilər.</p>') +
+      '<p class="hint">Azpetrol mənbə cədvəlində tarix sütunu yoxdur — tarix boş buraxıla bilər. ' +
+      'Boş tarixli sətir tarix aralığı ilə süzgəcləndikdə görünmür.</p>') +
+    (recent.length
+      ? '<div class="hint" style="margin-top:6px"><b>Bu kartın son əməliyyatları</b><ul style="margin:4px 0 0 16px">' +
+        recent.map(r => '<li>' + esc(r.op_date ? fmtD(r.op_date) : 'tarixsiz') + ' · ' +
+          esc(azpKindLabel(m, r.kind)) + ' · ' + azpMoney(r.amount) +
+          (r.doc_num ? ' · Qaimə ' + esc(r.doc_num) : '') + '</li>').join('') + '</ul></div>'
+      : '') +
     '<span class="err" id="azp-m-err"></span>',
     '<button class="btn" data-close>İmtina</button><button class="btn pri" id="azp-m-save">Yaz</button>');
 
@@ -6071,6 +6179,351 @@ async function azpCancelMov(m, id) {
   if (error) { toast(error.message, true); return; }
   toast('Əməliyyat ləğv edildi');
   await azpLoad(m, true); azpRenderBoard(m);
+}
+
+/* ---------- yazılmış əməliyyatın təhlükəsiz düzəlişi (sql/023) ----------
+   Sətir üzərinə YAZILMIR və silinmir: server orijinalı «Düzəlişlə əvəz edilib»
+   səbəbi ilə ləğv edir və düzəldilmiş dəyərlərlə əvəz sətri yaradır, hər ikisi
+   bir tranzaksiyada və qarşılıqlı bağlı. Növ dəyişdirilmir — uçot istiqaməti
+   və tətbiq balansı müqaviləsi eyni anda dəyişərdi. */
+function azpCorrectMov(m, id) {
+  azpMod(m);
+  if (!azpNeedAdmin()) return;
+  const st = AZP.data[m], L = AZP_LABEL[m];
+  const r = st.movs.find(x => Number(x.id) === Number(id));
+  if (!r) { toast('Əməliyyat tapılmadı', true); return; }
+  if (r.cancelled) { toast('Ləğv edilmiş əməliyyat düzəldilmir', true); return; }
+  const act = st.cards.filter(c => c.active);
+  const cur = st.cards.find(c => c.card_id === r.card_id);
+  modal('Düzəliş et — ' + esc(azpKindLabel(m, r.kind)),
+    '<div class="hint" style="padding:9px;background:var(--out-l);border-radius:4px;margin-bottom:10px">' +
+    '<b>Orijinal:</b> ' + esc(cur ? cur.card_no + ' — ' + cur.holder : '—') + ' · ' +
+    esc(azpKindLabel(m, r.kind)) + ' · ' + azpMoney(r.amount) +
+    ' · ' + esc(r.op_date ? fmtD(r.op_date) : 'tarixsiz') +
+    (r.doc_num ? ' · Qaimə ' + esc(r.doc_num) : '') +
+    '<br>Orijinal sətir silinmir — «Düzəlişlə əvəz edilib» kimi ləğv olunur və ' +
+    'əvəz sətri ilə bağlanır. Növ dəyişdirilə bilməz.</div>' +
+    '<label class="f"><span>Kart</span><select id="azp-c-card">' +
+    act.map(c => '<option value="' + esc(c.card_id) + '"' + (c.card_id === r.card_id ? ' selected' : '') + '>' +
+      esc(c.card_no) + ' — ' + esc(c.holder) + '</option>').join('') +
+    '</select></label>' +
+    '<label class="f"><span>Məbləğ (₼) *</span><input type="number" id="azp-c-amt" step="0.01" min="0.01" value="' +
+    esc(String(azpN(r.amount))) + '"></label>' +
+    '<label class="f"><span>Tarix</span><input type="date" id="azp-c-date" value="' + esc(azpDate(r.op_date)) + '"></label>' +
+    '<label class="f"><span>Qaimə №</span><input type="text" id="azp-c-doc" value="' + esc(r.doc_num || '') + '"></label>' +
+    '<label class="f"><span>Qeyd</span><input type="text" id="azp-c-note" value="' + esc(r.note || '') + '"></label>' +
+    '<label class="f"><span>Düzəlişin səbəbi</span><input type="text" id="azp-c-why" placeholder="Düzəlişlə əvəz edilib"></label>' +
+    (r.kind === 'medaxil' && r.app_balance_effect
+      ? '<p class="hint">Bu Mədaxil tətbiqin cari balansına təsir edib. Məbləği artırsanız fərq balansdan tutulacaq, azaltsanız geri qaytarılacaq.</p>'
+      : '<p class="hint">Bu əməliyyat yalnız kart balansına təsir edir.</p>') +
+    '<span class="err" id="azp-c-err"></span>',
+    '<button class="btn" data-close>İmtina</button><button class="btn pri" id="azp-c-save">Düzəlişi yaz</button>');
+
+  $('#azp-c-save').onclick = async () => {
+    const amt = Number($('#azp-c-amt').value);
+    if (!(amt > 0)) { $('#azp-c-err').textContent = 'Məbləğ müsbət olmalıdır.'; return; }
+    const patch = {
+      card_id: $('#azp-c-card').value,
+      amount: azpR2(amt),
+      op_date: $('#azp-c-date').value || null,
+      doc_num: $('#azp-c-doc').value.trim() || null,
+      note: $('#azp-c-note').value.trim() || null
+    };
+    $('#azp-c-save').disabled = true;
+    const { error } = await SB.rpc('azp_correct_movement', {
+      p_module: m, p_id: Number(id), p_patch: patch,
+      p_reason: $('#azp-c-why').value.trim() || null
+    });
+    $('#azp-c-save').disabled = false;
+    if (error) { $('#azp-c-err').textContent = error.message; return; }
+    closeModal(); toast('Düzəliş yazıldı — orijinal ləğv edildi, əvəz sətri yaradıldı');
+    await azpLoad(m, true); azpRenderBoard(m);
+  };
+}
+
+/* ---------- kart üzrə əməliyyat tarixçəsi ----------
+   Yalnız bu modulun və bu kartın sətirləri. Ləğv edilmiş sətirlər GÖRÜNÜR,
+   lakin cəmlərə daxil edilmir. Süzgəc registerlə eyni azpFilterRows-dan keçir. */
+const AZP_HIST = { card: '', kind: '', d1: '', d2: '', q: '' };
+function azpCardHistory(m, cardId) {
+  azpMod(m);
+  if (!azpCanRead()) { toast('Bu modula girişiniz yoxdur', true); return; }
+  const st = AZP.data[m], L = AZP_LABEL[m];
+  const c = st.cards.find(x => x.card_id === cardId);
+  if (!c) { toast('Kart tapılmadı', true); return; }
+  AZP_HIST.card = cardId; AZP_HIST.kind = ''; AZP_HIST.d1 = ''; AZP_HIST.d2 = ''; AZP_HIST.q = '';
+  modal('Tarixçə — ' + esc(c.card_no) + ' · ' + esc(c.holder),
+    '<div class="hint" style="margin-bottom:8px">' + esc(L.title) + ' · ' +
+    esc(c.project || '—') + ' · cari kart balansı <b>' + azpMoney(c.balance) + '</b></div>' +
+    '<div class="row" style="grid-template-columns:1fr 1fr 1fr 2fr">' +
+    '<label class="f"><span>Növ</span><select id="azp-h-kind"><option value="">Hamısı</option>' +
+    '<option value="medaxil">Mədaxil</option><option value="mexaric">' + esc(L.out) + '</option></select></label>' +
+    '<label class="f"><span>Başlanğıc</span><input type="date" id="azp-h-d1"></label>' +
+    '<label class="f"><span>Son</span><input type="date" id="azp-h-d2"></label>' +
+    '<label class="f"><span>Qaimə № / Qeyd</span><input type="search" id="azp-h-q"></label></div>' +
+    '<div id="azp-h-body" class="azp-table"></div>',
+    '<div style="flex:1"></div><button class="btn" data-close>Bağla</button>');
+  const draw = () => {
+    ['kind', 'd1', 'd2', 'q'].forEach(k => {
+      const el = $('#azp-h-' + k); if (el) AZP_HIST[k] = el.value;
+    });
+    const rows = azpFilterRows(m, st.movs, AZP_HIST, st.cards)
+      .slice().sort((a, b) => (azpDayKey(a.op_date) || '').localeCompare(azpDayKey(b.op_date) || '')
+        || Number(a.id) - Number(b.id));
+    const T = azpTotals(rows);
+    const own = st.movs.filter(r => r.card_id === cardId && (!AZP_HIST.kind || r.kind === AZP_HIST.kind));
+    const hidden = azpUndatedHidden(own, AZP_HIST.d1, AZP_HIST.d2);
+    $('#azp-h-body').innerHTML =
+      (hidden ? '<div class="hint" style="padding:8px;background:var(--out-l);border-radius:4px;margin-bottom:8px">' +
+        nf(hidden) + ' tarixsiz qeyd tarix aralığına daxil edilmədi.</div>' : '') +
+      (!rows.length ? '<div class="empty"><b>Əməliyyat yoxdur</b>Seçilmiş filtrlərə uyğun qeyd tapılmadı.</div>' :
+      '<table><thead><tr><th>Tarix</th><th>Növ</th><th class="r">Məbləğ</th>' +
+      '<th>Qaimə №</th><th>Qeyd</th><th>Status</th><th>Yazan</th></tr></thead><tbody>' +
+      rows.map(r => '<tr' + (r.cancelled ? ' style="opacity:.55"' : '') + '>' +
+        '<td>' + esc(r.op_date ? fmtD(r.op_date) : '—') + '</td>' +
+        '<td><span class="tag ' + (r.kind === 'medaxil' ? 't-in' : 't-out') + '">' + esc(azpKindLabel(m, r.kind)) + '</span></td>' +
+        '<td class="num">' + azpMoney(r.amount) + '</td>' +
+        '<td class="code">' + esc(r.doc_num || '—') + '</td>' +
+        '<td class="muted">' + esc(r.note || '') + '</td>' +
+        '<td>' + (r.cancelled
+          ? '<span class="tag t-rm">ləğv edilib</span>' +
+            (r.cancel_reason ? '<div class="hint">' + esc(r.cancel_reason) + '</div>' : '') +
+            (r.replaced_by ? '<div class="hint">əvəz: #' + esc(String(r.replaced_by)) + '</div>' : '')
+          : '<span class="tag t-az">aktiv</span>' +
+            (r.replaces_id ? '<div class="hint">düzəliş: #' + esc(String(r.replaces_id)) + '</div>' : '')) + '</td>' +
+        '<td class="muted">' + esc(r.created_by || '—') + '</td></tr>').join('') +
+      '</tbody><tfoot><tr><td colspan="2"><b>Cəmi (ləğv edilməmiş ' + nf(T.live) + ' qeyd)</b></td>' +
+      '<td class="num"><b>' + azpMoney(T.net) + '</b></td>' +
+      '<td colspan="4" class="hint">Mədaxil ' + azpMoney(T.medaxil) + ' · ' + esc(L.out) + ' ' + azpMoney(T.mexaric) +
+      (T.cancelled ? ' · ' + nf(T.cancelled) + ' ləğv edilmiş sətir cəmlərə daxil deyil' : '') +
+      '</td></tr></tfoot></table>');
+  };
+  ['kind', 'd1', 'd2'].forEach(k => { const el = $('#azp-h-' + k); if (el) el.onchange = draw; });
+  const q = $('#azp-h-q'); if (q) q.oninput = debounce(draw, 200);
+  draw();
+}
+
+/* ============================================================================
+   HESABAT — yalnız oxu. Admin, Rehber və Muhasib baxa və ixrac edə bilər;
+   burada heç bir yazı RPC-si çağırılmır.
+   Modul sərhədi: bütün funksiyalar `m` alır və yalnız həmin modulun kartları
+   və hərəkətləri ilə işləyir; iki modul heç vaxt birləşdirilmir.
+   ========================================================================== */
+const AZP_REP = {
+  azpetrol: { mode: 'group', cards: [], kind: '', d1: '', d2: '' },
+  araz:     { mode: 'group', cards: [], kind: '', d1: '', d2: '' }
+};
+
+/* Hesabatın məlumat modeli — həm ekran, həm ixrac EYNİ funksiyadan qidalanır,
+   ona görə ixrac edilən rəqəm ekrandakından fərqlənə bilməz. */
+function azpBuildReport(m) {
+  azpMod(m);
+  const st = AZP.data[m], L = AZP_LABEL[m], R = AZP_REP[m];
+  const pick = (R.cards && R.cards.length)
+    ? st.cards.filter(c => R.cards.indexOf(c.card_id) >= 0)
+    : st.cards.filter(c => c.active);
+  const f = { cards: pick.map(c => c.card_id), kind: R.kind, d1: R.d1, d2: R.d2, q: '' };
+  const rows = azpFilterRows(m, st.movs, f, st.cards);
+  const byCard = new Map(pick.map(c => [c.card_id, c]));
+
+  const cards = pick.map(c => {
+    const cr = rows.filter(r => r.card_id === c.card_id)
+      .slice().sort((a, b) => (azpDayKey(a.op_date) || '').localeCompare(azpDayKey(b.op_date) || '')
+        || Number(a.id) - Number(b.id));
+    const T = azpTotals(cr);
+    const opening = azpOpeningBalance(m, st.movs, c.card_id, R.d1);
+    return {
+      card_id: c.card_id, card_no: c.card_no, holder: c.holder, project: c.project || '',
+      opening: opening, medaxil: T.medaxil, mexaric: T.mexaric,
+      closing: azpR2(opening + T.net), live: T.live, cancelled: T.cancelled,
+      current: azpR2(c.balance), rows: cr
+    };
+  });
+
+  const tot = cards.reduce((a, c) => {
+    a.opening = azpR2(a.opening + c.opening);
+    a.medaxil = azpR2(a.medaxil + c.medaxil);
+    a.mexaric = azpR2(a.mexaric + c.mexaric);
+    a.closing = azpR2(a.closing + c.closing);
+    a.current = azpR2(a.current + c.current);
+    a.cancelled += c.cancelled;
+    return a;
+  }, { opening: 0, medaxil: 0, mexaric: 0, closing: 0, current: 0, cancelled: 0 });
+
+  return {
+    module: m, title: L.title, outLabel: L.out, mode: R.mode,
+    d1: azpDate(R.d1), d2: azpDate(R.d2), kind: R.kind,
+    cards: cards, totals: tot,
+    undatedHidden: azpUndatedHidden(
+      st.movs.filter(r => byCard.has(r.card_id) && (!R.kind || r.kind === R.kind)), R.d1, R.d2)
+  };
+}
+
+function azpPeriodText(rep) {
+  if (!rep.d1 && !rep.d2) return 'bütün dövr';
+  return (rep.d1 ? fmtD(rep.d1) : '…') + ' — ' + (rep.d2 ? fmtD(rep.d2) : '…');
+}
+
+function azpReportModal(m) {
+  azpMod(m);
+  if (!azpCanRead()) { toast('Bu modula girişiniz yoxdur', true); return; }
+  const st = AZP.data[m], L = AZP_LABEL[m], R = AZP_REP[m];
+  if (!st.ready) { toast('Məlumat hələ yüklənməyib', true); return; }
+  if (!st.cards.length) { toast('Kart yoxdur', true); return; }
+  modal('Hesabat — ' + esc(L.title),
+    '<div class="row" style="grid-template-columns:1fr 1fr 1fr 1fr">' +
+    '<label class="f"><span>Hesabatın növü</span><select id="azp-r-mode">' +
+    '<option value="group">Qrup (bir neçə / bütün kartlar)</option>' +
+    '<option value="single">Fərdi (bir kart)</option></select></label>' +
+    '<label class="f"><span>Əməliyyat növü</span><select id="azp-r-kind"><option value="">Hamısı</option>' +
+    '<option value="medaxil">Mədaxil</option><option value="mexaric">' + esc(L.out) + '</option></select></label>' +
+    '<label class="f"><span>Başlanğıc tarix</span><input type="date" id="azp-r-d1"></label>' +
+    '<label class="f"><span>Son tarix</span><input type="date" id="azp-r-d2"></label></div>' +
+    '<label class="f"><span>Kartlar — seçilməzsə bütün aktiv kartlar</span>' +
+    '<select id="azp-r-cards" multiple size="6" style="height:auto">' +
+    st.cards.map(c => '<option value="' + esc(c.card_id) + '">' + esc(c.card_no) + ' — ' + esc(c.holder) +
+      (c.active ? '' : ' (deaktiv)') + '</option>').join('') + '</select></label>' +
+    '<div id="azp-r-body" class="azp-table" style="margin-top:10px"></div>',
+    '<button class="btn" id="azp-r-exp">Excel-ə ixrac</button><div style="flex:1"></div>' +
+    '<button class="btn" data-close>Bağla</button>');
+
+  const sync = () => {
+    R.mode = $('#azp-r-mode').value;
+    R.kind = $('#azp-r-kind').value;
+    R.d1 = $('#azp-r-d1').value;
+    R.d2 = $('#azp-r-d2').value;
+    const sel = $('#azp-r-cards');
+    R.cards = sel && sel.selectedOptions
+      ? Array.prototype.map.call(sel.selectedOptions, o => o.value)
+      : [];
+    if (R.mode === 'single' && R.cards.length > 1) R.cards = [R.cards[0]];
+    $('#azp-r-body').innerHTML = azpReportHtml(azpBuildReport(m));
+  };
+  ['mode', 'kind', 'd1', 'd2', 'cards'].forEach(k => {
+    const el = $('#azp-r-' + k); if (el) el.onchange = sync;
+  });
+  $('#azp-r-exp').onclick = () => azpReportExport(m);
+  sync();
+}
+
+function azpReportHtml(rep) {
+  const L = { out: rep.outLabel };
+  const head = '<div class="hint" style="margin-bottom:8px"><b>' + esc(rep.title) + '</b> · dövr: ' +
+    esc(azpPeriodText(rep)) + ' · ' + nf(rep.cards.length) + ' kart' +
+    (rep.kind ? ' · yalnız ' + esc(rep.kind === 'medaxil' ? 'Mədaxil' : rep.outLabel) : '') + '</div>' +
+    (rep.undatedHidden ? '<div class="hint" style="padding:8px;background:var(--out-l);border-radius:4px;margin-bottom:8px">' +
+      nf(rep.undatedHidden) + ' tarixsiz qeyd seçilmiş dövrə daxil edilmədi.</div>' : '') +
+    (rep.totals.cancelled ? '<div class="hint" style="margin-bottom:8px">' + nf(rep.totals.cancelled) +
+      ' ləğv edilmiş sətir göstərilir, lakin cəmlərə daxil edilmir.</div>' : '');
+
+  if (!rep.cards.length) return head + '<div class="empty"><b>Kart seçilməyib</b></div>';
+
+  if (rep.mode === 'single') {
+    const c = rep.cards[0];
+    return head +
+      '<div class="hint" style="margin-bottom:6px">Kart <b class="code">' + esc(c.card_no) + '</b> · ' +
+      esc(c.holder) + (c.project ? ' · ' + esc(c.project) : '') + '</div>' +
+      '<table><thead><tr><th>Tarix</th><th>Növ</th><th class="r">Məbləğ</th>' +
+      '<th>Qaimə №</th><th>Qeyd</th><th>Status</th></tr></thead><tbody>' +
+      '<tr><td colspan="2"><b>Dövrün əvvəlinə qalıq</b></td><td class="num"><b>' + azpMoney(c.opening) +
+      '</b></td><td colspan="3"></td></tr>' +
+      (c.rows.length ? c.rows.map(r => '<tr' + (r.cancelled ? ' style="opacity:.55"' : '') + '>' +
+        '<td>' + esc(r.op_date ? fmtD(r.op_date) : '—') + '</td>' +
+        '<td>' + esc(azpKindLabel(rep.module, r.kind)) + '</td>' +
+        '<td class="num">' + azpMoney(r.amount) + '</td>' +
+        '<td class="code">' + esc(r.doc_num || '—') + '</td>' +
+        '<td class="muted">' + esc(r.note || '') + '</td>' +
+        '<td>' + (r.cancelled ? '<span class="tag t-rm">ləğv edilib</span>' : '<span class="tag t-az">aktiv</span>') +
+        '</td></tr>').join('')
+        : '<tr><td colspan="6" class="muted">Bu dövrdə əməliyyat yoxdur.</td></tr>') +
+      '</tbody><tfoot>' +
+      '<tr><td colspan="2"><b>Mədaxil cəmi</b></td><td class="num"><b>' + azpMoney(c.medaxil) + '</b></td><td colspan="3"></td></tr>' +
+      '<tr><td colspan="2"><b>' + esc(L.out) + ' cəmi</b></td><td class="num"><b>' + azpMoney(c.mexaric) + '</b></td><td colspan="3"></td></tr>' +
+      '<tr><td colspan="2"><b>Dövrün sonuna qalıq</b></td><td class="num"><b>' + azpMoney(c.closing) + '</b></td>' +
+      '<td colspan="3" class="hint">Cari kart balansı: ' + azpMoney(c.current) + '</td></tr>' +
+      '</tfoot></table>';
+  }
+
+  return head +
+    '<table><thead><tr><th>Kart №</th><th>Sahib / Obyekt</th><th>Layihə</th>' +
+    '<th class="r">Əvvələ qalıq</th><th class="r">Mədaxil</th><th class="r">' + esc(L.out) + '</th>' +
+    '<th class="r">Dövrün sonuna</th><th class="r">Cari balans</th></tr></thead><tbody>' +
+    rep.cards.map(c => '<tr><td class="code">' + esc(c.card_no) + '</td>' +
+      '<td class="nm">' + esc(c.holder) + '</td><td class="muted">' + esc(c.project || '—') + '</td>' +
+      '<td class="num">' + azpMoney(c.opening) + '</td>' +
+      '<td class="num">' + azpMoney(c.medaxil) + '</td>' +
+      '<td class="num">' + azpMoney(c.mexaric) + '</td>' +
+      '<td class="num">' + azpMoney(c.closing) + '</td>' +
+      '<td class="num">' + azpMoney(c.current) + '</td></tr>').join('') +
+    '</tbody><tfoot><tr><td colspan="3"><b>Yekun</b></td>' +
+    '<td class="num"><b>' + azpMoney(rep.totals.opening) + '</b></td>' +
+    '<td class="num"><b>' + azpMoney(rep.totals.medaxil) + '</b></td>' +
+    '<td class="num"><b>' + azpMoney(rep.totals.mexaric) + '</b></td>' +
+    '<td class="num"><b>' + azpMoney(rep.totals.closing) + '</b></td>' +
+    '<td class="num"><b>' + azpMoney(rep.totals.current) + '</b></td></tr></tfoot></table>';
+}
+
+/* Hesabat ixracı — AYRI yazıcı. Mənbə şablonu ilə işləyən azpBuildSheet() /
+   azpExport() və ANBAR-ın paylaşılan xls() funksiyası TOXUNULMUR.
+   Kart nömrələri mətn kimi saxlanılır (aparıcı sıfırlar itmir). */
+function azpReportRows(rep) {
+  const out = [];
+  const per = azpPeriodText(rep);
+  out.push([rep.title + ' — hesabat']);
+  out.push(['Dövr', per]);
+  out.push(['Əməliyyat növü', rep.kind ? (rep.kind === 'medaxil' ? 'Mədaxil' : rep.outLabel) : 'Hamısı']);
+  out.push(['Hesabatın növü', rep.mode === 'single' ? 'Fərdi' : 'Qrup']);
+  if (rep.undatedHidden) out.push(['Tarixsiz qeydlər (dövrə daxil edilməyib)', rep.undatedHidden]);
+  out.push([]);
+  if (rep.mode === 'single' && rep.cards.length) {
+    const c = rep.cards[0];
+    out.push(['Kart №', c.card_no]);
+    out.push(['Sahib / Obyekt', c.holder]);
+    out.push(['Layihə', c.project || '']);
+    out.push([]);
+    out.push(['Tarix', 'Növ', 'Məbləğ (₼)', 'Qaimə №', 'Qeyd', 'Status']);
+    out.push(['Dövrün əvvəlinə qalıq', '', c.opening, '', '', '']);
+    c.rows.forEach(r => out.push([
+      r.op_date ? azpDate(r.op_date) : '',
+      azpKindLabel(rep.module, r.kind),
+      azpN(r.amount),
+      r.doc_num || '',
+      r.note || '',
+      r.cancelled ? 'LƏĞV EDİLİB' : 'aktiv'
+    ]));
+    out.push(['Mədaxil cəmi', '', c.medaxil, '', '', '']);
+    out.push([rep.outLabel + ' cəmi', '', c.mexaric, '', '', '']);
+    out.push(['Dövrün sonuna qalıq', '', c.closing, '', '', '']);
+    out.push(['Cari kart balansı', '', c.current, '', '', '']);
+  } else {
+    out.push(['Kart №', 'Sahib / Obyekt', 'Layihə', 'Əvvələ qalıq',
+              'Mədaxil', rep.outLabel, 'Dövrün sonuna', 'Cari balans']);
+    rep.cards.forEach(c => out.push([c.card_no, c.holder, c.project || '',
+      c.opening, c.medaxil, c.mexaric, c.closing, c.current]));
+    out.push(['Yekun', '', '', rep.totals.opening, rep.totals.medaxil,
+              rep.totals.mexaric, rep.totals.closing, rep.totals.current]);
+  }
+  out.push([]);
+  out.push(['Qeyd', 'Ləğv edilmiş sətirlər göstərilir, lakin cəmlərə daxil edilmir.']);
+  return out;
+}
+function azpReportExport(m) {
+  azpMod(m);
+  if (!azpCanRead()) { toast('Bu modula girişiniz yoxdur', true); return; }
+  const rep = azpBuildReport(m);
+  const aoa = azpReportRows(rep);
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  /* Kart nömrəsi mətn qalmalıdır — Excel onu rəqəmə çevirib sıfırları atmasın */
+  Object.keys(ws).forEach(a => {
+    if (a[0] === '!') return;
+    const c = ws[a];
+    if (c && typeof c.v === 'string' && /^[0-9]+$/.test(c.v)) { c.t = 's'; c.z = '@'; }
+  });
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, rep.mode === 'single' ? 'Fərdi hesabat' : 'Qrup hesabatı');
+  const name = (m === 'azpetrol' ? 'Azpetrol' : 'Araz') + '_hesabat_' + today() + '.xlsx';
+  XLSX.writeFile(wb, name);
+  toast(name + ' yükləndi');
 }
 
 /* ============================================================================
@@ -6909,6 +7362,7 @@ async function azpExport(m) {
   AZP_MODULES.forEach(m => {
     const on = (id, ev, fn) => { const el = document.getElementById(id); if (el) el.addEventListener(ev, fn); };
     on('azp-newcard-' + m, 'click', () => azpCardModal(m, null));
+    on('azp-rep-' + m, 'click', () => azpReportModal(m));   // yalnız oxu — Rehber/Muhasib də aça bilər
     on('azp-newmov-' + m, 'click', () => azpMovModal(m));
     on('azp-imp-' + m, 'click', () => azpImportModal(m));
     on('azp-exp-' + m, 'click', () => azpExport(m));
