@@ -1006,10 +1006,12 @@ async function emit(e, op, d, note) {
       if (op === 'a') {
         const row = { code: d.code, name: d.name, unit: d.unit || 'ədəd', price: d.price || 0, price_source: d.psrc || '', created_by: ME.sbId };
         if (d.category !== undefined) row.category = d.category || null;
-        const { error } = await SB.from('items').insert(row);
+        const { data, error } = await SB.from('items').insert(row).select('code');
         if (error) throw error;
+        if (!data || data.length !== 1) throw new Error('Nomenklatura yaradılmadı: server əməliyyatı təsdiqləmədi');
         DB.items.push(d);
         DB.itemBy.set(d.code, d);
+        result = { ok: true, code: data[0].code };
       } else if (op === 'u') {
         const upd = {};
         if (d.name !== undefined) upd.name = d.name;
@@ -1018,11 +1020,15 @@ async function emit(e, op, d, note) {
         if (d.psrc !== undefined) upd.price_source = d.psrc;
         if (d.category !== undefined) upd.category = d.category || null;
         if (Object.keys(upd).length) {
-          const { error } = await SB.from('items').update(upd).eq('code', d.code);
+          // .select() is required here: under RLS an UPDATE may otherwise report no
+          // error while updating zero rows. Never show a false "saved" message.
+          const { data, error } = await SB.from('items').update(upd).eq('code', d.code).select('code');
           if (error) throw error;
+          if (!data || data.length !== 1) throw new Error('Nomenklatura yenilənmədi: serverdə dəyişiklik təsdiqlənmədi');
         }
         const k = DB.items.findIndex(x => x.code === d.code);
         if (k >= 0) { DB.items[k] = Object.assign({}, DB.items[k], d); DB.itemBy.set(d.code, DB.items[k]); }
+        result = { ok: true, code: d.code };
       }
     }
     /* QEYD: 'partner' və 'loc' üçün birbaşa yazı yolları QƏSDƏN silinib.
@@ -4011,7 +4017,10 @@ function editItem(code, presetName) {
     const payload = { code: c, name: n, unit: u, price: parseFloat($('#i-price').value) || 0, by: ME.name };
     // Kateqoriya yalnız Rəhbər/Təchizatçı üçün göndərilir; boş = Təyin edilməyib (NULL, yalnız düzəlişdə mümkündür)
     if (canEditCategory() && $('#i-cat')) payload.category = $('#i-cat').value || '';
-    await emit('item', it ? 'u' : 'a', payload);
+    const saved = await emit('item', it ? 'u' : 'a', payload);
+    // emit() keeps the real Supabase error visible. Do not close the modal or
+    // claim success unless the server returned the edited/created item code.
+    if (!saved || !saved.ok) return;
     closeModal(); renderAll(); toast(it ? 'Mal yeniləndi' : 'Yeni mal əlavə edildi: ' + c);
   };
 }
