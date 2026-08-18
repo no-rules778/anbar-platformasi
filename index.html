@@ -90,6 +90,10 @@ td.nm{max-width:390px}
 .bar i{display:block;height:100%;background:var(--steel)}
 .muted{color:var(--ink-3)}
 .neg{color:var(--alarm);font-weight:650}
+/* Mal vəziyyəti (yararsız / təmirə ehtiyaclı / sahədə) — sətir-daxili redaktə */
+.cond-ed{cursor:text;border-bottom:1px dashed var(--line);padding-bottom:1px}
+.cond-ed:hover{border-bottom-color:var(--steel)}
+@media print{.cond-ed{border-bottom:none}}
 
 /* ---------- controls ---------- */
 .btn{display:inline-flex;align-items:center;gap:6px;background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:6px 11px;cursor:pointer;font-weight:600;color:var(--ink-2)}
@@ -793,6 +797,10 @@ const DB = {
   partners: [], locs: [], whs: [],
   refs: { channels: [], units: [], cats: [], ready: false },
   movs: [], events: [],
+  /* Mal vəziyyəti işarələri (SQL 025) — açar: 'anbar|kod'.
+     MƏLUMAT XARAKTERLİDİR: qalıq hesabına, hərəkət registrinə və maliyyə
+     hesabatlarına HEÇ VAXT daxil olmur. Qalıq = mədaxil − məxaric dəyişmir. */
+  conds: new Map(), condsReady: false,
   users: {}, dirty: true
 };
 /* Audit jurnalı üçün istifadəçi id → e-poçt xəritəsi (yalnız təsdiqlənmiş users sütunları: id, email).
@@ -862,6 +870,24 @@ async function loadFromDB() {
       }));
     }
   } catch (e) { /* 017 tətbiq edilməyib — sorğu bölməsi sadəcə boş olur */ }
+  /* Mal vəziyyəti işarələri (SQL 025). AYRI cədvəldir və heç bir hesablamaya
+     qoşulmur — yalnız qalıq cədvəlində göstərilir. RLS özü süzgəcləyir:
+     anbardar yalnız öz anbarının sətirlərini görür. Cədvəl hələ yaradılmayıbsa
+     (025 tətbiq edilməyib), sükutla boş qalır və platforma işləməyə davam edir. */
+  DB.conds = new Map(); DB.condsReady = false;
+  try {
+    const { data: condRows, error: condErr } = await SB.from('stock_conditions').select('*');
+    if (!condErr) {
+      (condRows || []).forEach(r => DB.conds.set(r.warehouse + '|' + r.item_code, {
+        w: r.warehouse, c: r.item_code,
+        unfit: parseFloat(r.unfit_qty) || 0,
+        repair: parseFloat(r.repair_qty) || 0,
+        onsite: parseFloat(r.onsite_qty) || 0,
+        note: r.note || ''
+      }));
+      DB.condsReady = true;
+    }
+  } catch (e) { /* 025 tətbiq edilməyib — vəziyyət sütunları boş görünür */ }
   DB.whs = (warehouses.data || []).filter(r => r.active && r.type === 'anbar').map(r => r.name);
   DB.transferDests = DB.whs.slice();
   DB.locs = (warehouses.data || []).map(r => ({ id: r.id, name: r.name, kind: r.type, active: r.active !== false, seed: true }));
@@ -1624,7 +1650,7 @@ function itemCard(code) {
 }
 
 /* ================= BALANCES ================= */
-const BF = { q: '', w: '', z: 'act', page: 0, size: 80, sort: 'val', init: false, initMode: 'initial' };
+const BF = { q: '', w: '', z: 'act', page: 0, size: 80, sort: 'val', init: false, initMode: 'initial', cond: '' };
 /* Yalnız oxuma. Qiymətsiz "Əvvələ qalıq" sətirlərini anbar × mal üzrə yığır.
    Cari qalıq IX.bal-dan oxunur — ləğv/əks yazılar operationalMovements() ilə
    artıq çıxarılıb, anbar və ölçü vahidi ayrılığı qorunur. Heç bir yazı olmur. */
@@ -1782,6 +1808,72 @@ function getInitialBalanceRows() {
   }
   return rows;
 }
+/* ================= MAL VƏZİYYƏTİ (Yararsız / Təmirə ehtiyaclı / Sahədə) =======
+   MƏLUMAT XARAKTERLİ işarələrdir. Anbardar əl ilə yazır: "bu sətirdəki 5 ədəddən
+   3-ü yararsızdır". SƏNƏDDƏN ÇIXARILMIR və heç bir hesablamaya qoşulmur:
+
+     · Qalıq = mədaxil − məxaric — DƏYİŞMİR;
+     · dəyər, KPI-lar, hərəkət registri, maliyyə hesabatları, nəzarət
+       yoxlamaları və Excel şablonu — DƏYİŞMİR;
+     · bu rəqəmlər yalnız qalıq cədvəlində göstərilir və süzgəcdən keçirilir.
+
+   Saxlama yolu YALNIZ set_stock_condition() RPC-sidir (SQL 025); cədvəldə
+   INSERT/UPDATE/DELETE siyasəti yoxdur, ona görə birbaşa PostgREST yazısı hər
+   rol üçün rədd edilir. Aşağıdakı canEditCond() sadəcə interfeysi gizlədir —
+   qayda serverdədir (CLAUDE.md §6). */
+const COND_COLS = [
+  { k: 'unfit',  t: 'Yararsız' },
+  { k: 'repair', t: 'Təmirə ehtiyaclı' },
+  { k: 'onsite', t: 'Sahədə' }
+];
+const condOf = (w, c) => DB.conds.get(w + '|' + c) || null;
+/* Yalnız konkret anbar sətrində redaktə var: "bütün anbarlar" (__sum) və
+   hərəkəti olmayan "—" sətirləri cəm/şərti sətirlərdir, real anbar deyil. */
+function canEditCond(w) {
+  if (!DB.condsReady || !w || w === 'bütün anbarlar' || w === '—') return false;
+  if (isAdmin()) return true;
+  return isAnbardar() && !!(ME && ME.wh) && ME.wh === w;
+}
+/* Bir sütunu dəyişir, üçünü birlikdə göndərir — server həmişə tam və uzlaşıqlı
+   sətir yazır, iki eyni vaxtlı redaktə yarımçıq vəziyyət yarada bilmir. */
+async function saveCond(w, code, key, raw) {
+  const txt = String(raw == null ? '' : raw).trim().replace(',', '.');
+  let v = txt === '' ? 0 : Number(txt);
+  if (!Number.isFinite(v) || v < 0) { toast('Miqdar mənfi olmayan düzgün ədəd olmalıdır', true); return false; }
+  v = Math.round(v * 100) / 100;
+  const cur = condOf(w, code) || { unfit: 0, repair: 0, onsite: 0, note: '' };
+  const next = { unfit: cur.unfit, repair: cur.repair, onsite: cur.onsite };
+  next[key] = v;
+  try {
+    const { data, error } = await SB.rpc('set_stock_condition', {
+      p_warehouse: w, p_item_code: code,
+      p_unfit_qty: next.unfit, p_repair_qty: next.repair, p_onsite_qty: next.onsite,
+      p_note: cur.note || null
+    });
+    if (error) throw error;
+    const key2 = w + '|' + code;
+    if (!data || data.action === 'DELETE') DB.conds.delete(key2);
+    else DB.conds.set(key2, {
+      w, c: code,
+      unfit: parseFloat(data.unfit_qty) || 0,
+      repair: parseFloat(data.repair_qty) || 0,
+      onsite: parseFloat(data.onsite_qty) || 0,
+      note: data.note || ''
+    });
+    setSync(true);
+    // Qalıqdan çox işarələmək qadağan deyil (sahibkarlıq qeydidir), amma
+    // diqqətdən qaçmasın deyə xəbərdarlıq göstərilir.
+    if (data && data.exceeds_balance) toast('Diqqət: işarələnmiş miqdar qalıqdan (' + nf(parseFloat(data.balance) || 0, 2) + ') çoxdur', true);
+    else toast('Vəziyyət yeniləndi');
+    return true;
+  } catch (err) {
+    console.error('set_stock_condition', err);
+    toast('Xəta: ' + (err.message || 'vəziyyət saxlanılmadı'), true);
+    setSync(false);
+    return false;
+  }
+}
+
 function rBal() {
   const el = $('#bal-filters');
   if (!el.dataset.done) {
@@ -1790,14 +1882,19 @@ function rBal() {
       <select id="bf-w"><option value="">Anbarlar üzrə ayrı</option><option value="__sum">Ümumi (anbarlar birlikdə)</option>${DB.whs.map(w => `<option>${esc(w)}</option>`).join('')}</select>
       <div class="seg" id="bf-z"><button data-z="act" class="on">Aktiv qalıq</button><button data-z="all">Hamısı</button><button data-z="neg">Mənfi</button><button data-z="zero">Sıfır</button><button data-z="init" style="margin-left:16px">Əvvələ qalıq</button></div>
       <div class="seg" id="bf-init-mode" style="display:none"><button data-mode="initial" class="on">İlkin miqdar</button><button data-mode="current">Cari qalıq</button></div>
-      <select id="bf-s"><option value="val">Dəyərə görə</option><option value="q">Miqdara görə</option><option value="name">Ada görə</option><option value="last">Son hərəkətə görə</option></select>`;
+      <select id="bf-c"><option value="">Vəziyyət: hamısı</option><option value="any">İşarələnmişlər</option>${COND_COLS.map(c => `<option value="${esc(c.k)}">${esc(c.t)}</option>`).join('')}</select>
+      <select id="bf-s"><option value="val">Dəyərə görə</option><option value="q">Miqdara görə</option><option value="name">Ada görə</option><option value="last">Son hərəkətə görə</option>${COND_COLS.map(c => `<option value="cond:${esc(c.k)}">${esc(c.t)} üzrə</option>`).join('')}</select>`;
     $('#bf-q').oninput = debounce(() => { BF.q = $('#bf-q').value.trim().toLowerCase(); BF.page = 0; rBal(); }, 200);
     $('#bf-w').onchange = () => { BF.w = $('#bf-w').value; BF.page = 0; rBal(); };
+    $('#bf-c').onchange = () => { BF.cond = $('#bf-c').value; BF.page = 0; rBal(); };
     $('#bf-s').onchange = () => { BF.sort = $('#bf-s').value; rBal(); };
     $$('#bf-z button').forEach(b => b.onclick = () => {
       BF.z = b.dataset.z; BF.init = (b.dataset.z === 'init');
       $$('#bf-z button').forEach(x => x.classList.toggle('on', x === b));
       $('#bf-init-mode').style.display = BF.init ? '' : 'none';
+      // Vəziyyət sütunları yalnız cari qalıq görünüşündədir — «Əvvələ qalıq»
+      // tarixi görünüşdür və orada belə bir işarə mənasızdır.
+      $('#bf-c').style.display = BF.init ? 'none' : '';
       BF.page = 0; rBal();
     });
     $$('#bf-init-mode button').forEach(b => b.onclick = () => {
@@ -1871,15 +1968,39 @@ function rBal() {
       src.push({ w: BF.w === '__sum' ? 'bütün anbarlar' : '—', c: i.code, name: i.name, unit: i.unit || '', price: i.price || 0, in: 0, out: 0, q: 0, val: 0, last: '', n: 0, nomv: 1 });
     }
   }
+  /* Vəziyyət işarələrini sətirlərə bağlayır. YALNIZ göstərmə üçündür: yuxarıda
+     hesablanmış b.q və b.val-a toxunmur. «Ümumi (anbarlar birlikdə)» rejimində
+     işarələr anbarlar üzrə cəmlənir və orada redaktə edilmir. */
+  if (BF.w === '__sum') {
+    const byCode = new Map();
+    for (const cd of DB.conds.values()) {
+      let x = byCode.get(cd.c);
+      if (!x) { x = { unfit: 0, repair: 0, onsite: 0 }; byCode.set(cd.c, x); }
+      x.unfit += cd.unfit; x.repair += cd.repair; x.onsite += cd.onsite;
+    }
+    for (const b of src) {
+      const x = byCode.get(b.c);
+      b.cUnfit = x ? x.unfit : 0; b.cRepair = x ? x.repair : 0; b.cOnsite = x ? x.onsite : 0;
+    }
+  } else {
+    for (const b of src) {
+      const cd = condOf(b.w, b.c);
+      b.cUnfit = cd ? cd.unfit : 0; b.cRepair = cd ? cd.repair : 0; b.cOnsite = cd ? cd.onsite : 0;
+    }
+  }
+  const CONDF = { unfit: 'cUnfit', repair: 'cRepair', onsite: 'cOnsite' };
   let rows = src.filter(b => {
     if (BF.z === 'act' && Math.abs(b.q) < 1e-9) return false;
     if (BF.z === 'neg' && b.q >= 0) return false;
     if (BF.z === 'zero' && Math.abs(b.q) > 1e-9) return false;
     if (BF.q && (b.name + ' ' + b.c).toLowerCase().indexOf(BF.q) < 0) return false;
+    if (BF.cond === 'any') { if (!(b.cUnfit > 0 || b.cRepair > 0 || b.cOnsite > 0)) return false; }
+    else if (BF.cond && !(b[CONDF[BF.cond]] > 0)) return false;
     return true;
   });
   const cmp = { val: (a, b) => b.val - a.val, q: (a, b) => b.q - a.q, name: (a, b) => a.name.localeCompare(b.name, 'az'), last: (a, b) => dsort(b.last, a.last) };
-  rows.sort(cmp[BF.sort]);
+  COND_COLS.forEach(cc => { cmp['cond:' + cc.k] = (a, b) => b[CONDF[cc.k]] - a[CONDF[cc.k]]; });
+  rows.sort(cmp[BF.sort] || cmp.val);
   const val = rows.reduce((s, b) => s + b.val, 0), qty = rows.reduce((s, b) => s + b.q, 0);
   $('#bal-kpis').innerHTML = [
     ['Mövqe sayı', nf(rows.length), BF.w === '__sum' ? 'mal üzrə cəmi' : 'anbar × mal sətri', ''],
@@ -1889,16 +2010,61 @@ function rBal() {
     ['Mənfi qalıq', nf(rows.filter(b => b.q < 0).length), 'uçot xətası riski', rows.some(b => b.q < 0) ? 'r' : 'g']
   ].map(k => `<div class="kpi ${k[3]}"><div class="eyebrow">${esc(k[0])}</div><div class="v">${k[1]}</div><div class="s">${esc(k[2])}</div></div>`).join('');
   const page = cut(rows, 'bal');
+  /* Vəziyyət xanası. Redaktə hüququ olmayan istifadəçi eyni rəqəmi sadəcə
+     oxuyur — serverdəki qayda hər halda RPC-dədir (SQL 025). */
+  const condCell = b => COND_COLS.map(cc => {
+    const v = b[CONDF[cc.k]] || 0;
+    const txt = v > 0 ? nf(v, 2) : '<span class="muted">—</span>';
+    return canEditCond(b.w)
+      ? `<span class="cond-ed" data-cw="${esc(b.w)}" data-cc="${esc(b.c)}" data-ck="${esc(cc.k)}" data-cv="${v}" title="${esc(cc.t)} — dəyişmək üçün klikləyin">${txt}</span>`
+      : txt;
+  });
   $('#t-bal').innerHTML = tbl(
-    [{ t: 'Kod' }, { t: 'Malın adı' }, { t: 'Anbar' }, { t: 'Ölçü' }, { t: 'Mədaxil', r: 1 }, { t: 'Məxaric', r: 1 }, { t: 'Qalıq', r: 1 }, { t: 'Vahid qiyməti', r: 1 }, { t: 'Dəyər', r: 1 }, { t: 'Son hərəkət' }],
+    [{ t: 'Kod' }, { t: 'Malın adı' }, { t: 'Anbar' }, { t: 'Ölçü' }, { t: 'Mədaxil', r: 1 }, { t: 'Məxaric', r: 1 }, { t: 'Qalıq', r: 1 }]
+      .concat(COND_COLS.map(cc => ({ t: cc.t, r: 1 })))
+      .concat([{ t: 'Vahid qiyməti', r: 1 }, { t: 'Dəyər', r: 1 }, { t: 'Son hərəkət' }]),
     page.map(b => ({
       _a: `data-card="${esc(b.c)}"`, c: [`<span class="code">${esc(b.c)}</span>`, `<div class="nm">${esc(b.name)}</div>`, esc(b.w), esc(b.unit),
-      nf(b.in, 2), nf(b.out, 2), `<b class="${b.q < 0 ? 'neg' : ''}">${nf(b.q, 2)}</b>`, b.price ? nf(b.price, 2) : '<span class="muted">—</span>', money(b.val), b.nomv ? '<span class="tag t-mut">hərəkət yoxdur</span>' : esc(fmtD(b.last))]
+      nf(b.in, 2), nf(b.out, 2), `<b class="${b.q < 0 ? 'neg' : ''}">${nf(b.q, 2)}</b>`]
+      .concat(condCell(b))
+      .concat([b.price ? nf(b.price, 2) : '<span class="muted">—</span>', money(b.val), b.nomv ? '<span class="tag t-mut">hərəkət yoxdur</span>' : esc(fmtD(b.last))])
     })), { clk: 1 });
+  $$('#t-bal .cond-ed').forEach(el => el.onclick = ev => { ev.stopPropagation(); condEditStart(el); });
   $('#bal-pager').innerHTML = `<span class="hint">${nf(rows.length)} sətir` + cutNote(rows, 'bal', rBal) + `</span>`;
   $('#bal-print').onclick = () => { printHead('Anbar qalıqları', (BF.w === '__sum' ? 'ümumi' : (BF.w || 'bütün anbarlar')) + ' · ' + nf(rows.length) + ' mövqe'); setTimeout(() => window.print(), 60); };
-  $('#bal-exp').onclick = () => xls([['Anbar', 'Kod', 'Malın adı', 'Ölçü', 'Mədaxil', 'Məxaric', 'Qalıq', 'Vahid qiyməti', 'Dəyər', 'Son hərəkət']]
-    .concat(rows.map(b => [b.w, b.c, b.name, b.unit, b.in, b.out, b.q, b.price || '', b.val.toFixed(2), b.last])), 'anbar_qaliqlari');
+  $('#bal-exp').onclick = () => xls([['Anbar', 'Kod', 'Malın adı', 'Ölçü', 'Mədaxil', 'Məxaric', 'Qalıq'].concat(COND_COLS.map(cc => cc.t)).concat(['Vahid qiyməti', 'Dəyər', 'Son hərəkət'])]
+    .concat(rows.map(b => [b.w, b.c, b.name, b.unit, b.in, b.out, b.q, b.cUnfit || 0, b.cRepair || 0, b.cOnsite || 0, b.price || '', b.val.toFixed(2), b.last])), 'anbar_qaliqlari');
+}
+
+/* Vəziyyət xanasının sətir-daxili redaktəsi. Enter/fokus itirmə saxlayır,
+   Escape ləğv edir. Saxlanandan sonra cədvəl HƏMİŞƏ yenidən qurulur — ekranda
+   yalnız serverin təsdiqlədiyi dəyər görünür, uğursuz yazı isə köhnə dəyərə
+   qayıdır. */
+function condEditStart(el) {
+  if (el.dataset.editing) return;
+  el.dataset.editing = '1';
+  const w = el.dataset.cw, code = el.dataset.cc, key = el.dataset.ck;
+  const cur = parseFloat(el.dataset.cv) || 0;
+  const old = el.innerHTML;
+  el.innerHTML = `<input type="number" min="0" step="0.01" value="${cur > 0 ? cur : ''}" style="width:76px;padding:2px 4px;font:inherit;text-align:right">`;
+  const inp = el.querySelector('input');
+  inp.onclick = ev => ev.stopPropagation();
+  let done = false;
+  const finish = async commit => {
+    if (done) return; done = true;
+    const raw = inp.value;
+    delete el.dataset.editing;
+    if (!commit) { el.innerHTML = old; return; }
+    el.textContent = '…';
+    await saveCond(w, code, key, raw);
+    rBal();
+  };
+  inp.onkeydown = ev => {
+    if (ev.key === 'Enter') { ev.preventDefault(); finish(true); }
+    else if (ev.key === 'Escape') { ev.preventDefault(); finish(false); }
+  };
+  inp.onblur = () => finish(true);
+  inp.focus(); inp.select();
 }
 
 /* ================= NOMENCLATURE ================= */
