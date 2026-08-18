@@ -3062,15 +3062,86 @@ function addLine() {
 function renderLines() {
   const L = OP.lines;
   $('#op-cnt').textContent = L.length ? nf(L.length) + ' sətir · ' + money(L.reduce((s, l) => s + l.q * l.pr, 0)) : '';
-  $('#op-lines').innerHTML = tbl(
-    [{ t: 'Mal' }, { t: 'Marşrut' }, { t: 'Miqdar', r: 1 }, { t: 'Məbləğ', r: 1 }, { t: '' }],
+  /* Bərpa edilmiş qaralama üçün görünən bildiriş — istifadəçi sətirlərin
+     əvvəlki sessiyadan gəldiyini bilməlidir (toast itə bilər). */
+  const banner = OP.restoredAt
+    ? `<div class="hint" style="padding:8px 10px;background:var(--out-l);border-radius:4px;margin-bottom:8px;display:flex;gap:8px;align-items:center">
+         <span style="flex:1">Bu sətirlər <b>${esc(draftStamp(OP.restoredAt))}</b> tarixli yadda saxlanılmamış qaralamadan bərpa edildi. Yoxlayın və «Sənədi qeyd et» ilə tamamlayın.</span>
+         <button class="btn sm" id="op-draft-ok">Anladım</button></div>`
+    : '';
+  $('#op-lines').innerHTML = banner + tbl(
+    [{ t: 'Mal' }, { t: 'Marşrut' }, { t: 'Miqdar', r: 1 }, { t: 'Qiymət', r: 1 }, { t: 'Məbləğ', r: 1 }, { t: '' }],
     L.map((l, i) => ({
       c: [`<div class="nm">${esc(l.name)}</div><span class="code">${esc(l.c)}</span>`,
       `${TYPE_TAG(l.t)}<div class="hint">${esc(l.kind === 'mv' ? l.w + ' → ' + l.w2 : (l.kind === 'in' ? l.p + ' → ' + l.w : l.w + ' → ' + l.p))}</div>`,
-      nf(l.q, 2) + ' ' + esc(l.unit), l.pr ? money(l.q * l.pr) : '—',
+      nf(l.q, 2) + ' ' + esc(l.unit),
+      l.pr ? nf(l.pr, 2) + ' ₼' : '<span class="muted">—</span>',
+      l.pr ? money(l.q * l.pr) : '—',
       `<button class="btn sm" onclick="editLine(${i})">Redaktə et</button> <button class="btn sm dgr" onclick="OP.lines.splice(${i},1);renderLines()">Sil</button>`]
     })), { empty: 'Sətir əlavə edin — sənəd bir neçə maldan ibarət ola bilər.' });
+  if ($('#op-draft-ok')) $('#op-draft-ok').onclick = () => { OP.restoredAt = 0; renderLines(); };
   $('#op-post').disabled = !L.length || !can('mv.add');
+  saveDraft();
+}
+
+/* ================= QARALAMANIN LOKAL BƏRPASI ==================================
+   PROBLEM: `OP.lines` yalnız yaddaşda idi. İnternet kəsildikdə və ya səhifə
+   yeniləndikdə hələ qeyd edilməmiş bütün sətirlər izsiz itirdi.
+
+   HƏLL: qaralama hər dəyişiklikdə brauzerin localStorage-ində saxlanılır və
+   növbəti girişdə bərpa olunur.
+
+   SƏRHƏDLƏR:
+     · Bu YALNIZ qaralamadır — Supabase-ə heç nə yazılmır. Real hərəkət yenə
+       yalnız «Sənədi qeyd et» ilə yaranır.
+     · Açar istifadəçiyə bağlıdır: eyni cihazda başqa istifadəçi öz qaralamasını
+       görür, başqasınınkını YOX.
+     · Uğurlu qeyddən və «Təmizlə»dən sonra qaralama silinir.
+     · 7 gündən köhnə qaralama bərpa edilmir — köhnə tarixli sənədin səhvən
+       yazılmasının qarşısını alır.
+     · Bərpa hüququ yenidən yoxlanılır: rol və ya anbar dəyişibsə, icazəsiz
+       anbara aid sətirlər atılır. Yekun qadağa hər halda serverdədir. */
+const DRAFT_V = 1;
+const DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+/* Qaralamanın saxlanma anı — tarix + saat (yalnız göstərmə üçün) */
+function draftStamp(ts) {
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return '—';
+  const p = n => String(n).padStart(2, '0');
+  return p(d.getDate()) + '.' + p(d.getMonth() + 1) + '.' + d.getFullYear() + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+}
+const DRAFT_MAX_LINES = 2000;
+const draftKey = () => 'anbar_op_draft_' + ((ME && ME.id) ? ME.id : 'anon');
+function saveDraft() {
+  if (!ME) return;
+  try {
+    if (!OP.lines.length || OP.lines.length > DRAFT_MAX_LINES) { localStorage.removeItem(draftKey()); return; }
+    captureOpHeader();
+    localStorage.setItem(draftKey(), JSON.stringify({
+      v: DRAFT_V, ts: Date.now(), kind: OP.kind, lines: OP.lines, hdr: OP.hdr || null
+    }));
+  } catch (e) { /* kvota dolub və ya localStorage əlçatmazdır — qaralama sadəcə saxlanılmır */ }
+}
+function clearDraft() { try { localStorage.removeItem(draftKey()); } catch (e) { } }
+function restoreDraft() {
+  if (!ME || OP.lines.length) return;
+  let raw = null;
+  try { raw = localStorage.getItem(draftKey()); } catch (e) { return; }
+  if (!raw) return;
+  let d = null;
+  try { d = JSON.parse(raw); } catch (e) { clearDraft(); return; }
+  if (!d || d.v !== DRAFT_V || !Array.isArray(d.lines) || !d.lines.length) { clearDraft(); return; }
+  if (!d.ts || (Date.now() - d.ts) > DRAFT_TTL_MS) { clearDraft(); return; }
+  // İcazəli anbarlar dəyişmiş ola bilər — bərpada yenidən süzgəcdən keçir.
+  const okWh = new Set(allowedWarehouses().concat(sourceWarehouses()));
+  const kept = d.lines.filter(l => l && l.c && okWh.has(l.w) && (l.kind !== 'mv' || okWh.has(l.w) ));
+  if (!kept.length) { clearDraft(); return; }
+  OP.lines = kept;
+  if (d.kind) OP.kind = d.kind;
+  if (d.hdr) OP.hdr = d.hdr;
+  OP.restoredAt = d.ts;
+  const lost = d.lines.length - kept.length;
+  toast(nf(kept.length) + ' sətirlik qaralama bərpa edildi' + (lost ? ' · ' + nf(lost) + ' sətir icazə səbəbindən atıldı' : ''), !!lost);
 }
 /* ================= QARALAMA SƏTRİNİN GENİŞ REDAKTƏSİ (WORK_QUEUE bənd 9) ==========
    `Sənədin sətirləri` blokundakı hər QEYD EDİLMƏMİŞ sətir üçün yalnız miqdar
@@ -3462,10 +3533,27 @@ async function bulkWriteOffPost() {
   toast(n + ' sətir bir «Silinmə» sənədi kimi qeyd edildi');
 }
 
-$('#op-clear').onclick = () => { OP.lines = []; renderLines(); };
-$('#op-post').onclick = async () => {
+/* Hər iki düymə (Təmizlə / Sənədi qeyd et) təsdiq tələb edir: birincisi
+   qaralamanı geri qaytarılmadan silir, ikincisi Supabase-ə real yazı aparır.
+   Təsdiq modal() ilə — nativ confirm() əvəzinə tətbiqin özünün dialoq
+   üslubunda (bax: documentCancelView). */
+$('#op-clear').onclick = () => {
+  if (!OP.lines.length) return;
+  const n = OP.lines.length;
+  modal('Sətirlər təmizlənsin?',
+    `<div class="hint">${nf(n)} sətir qaralamadan silinəcək. Bu geri qaytarılmır — heç nə Supabase-ə yazılmayıb, sadəcə hələ qeyd edilməmiş sətirlər itəcək.</div>`,
+    `<div style="flex:1"></div><button class="btn" data-close>İmtina</button><button class="btn dgr" id="oc-go">Təmizlə</button>`);
+  $('#oc-go').onclick = () => { closeModal(); OP.lines = []; OP.restoredAt = 0; clearDraft(); renderLines(); };
+};
+$('#op-post').onclick = () => {
   if (!need('mv.add') || !OP.lines.length) return;
-
+  const n = OP.lines.length;
+  modal('Sənəd qeyd edilsin?',
+    `<div class="hint">${nf(n)} sətir sənəd kimi Supabase-ə yazılacaq. Qeyd edildikdən sonra sətirlər birbaşa redaktə olunmur — yalnız ləğv və ya düzəliş sənədi ilə geri qaytarıla bilər.</div>`,
+    `<div style="flex:1"></div><button class="btn" data-close>İmtina</button><button class="btn pri" id="op-post-go">Bəli, qeyd et</button>`);
+  $('#op-post-go').onclick = async () => { closeModal(); await postOpDocument(); };
+};
+async function postOpDocument() {
   // ---- Tarixi ilkin qalıq yalnız Admin ----
   // addLine() belə sətrin əlavə olunmasına icazə vermir; bu ikinci yoxlama rol
   // sessiya ərzində dəyişdiyi (və ya sətir başqa yolla düşdüyü) hal üçündür.
@@ -3550,12 +3638,13 @@ $('#op-post').onclick = async () => {
   }
 
   const n = OP.lines.length; OP.lines = [];
+  OP.restoredAt = 0; clearDraft();   // sənəd yazıldı — qaralama artıq lazım deyil
   captureOpHeader();
   if (OP.hdr) { OP.hdr.iv = ''; OP.hdr.ct = ''; }   // yeni sənəd — yeni qaimə/müqavilə nömrəsi
   // Bütün sətirlər server RPC ilə yazıldı — lokal state-də yoxdur, bazadan yenidən yüklə
   await loadFromDB();
   renderAll(); toast(n + ' sətir qeyd edildi');
-};
+}
 
 /* ================= EDITORS ================= */
 /* Əks yerdəyişmə markeri — SQL cancel_transfer_document ilə eyni olmalıdır */
@@ -5298,6 +5387,9 @@ async function enterApp(userId, email) {
   await loadUsersAdmin();
   loadAuditTotal();
   subscribeRealtime();
+  // Yadda saxlanılmamış qaralama varsa bərpa et — DB.whs yükləndikdən SONRA,
+  // çünki bərpa icazəli anbarlara görə süzgəcdən keçirilir.
+  restoreDraft();
   renderAll(); go('dash');
   setSync(true); renderPresence();
 }
