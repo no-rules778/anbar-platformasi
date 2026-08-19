@@ -123,7 +123,10 @@ label.f>span{display:block;font-size:10.5px;text-transform:uppercase;letter-spac
 /* ---------- overlays ---------- */
 .mask{position:fixed;inset:0;background:rgba(14,20,26,.45);z-index:100;display:none}
 .mask.on{display:block}
-.modal{position:fixed;z-index:101;top:50%;left:50%;transform:translate(-50%,-50%);width:min(760px,94vw);max-height:88vh;overflow:auto;background:var(--panel);border-radius:6px;box-shadow:0 24px 60px rgba(14,20,26,.3);display:none}
+/* Modal HƏMİŞƏ drawer-in (mal kartoçkasının) ÜSTÜNDƏDİR. Əvvəllər hər ikisi
+   z-index:101 idi və drawer DOM-da sonra gəldiyi üçün dialoqu — o cümlədən
+   «Yadda saxla» düyməsini — örtürdü. */
+.modal{position:fixed;z-index:120;top:50%;left:50%;transform:translate(-50%,-50%);width:min(760px,94vw);max-height:88vh;overflow:auto;background:var(--panel);border-radius:6px;box-shadow:0 24px 60px rgba(14,20,26,.3);display:none}
 .modal.on{display:block}
 .modal>header{position:sticky;top:0;background:var(--panel);padding:14px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px;z-index:2}
 .modal>header .sp{flex:1}
@@ -1246,13 +1249,40 @@ function index() {
 
 
 /* ---------- modal / drawer ---------- */
+/* Hazırda kartoçkada açıq olan malın kodu — düzəlişdən sonra kartoçkanı
+   YENİLƏMƏK üçün lazımdır, əks halda köhnə ad/qiymət görünərdi.
+   go() bundan əvvəl gəldiyi üçün elan burada, qat funksiyaları ilə birlikdədir. */
+let CARD_CODE = '';
 function modal(title, body, foot) {
   $('#m-title').textContent = title; $('#m-body').innerHTML = body;
   $('#m-foot').innerHTML = foot || '<button class="btn" data-close>Bağla</button>';
   $('#modal').classList.add('on'); $('#mask').classList.add('on');
 }
-function closeModal() { $('#modal').classList.remove('on'); $('#drawer').classList.remove('on'); $('#mask').classList.remove('on'); }
-function drawer(html) { $('#drawer').innerHTML = html; $('#drawer').classList.add('on'); $('#mask').classList.add('on'); }
+/* İKİ QAT VAR: drawer (mal kartoçkası) altda, modal (dialoq) üstdə.
+   closeModal() yalnız ÜST qatı bağlayır — dialoq bağlananda kartoçka yerində
+   qalır. Əvvəl hər ikisi birlikdə bağlanırdı, ona görə dialoqdan çıxanda
+   kartoçka da itirdi və edilən dəyişiklik görünmürdü. */
+function closeModal() {
+  const m = $('#modal'), d = $('#drawer');
+  if (m.classList.contains('on')) {
+    m.classList.remove('on');
+    if (!d.classList.contains('on')) $('#mask').classList.remove('on');
+    return;
+  }
+  d.classList.remove('on');
+  $('#mask').classList.remove('on');
+}
+/* Hər iki qatı bağlayır — səhifə dəyişəndə istifadə olunur */
+function closeOverlays() {
+  $('#modal').classList.remove('on');
+  $('#drawer').classList.remove('on');
+  $('#mask').classList.remove('on');
+}
+function drawer(html) {
+  // Kartoçka alt qatdır: onu açarkən üstdə asılı qalmış dialoq bağlanır.
+  $('#modal').classList.remove('on');
+  $('#drawer').innerHTML = html; $('#drawer').classList.add('on'); $('#mask').classList.add('on');
+}
 document.addEventListener('click', e => {
   if (e.target.closest('[data-close]') || e.target.id === 'mask' || e.target.id === 'm-x') closeModal();
   const g = e.target.closest('[data-goto]'); if (g) go(g.dataset.goto);
@@ -1344,6 +1374,42 @@ function transferRoute(m) {
 }
 // Cədvəl xanası: Yerdəyişmə üçün marşrut, digər bütün növlər üçün mövcud kontragent/layihə mətni — dəyişməz
 function routeOrPartner(m) { return transferRoute(m) || (m.p || '—'); }
+
+/* ---------- «İstiqamət / kontragent» üçün VAHİD semantik açar ----------
+   `movements.partner` tarixən İKİ fərqli məna daşıyır: real kontragent/layihə
+   və yerdəyişmənin texniki istiqaməti. Ona görə süzgəc siyahısında eyni anbarın
+   üç yazılışı ("Astara anbar", "Astara anbarı", "Astara anbarına") ayrı-ayrı
+   dəyər kimi görünürdü.
+
+   movKey() bunu bir açara gətirir və HƏR yerdə eyni işlədilir: süzgəc siyahısı,
+   süzgəcin özü, axtarış və ekran ixracı. Beləliklə ekran, süzgəc, axtarış və
+   Excel eyni təsviri göstərir.
+
+   Prefikslər toqquşmanı aradan qaldırır: mətni marşruta bənzəyən kontragent
+   heç vaxt marşrutla eyni dəyərə düşmür.
+     route:<Mənbə → Təyinat>  — hər iki tərəfi tanınan yerdəyişmə
+     raw:<partner>            — tərəflərindən biri tanınmayan yerdəyişmə;
+                                QƏSDƏN ayrı saxlanılır — "—" altında birləşdirmək
+                                fərqli marşrutları görünməz şəkildə qarışdırardı
+                                (məs. anbardar üçün RLS `Ofis`-i gizlədir)
+     partner:<partner>        — bütün digər növlər: kontragent, layihə,
+                                məsul şəxs, «Anbar qalığı» — dəyişdirilmir
+   HEÇ NƏ YAZILMIR: nə Supabase, nə tarixi sətirlər, nə də m.p/m.ch. */
+function movKey(m) {
+  if (!m) return 'partner:';
+  if (m.t !== 'Yerdəyişmə') return 'partner:' + (m.p || '');
+  const r = transferRoute(m);
+  // "Ələt → —" kimi yarımçıq marşrut birləşdirilmir — sətir öz mətni ilə qalır
+  if (r && r.indexOf('—') < 0) return 'route:' + r;
+  return 'raw:' + (m.p || '');
+}
+const movKeyKind = k => { const i = String(k || '').indexOf(':'); return i < 0 ? '' : String(k).slice(0, i); };
+const movKeyLabel = k => { const i = String(k || '').indexOf(':'); return i < 0 ? String(k || '') : String(k).slice(i + 1); };
+/* Süzgəcdə/ixracda göstərilən mətn — ekran xanası ilə eyni */
+function movKeyText(m) {
+  const k = movKey(m);
+  return movKeyKind(k) === 'route' ? movKeyLabel(k) : routeOrPartner(m);
+}
 </script>
 <script>
 /* ================= navigation ================= */
@@ -1361,6 +1427,8 @@ function go(p) {
   $$('.rail a').forEach(a => a.classList.toggle('on', a.dataset.p === p));
   $$('.page').forEach(s => s.classList.toggle('on', s.id === 'p-' + p));
   $('#rail').classList.remove('open');
+  closeOverlays();   // səhifə dəyişəndə açıq dialoq və kartoçka qalmamalıdır
+  CARD_CODE = '';
   window.scrollTo(0, 0);
   render(p);
 }
@@ -1444,19 +1512,64 @@ function rDash() {
 
 /* ================= MOVEMENTS ================= */
 const MF = { q: '', w: '', t: '', p: '', d1: '', d2: '', page: 0, size: 60 };
+/* Cari anbar/növ/tarix süzgəclərinə uyğun sətirlərdən (öz MF.p-siz) seçim
+   siyahısını qurur. Beləliklə anbar seçiləndə siyahı ora aid olmayan
+   marşrut/kontragentləri göstərmir (tələb 5), amma seçilmiş İstiqamət/kontragent
+   özü siyahını daraltmır. */
+function movKeyOptions() {
+  const src = normalMovements().filter(m => {
+    if (MF.w && m.w !== MF.w) return false;
+    if (MF.t && m.t !== MF.t) return false;
+    if (MF.d1 && m.d < MF.d1) return false;
+    if (MF.d2 && m.d > MF.d2) return false;
+    return true;
+  });
+  const routes = new Map(), partners = new Map(), raws = new Map();
+  for (const m of src) {
+    const k = movKey(m); const kind = movKeyKind(k), label = movKeyLabel(k);
+    if (!label) continue;
+    const bucket = kind === 'route' ? routes : kind === 'raw' ? raws : partners;
+    if (!bucket.has(k)) bucket.set(k, label);
+  }
+  const byLabel = m => Array.from(m.entries()).sort((a, b) => a[1].localeCompare(b[1], 'az'));
+  return { routes: byLabel(routes), partners: byLabel(partners), raws: byLabel(raws) };
+}
 function movFilters() {
   const el = $('#mov-filters'); if (el.dataset.done) return; el.dataset.done = 1;
   el.innerHTML = `
     <input type="search" id="mf-q" placeholder="Mal adı, kod, kontragent, qaimə…">
     <select id="mf-w"><option value="">Bütün anbarlar</option>${DB.whs.map(w => `<option>${esc(w)}</option>`).join('')}</select>
     <select id="mf-t"><option value="">Bütün növlər</option>${['Əvvələ qalıq','Satınalma','Yerdəyişmə','Silinmə','Sahəyə','Qaytarma'].map(t => `<option>${esc(t)}</option>`).join('')}</select>
-    <select id="mf-p"><option value="">Bütün kontragentlər</option>${Array.from(new Set(normalMovements().map(m => m.p).filter(Boolean))).sort().map(p => `<option>${esc(p)}</option>`).join('')}</select>
+    <select id="mf-p"><option value="">İstiqamət / kontragent</option></select>
     <input type="date" id="mf-d1" title="Başlanğıc tarix"><input type="date" id="mf-d2" title="Son tarix">
     <button class="btn" id="mf-reset">Sıfırla</button>`;
-  const upd = () => { MF.q = $('#mf-q').value.trim().toLowerCase(); MF.w = $('#mf-w').value; MF.t = $('#mf-t').value; MF.p = $('#mf-p').value; MF.d1 = $('#mf-d1').value; MF.d2 = $('#mf-d2').value; MF.page = 0; rMov(); };
+  const upd = () => {
+    MF.q = $('#mf-q').value.trim().toLowerCase(); MF.w = $('#mf-w').value; MF.t = $('#mf-t').value;
+    MF.d1 = $('#mf-d1').value; MF.d2 = $('#mf-d2').value; MF.page = 0;
+    rebuildMovPartnerOptions(); MF.p = $('#mf-p').value; rMov();
+  };
   $('#mf-q').oninput = debounce(upd, 200);
-  ['mf-w', 'mf-t', 'mf-p', 'mf-d1', 'mf-d2'].forEach(id => $('#' + id).onchange = upd);
-  $('#mf-reset').onclick = () => { ['mf-q', 'mf-w', 'mf-t', 'mf-p', 'mf-d1', 'mf-d2'].forEach(id => $('#' + id).value = ''); upd(); };
+  ['mf-w', 'mf-t', 'mf-d1', 'mf-d2'].forEach(id => $('#' + id).onchange = upd);
+  $('#mf-p').onchange = () => { MF.p = $('#mf-p').value; MF.page = 0; rMov(); };
+  $('#mf-reset').onclick = () => { ['mf-q', 'mf-w', 'mf-t', 'mf-d1', 'mf-d2'].forEach(id => $('#' + id).value = ''); MF.p = ''; upd(); };
+  rebuildMovPartnerOptions();
+}
+/* Süzgəc seçimlərini YENİDƏN qurur: növ/anbar/tarix və ya yüklənmiş data
+   dəyişəndə çağırılır (tələb 5). Artıq mövcud olmayan seçim təhlükəsiz
+   sıfırlanır — istifadəçiyə boş nəticə göstərilmir. */
+function rebuildMovPartnerOptions() {
+  const sel = $('#mf-p'); if (!sel) return;
+  const cur = MF.p || sel.value;
+  const opt = movKeyOptions();
+  const og = (title, list) => list.length
+    ? `<optgroup label="${esc(title)}">${list.map(([k, label]) => `<option value="${esc(k)}">${esc(label)}</option>`).join('')}</optgroup>` : '';
+  sel.innerHTML = `<option value="">İstiqamət / kontragent</option>`
+    + og('Yerdəyişmə marşrutları', opt.routes)
+    + og('Kontragentlər / layihələr', opt.partners)
+    + og('Tanınmayan / köhnə idxal', opt.raws);
+  const stillValid = cur && Array.from(sel.options).some(o => o.value === cur);
+  sel.value = stillValid ? cur : '';
+  MF.p = sel.value;
 }
 /* Əvəzləmə sətrinin qeydində KÖHNƏ mal kodu saxlanılır ("Mal əvəzləndi:
    0001170 → 0001260 · Səbəb: …"). Bu insan üçün faydalıdır, lakin axtarışda
@@ -1470,12 +1583,14 @@ function movFiltered() {
   return normalMovements().filter(m => {
     if (MF.w && m.w !== MF.w) return false;
     if (MF.t && m.t !== MF.t) return false;
-    if (MF.p && m.p !== MF.p) return false;
+    if (MF.p && movKey(m) !== MF.p) return false;
     if (MF.d1 && m.d < MF.d1) return false;
     if (MF.d2 && m.d > MF.d2) return false;
     if (MF.q) {
       const it = DB.itemBy.get(m.c) || {};
-      const hay = (m.c + ' ' + (it.name || '') + ' ' + m.p + ' ' + m.t + ' ' + (m.iv || '') + ' ' + (m.ct || '') + ' ' + searchableNote(m.note)).toLowerCase();
+      // Həm sıravi (tarixi) partner mətni, həm göstərilən marşrut axtarışda
+      // iştirak edir — "Astara anbarına" da, "Ələt → Astara" da eyni sətri tapır.
+      const hay = (m.c + ' ' + (it.name || '') + ' ' + m.p + ' ' + movKeyText(m) + ' ' + m.t + ' ' + (m.iv || '') + ' ' + (m.ct || '') + ' ' + searchableNote(m.note)).toLowerCase();
       if (hay.indexOf(MF.q) < 0) return false;
     }
     return true;
@@ -1561,6 +1676,9 @@ function xlsWriteOff(rows) {
 
 function rMov() {
   movFilters();
+  // Yüklənmiş data (realtime/loadFromDB) dəyişəndə seçim siyahısı da yenilənir —
+  // yalnız istifadəçinin süzgəci dəyişdirdiyi anla məhdudlaşmır (tələb 5).
+  rebuildMovPartnerOptions();
   const all = movFiltered();
   const rows = cut(all, 'mov');
   const sin = all.reduce((s, m) => s + (m.i || 0), 0), sout = all.reduce((s, m) => s + (m.o || 0), 0);
@@ -1575,7 +1693,10 @@ function rMov() {
           esc(fmtD(m.d)), esc(m.w), `<span class="code">${esc(m.c)}</span>`,
           `<div class="nm">${esc(it.name || '—')}</div>` + (m.ct ? `<span class="hint">${esc(m.ct)}</span>` : ''),
           TYPE_TAG(m.t), esc(routeOrPartner(m)) + (cancelledDocFor(m) ? ' <span class="tag t-rm">ləğv edilib</span>' : ''),
-          m.ch ? `<span class="hint">${esc(m.ch)}</span>` : '<span class="muted">—</span>',
+          // Yerdəyişmədə anbar adı köhnə idxaldan `channel`-ə düşüb (məs. "Astara
+          // anbar") — yalnız bu, HƏQİQƏTƏN anbar kimi tanınırsa gizlədilir.
+          // Gələcəkdə mənalı, anbar olmayan kanal dəyəri gizlədilmir.
+          (m.ch && !(m.t === 'Yerdəyişmə' && resolveWh(m.ch))) ? `<span class="hint">${esc(m.ch)}</span>` : '<span class="muted">—</span>',
           m.iv ? `<span class="code">${esc(m.iv)}</span>` : '<span class="muted">—</span>',
           m.i ? `<span style="color:var(--in)">${nf(m.i, 2)}</span>` : '—',
           m.o ? `<span style="color:var(--out)">${nf(m.o, 2)}</span>` : '—',
@@ -1605,8 +1726,11 @@ function rMov() {
       xlsWriteOff(woRows);
     };
   }
-  $('#mov-exp').onclick = () => xls([['Tarix', 'Anbar', 'Kod', 'Malın adı', 'Ölçü', 'Növü', 'Kontragent/Layihə', 'Alınma kanalı', 'Giriş', 'Çıxış', 'Vahid qiyməti', 'Məbləğ', 'Müqavilə', 'Qaimə', 'Qeyd edən']]
-    .concat(all.map(m => { const it = DB.itemBy.get(m.c) || {}; const pr = m.pr || it.price || 0; return [m.d, m.w, m.c, it.name || '', it.unit || '', m.t, m.p, m.ch || '', m.i || '', m.o || '', pr || '', pr ? (((m.i || 0) + (m.o || 0)) * pr).toFixed(2) : '', m.ct || '', m.iv || '', m.by || '']; })), 'mal_hereketi');
+  // Adi ekran ixracı ekranla EYNİ semantikanı daşıyır: Yerdəyişmə üçün göstərilən
+  // kanonik marşrut, digər növlər üçün əsl kontragent/layihə mətni.
+  // Tam ixrac, SON Excel formatı və idxal yolu bu funksiyaya toxunmur.
+  $('#mov-exp').onclick = () => xls([['Tarix', 'Anbar', 'Kod', 'Malın adı', 'Ölçü', 'Növü', 'İstiqamət / Kontragent', 'Alınma kanalı', 'Giriş', 'Çıxış', 'Vahid qiyməti', 'Məbləğ', 'Müqavilə', 'Qaimə', 'Qeyd edən']]
+    .concat(all.map(m => { const it = DB.itemBy.get(m.c) || {}; const pr = m.pr || it.price || 0; return [m.d, m.w, m.c, it.name || '', it.unit || '', m.t, movKeyText(m), m.ch || '', m.i || '', m.o || '', pr || '', pr ? (((m.i || 0) + (m.o || 0)) * pr).toFixed(2) : '', m.ct || '', m.iv || '', m.by || '']; })), 'mal_hereketi');
 }
 document.addEventListener('click', e => {
   const ed = e.target.closest('[data-edit]');
@@ -1619,6 +1743,7 @@ document.addEventListener('click', e => {
 
 /* ================= ITEM CARD (drill-down) ================= */
 function itemCard(code) {
+  CARD_CODE = code;
   const it = DB.itemBy.get(code) || { code, name: '(nomenklaturada yoxdur)', unit: '', price: 0 };
   const movs = normalMovements().filter(m => m.c === code).sort((a, b) => dsort(b.d, a.d));
   const bal = IX.bal.filter(b => b.c === code);
@@ -4276,7 +4401,11 @@ function editItem(code, presetName) {
     // emit() keeps the real Supabase error visible. Do not close the modal or
     // claim success unless the server returned the edited/created item code.
     if (!saved || !saved.ok) return;
-    closeModal(); renderAll(); toast(it ? 'Mal yeniləndi' : 'Yeni mal əlavə edildi: ' + c);
+    closeModal(); renderAll();
+    // Kartoçka bu malla açıq qalıbsa, yenilənmiş məlumatla yenidən qurulur —
+    // istifadəçi dəyişikliyi dərhal görür və kartoçka bağlanmır.
+    if (it && CARD_CODE === c && $('#drawer').classList.contains('on')) itemCard(c);
+    toast(it ? 'Mal yeniləndi' : 'Yeni mal əlavə edildi: ' + c);
   };
 }
 /* ---------- toplu nomenklatura idxalı ---------- */
@@ -5275,54 +5404,107 @@ const DEVICE_ID = (() => {
   } catch (e) { return 'dev_' + Math.random().toString(36).slice(2, 12); }
 })();
 
-async function registerSession(uid) {
-  if (!SB) return;
-  try { await SB.from('sessions').delete().eq('user_id', uid); } catch (e) { }
+/* Bu cihazın qısa təsviri — yalnız «Sessiya» siyahısında tanınması üçün.
+   Heç bir qərar bu sətrə əsaslanmır. */
+const DEVICE_LABEL = (() => {
   try {
-    const { error } = await SB.from('sessions').insert({ user_id: uid, device_id: DEVICE_ID });
+    const ua = navigator.userAgent || '';
+    const os = /Windows/i.test(ua) ? 'Windows' : /Android/i.test(ua) ? 'Android'
+             : /iPhone|iPad|iPod/i.test(ua) ? 'iOS' : /Mac OS X/i.test(ua) ? 'macOS'
+             : /Linux/i.test(ua) ? 'Linux' : 'Naməlum';
+    const br = /Edg\//i.test(ua) ? 'Edge' : /OPR\//i.test(ua) ? 'Opera'
+             : /Chrome\//i.test(ua) ? 'Chrome' : /Safari\//i.test(ua) ? 'Safari'
+             : /Firefox\//i.test(ua) ? 'Firefox' : 'brauzer';
+    return (br + ' · ' + os).slice(0, 120);
+  } catch (e) { return 'Naməlum cihaz'; }
+})();
+
+/* ================= SESSİYA / CİHAZ LİMİTİ (SQL 026) =========================
+   Limit ROLA görədir: admin — 3 cihaz, digər rollar — 1 cihaz.
+
+   Qayda SERVERDƏDİR. register_session() cihazları bir istifadəçi üzrə advisory
+   lock altında sayır və yazır, ona görə eyni anda üç giriş dördüncü sətir yarada
+   bilmir. Cədvəldə yazma siyasəti YOXDUR — birbaşa PostgREST insert/update/delete
+   hər rol üçün rədd edilir. Aşağıdakı kod yalnız interfeysdir.
+
+   DİQQƏT: bu limit səlahiyyət sərhədi DEYİL — istifadəçinin nə edə biləcəyini
+   yenə rolu və biznes cədvəllərindəki RLS müəyyən edir. */
+let SESSION_LIMIT_INFO = null;   // son register_session/list_my_sessions cavabı
+
+async function registerSession() {
+  if (!SB) return { allowed: true, degraded: true };
+  try {
+    const { data, error } = await SB.rpc('register_session', {
+      p_device_id: DEVICE_ID, p_device_label: DEVICE_LABEL
+    });
     if (error) throw error;
-  } catch (err) { console.warn('session register', err); }
+    SESSION_LIMIT_INFO = data || null;
+    return data || { allowed: true };
+  } catch (err) {
+    // 026 hələ tətbiq edilməyibsə platforma bloklanmır: limit sadəcə tətbiq
+    // olunmur və bu, konsolda görünür.
+    console.warn('register_session', err);
+    return { allowed: true, degraded: true };
+  }
 }
 async function unregisterSession() {
   if (!SB || !ME) return;
-  try { await SB.from('sessions').delete().eq('user_id', ME.id); } catch (e) { }
+  try { await SB.rpc('end_session', { p_device_id: DEVICE_ID }); } catch (e) { }
 }
 const SESSION_STALE_MS = 3 * 60 * 1000;   // 3 dəqiqə siqnal yoxdursa sessiya tərk edilmiş sayılır
 let HEARTBEAT = null;
 
-/* aktiv sessiya yalnız o halda sayılır ki, son 3 dəqiqədə siqnal versin */
-async function checkDuplicate(uid) {
-  if (!SB) return false;
-  try {
-    const { data } = await SB.from('sessions').select('device_id,updated_at').eq('user_id', uid).single();
-    if (!data || data.device_id === DEVICE_ID) return false;
-    const age = Date.now() - new Date(data.updated_at).getTime();
-    if (age > SESSION_STALE_MS) {                 // brauzer bağlanıb, sessiya asılı qalıb
-      await SB.from('sessions').delete().eq('user_id', uid);
-      return false;
-    }
-    return true;
-  } catch (e) { return false; }
-}
-
-function startHeartbeat(uid) {
+function startHeartbeat() {
   stopHeartbeat();
   HEARTBEAT = setInterval(async () => {
-    if (!SB) return;
-    try { await SB.from('sessions').update({ updated_at: new Date().toISOString() }).eq('user_id', uid); }
-    catch (e) { }
+    if (!SB || !ME) return;
+    try {
+      const { data, error } = await SB.rpc('touch_session', { p_device_id: DEVICE_ID });
+      if (error) throw error;
+      // Sətir yoxdursa, sessiya başqa cihazdan bağlanıb — dərhal çıx.
+      if (data && data.alive === false) {
+        stopHeartbeat();
+        toast('Bu sessiya başqa cihazdan bağlanıb. Yenidən daxil olun.', true);
+        setTimeout(async () => { await sbSignOut(); location.reload(); }, 1500);
+      }
+    } catch (e) { /* şəbəkə və ya 026 yoxdur — növbəti dövrədə yenidən cəhd */ }
   }, 60 * 1000);
 }
 function stopHeartbeat() { if (HEARTBEAT) { clearInterval(HEARTBEAT); HEARTBEAT = null; } }
 
+/* Cihaz siyahısını oxunaqlı formada qaytarır.
+   allowEnd=false — giriş rədd edilən pəncərədə istifadə olunur: orada istifadəçi
+   hələ daxil olmayıb, ona görə «Bağla» düyməsi işləməzdi və göstərilmir. */
+function sessionDeviceRows(devices, allowEnd) {
+  return (devices || []).map(d => {
+    const mine = d.device_id === DEVICE_ID;
+    const seen = d.last_seen ? new Date(d.last_seen) : null;
+    const ago = seen ? Math.max(0, Math.round((Date.now() - seen.getTime()) / 60000)) : null;
+    return { c: [
+      `<div class="nm">${esc(d.label || 'Naməlum cihaz')}${mine ? ' <span class="tag t-in">bu cihaz</span>' : ''}</div>
+       <span class="code">${esc(String(d.device_id || '').slice(0, 12))}</span>`,
+      esc(d.since ? draftStamp(new Date(d.since).getTime()) : '—'),
+      ago === null ? '—' : (ago < 2 ? 'indi' : nf(ago) + ' dəq əvvəl'),
+      (allowEnd && !mine) ? `<button class="btn sm dgr" data-endsess="${esc(d.device_id)}">Bağla</button>` : ''
+    ] };
+  });
+}
+
 /* pəncərə bağlananda sessiyanı buraxmağa çalış (zəmanətli deyil, ona görə heartbeat var) */
 window.addEventListener('pagehide', () => {
   if (!ME || !SB) return;
+  // YALNIZ bu cihazın sətri bağlanır — istifadəçinin digər cihazlarına
+  // toxunulmur (SQL 026: end_session yalnız auth.uid() + verilmiş cihaz).
+  // Token yoxdursa heç nə göndərilmir: 'Bearer null' ilə sorğu atmaq köhnə
+  // davranış idi və zəif RLS-də başqa sətri silə bilərdi (BUG_REGISTRY C-07).
+  const tok = window.SB_TOKEN;
+  if (!tok) return;
   try {
-    const url = SB_URL + '/rest/v1/sessions?user_id=eq.' + ME.sbId;
-    const tok = (window.SB_TOKEN || SB_KEY);
-    fetch(url, { method: 'DELETE', keepalive: true,
-      headers: { apikey: SB_KEY, Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' } });
+    fetch(SB_URL + '/rest/v1/rpc/end_session', {
+      method: 'POST', keepalive: true,
+      headers: { apikey: SB_KEY, Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ p_device_id: DEVICE_ID })
+    });
   } catch (e) { }
 });
 
@@ -5356,11 +5538,71 @@ function sessionDialog() {
     `<p><b>${esc(ME.name)}</b> · ${esc(ROLES[ME.role] ? ROLES[ME.role].name : ME.role)} · ${esc(ME.wh || 'bütün anbarlar')}</p>
      <p class="hint">${esc(ME.email)}</p>
      <p class="hint">Səlahiyyətləriniz: ${(ROLE_PERMS[effectiveRole(ME.role)] || []).length ? esc(ROLE_PERMS[effectiveRole(ME.role)].join(', ')) : 'yalnız baxış'}.</p>
-     <p class="hint">Bu cihazda yadda saxlanılıb: <b>${rememberOn() ? 'bəli' : 'xeyr'}</b>.</p>`,
+     <p class="hint">Bu cihazda yadda saxlanılıb: <b>${rememberOn() ? 'bəli' : 'xeyr'}</b>.</p>
+     <div class="card" style="margin-top:12px"><header><h3>Aktiv cihazlar</h3><div class="sp" style="flex:1"></div>
+       <span class="hint" id="ss-lim"></span></header>
+       <div class="tw" id="ss-devs"><div class="pad hint">Yüklənir…</div></div>
+       <div class="pad" style="border-top:1px solid var(--line-2)">
+         <button class="btn sm dgr" id="ss-endall">Digər cihazları bağla</button>
+         <span class="hint" style="margin-left:8px">Tanımadığınız cihaz görürsünüzsə, onu bağlayın və şifrəni dəyişin.</span>
+       </div></div>`,
     `<button class="btn" id="ss-pw">Şifrəni dəyiş</button><div style="flex:1"></div>
      <button class="btn" id="ss-out">Çıxış</button><button class="btn pri" data-close>Bağla</button>`);
   $('#ss-pw').onclick = () => { closeModal(); setTimeout(pwChangeDialog, 120); };
   $('#ss-out').onclick = async () => { stopHeartbeat(); await unregisterSession(); setRemember(false); await sbSignOut(); location.reload(); };
+  $('#ss-endall').onclick = async () => {
+    try {
+      const { error } = await SB.rpc('end_other_sessions', { p_keep_device_id: DEVICE_ID });
+      if (error) throw error;
+      toast('Digər cihazlardakı sessiyalar bağlandı');
+      loadSessionDevices();
+    } catch (err) { toast('Alınmadı: ' + (err.message || 'server xətası'), true); }
+  };
+  loadSessionDevices();
+}
+/* «Sessiya» pəncərəsindəki cihaz siyahısını yükləyir və yeniləyir */
+async function loadSessionDevices() {
+  const box = $('#ss-devs'); if (!box) return;
+  let info = null;
+  try {
+    const { data, error } = await SB.rpc('list_my_sessions');
+    if (error) throw error;
+    info = data;
+  } catch (err) {
+    box.innerHTML = `<div class="pad hint">Cihaz siyahısı əlçatmazdır. (SQL 026 tətbiq edilməyibsə bu normaldır.)</div>`;
+    if ($('#ss-lim')) $('#ss-lim').textContent = '';
+    if ($('#ss-endall')) $('#ss-endall').disabled = true;
+    return;
+  }
+  const devs = (info && info.devices) || [];
+  if ($('#ss-lim')) $('#ss-lim').textContent = devs.length + ' / ' + ((info && info.limit) || 1) + ' cihaz';
+  box.innerHTML = tbl(
+    [{ t: 'Cihaz' }, { t: 'Başlanğıc' }, { t: 'Son fəaliyyət' }, { t: '' }],
+    sessionDeviceRows(devs, true), { empty: 'Aktiv cihaz yoxdur.' });
+  $$('#ss-devs [data-endsess]').forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    try {
+      const { error } = await SB.rpc('end_session', { p_device_id: b.dataset.endsess });
+      if (error) throw error;
+      toast('Sessiya bağlandı');
+      loadSessionDevices();
+    } catch (err) { b.disabled = false; toast('Alınmadı: ' + (err.message || 'server xətası'), true); }
+  });
+  if ($('#ss-endall')) $('#ss-endall').disabled = devs.length < 2;
+}
+/* Limit dolduqda girişin rədd edilməsi — hansı cihazların yer tutduğu göstərilir.
+   İstifadəçi hələ daxil olmayıb, ona görə burada yalnız məlumat verilir. */
+function sessionLimitDialog(reg) {
+  const devs = (reg && reg.devices) || [];
+  modal('Cihaz limiti doludur',
+    `<div class="hint" style="padding:9px;background:var(--out-l);border-radius:4px;margin-bottom:10px">
+       Bu hesab üçün eyni vaxtda <b>${nf((reg && reg.limit) || 1)}</b> cihaza icazə verilir və hazırda hamısı doludur.
+       Aşağıdakı cihazlardan birində «Çıxış» edin və ya 3 dəqiqə gözləyin — fəaliyyəti dayanmış sessiya avtomatik boşalır.</div>
+     <div class="card"><div class="tw">${tbl(
+       [{ t: 'Cihaz' }, { t: 'Başlanğıc' }, { t: 'Son fəaliyyət' }, { t: '' }],
+       sessionDeviceRows(devs, false), { empty: 'Məlumat yoxdur.' })}</div></div>
+     <p class="hint" style="margin-top:10px">Bu cihazları tanımırsınızsa, şifrənizi dəyişdirin və rəhbərə bildirin.</p>`,
+    `<div style="flex:1"></div><button class="btn pri" data-close>Bağla</button>`);
 }
 
 async function enterApp(userId, email) {
@@ -5380,8 +5622,10 @@ async function enterApp(userId, email) {
   $('#btn-me').textContent = ME.name.split(' ')[0] + ' · ' + (ROLES[ME.role] ? ROLES[ME.role].name : ME.role);
   $('#btn-me').onclick = sessionDialog;
   try { const ss = await SB.auth.getSession(); window.SB_TOKEN = ss.data.session ? ss.data.session.access_token : null; } catch (e) { }
-  await registerSession(userId);
-  startHeartbeat(userId);
+  // Sessiya girişdə artıq qeydə alınıb; burada yalnız təzələnir (eyni cihaz
+  // üçün register_session idempotentdir) və heartbeat başlayır.
+  await registerSession();
+  startHeartbeat();
   await loadFromDB();
   await loadAuditUsers();
   await loadUsersAdmin();
@@ -5434,8 +5678,15 @@ async function enterApp(userId, email) {
     try {
       const { data, error } = await sbSignIn(email, pass);
       if (error) throw error;
-      const dup = await checkDuplicate(data.user.id);
-      if (dup) { toast('Bu hesab hazırda başqa cihazda açıqdır. Orada «Çıxış» edin və ya 3 dəqiqə gözləyin.', true); await sbSignOut(); $('#g-go').disabled = false; $('#g-go').textContent = 'Daxil ol'; return; }
+      // Cihaz limiti serverdə yoxlanılır (SQL 026). Rədd cavabı gələrsə,
+      // hansı cihazların yer tutduğu göstərilir.
+      const reg = await registerSession();
+      if (reg && reg.allowed === false) {
+        await sbSignOut();
+        $('#g-go').disabled = false; $('#g-go').textContent = 'Daxil ol';
+        sessionLimitDialog(reg);
+        return;
+      }
       saveEmail(remember ? email : '');
       await enterApp(data.user.id, data.user.email);
     } catch (err) {
@@ -5447,8 +5698,8 @@ async function enterApp(userId, email) {
   (async () => {
     const s = await sbSession();
     if (!s || !s.user) return;
-    const dup = await checkDuplicate(s.user.id);
-    if (dup) { await sbSignOut(); toast('Bu hesab başqa cihazda açıqdır. Orada «Çıxış» edin və ya 3 dəqiqə gözləyin.', true); return; }
+    const reg = await registerSession();
+    if (reg && reg.allowed === false) { await sbSignOut(); sessionLimitDialog(reg); return; }
     $('#g-go').disabled = true; $('#g-go').textContent = 'Sessiya bərpa olunur...';
     try { await enterApp(s.user.id, s.user.email); }
     catch (e) {
