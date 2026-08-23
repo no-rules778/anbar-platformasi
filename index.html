@@ -392,6 +392,7 @@ label.f>span{display:block;font-size:10.5px;text-transform:uppercase;letter-spac
             <option value="abc">ABC təhlili</option>
             <option value="dead">Hərəkətsiz və ölü qalıq</option>
             <option value="tr">Anbarlararası yerdəyişmə matrisi</option>
+            <option value="qaime">Qaimələr üzrə hesabat</option>
           </select>
           <button class="btn" id="rep-exp">Excel</button><button class="btn" id="rep-print">Çap</button>
         </div>
@@ -617,7 +618,7 @@ const isRehber = () => !!(ME && effectiveRole(ME.role) === 'rehber');
 const isAnbardar = () => !!(ME && effectiveRole(ME.role) === 'anbardar');
 /* Universal əməliyyat ləğvi yalnız Admin üçündür — server də bunu məcbur edir */
 /* Yerdəyişmədən başqa, atomar əks-yazı ilə ləğv edilə bilən növlər */
-const CANCELLABLE_TYPES = ['Satınalma', 'Əvvələ qalıq', 'Qaytarma', 'Silinmə', 'Sahəyə', 'Satış'];
+const CANCELLABLE_TYPES = ['Satınalma', 'Əvvələ qalıq', 'Qaytarma', 'İcarə', 'Silinmə', 'Sahəyə', 'Satış'];
 
 /* ---------- Mal kateqoriyaları (MVP: bir malın bir əsas kateqoriyası) ----------
    MƏNBƏ: Sorğuçalar (reference_values.kind = 'item_category', SQL 012).
@@ -886,11 +887,22 @@ async function loadFromDB() {
         unfit: parseFloat(r.unfit_qty) || 0,
         repair: parseFloat(r.repair_qty) || 0,
         onsite: parseFloat(r.onsite_qty) || 0,
+        // 031 tətbiq edilməyibsə sütun yoxdur — 0 kimi oxunur, ekran pozulmur
+        icare: parseFloat(r.icare_qty) || 0,
         note: r.note || ''
       }));
       DB.condsReady = true;
     }
   } catch (e) { /* 025 tətbiq edilməyib — vəziyyət sütunları boş görünür */ }
+  /* sql/031 (mal hərəkətində tiplərə görə bölgü) tətbiq olunubmu. Zond ayrıca
+     funksiyadır, çünki post_movement_document-in imzası dəyişmir — naməlum
+     `conditions` açarı köhnə serverdə SÜKUTLA iqnor edilərdi və bölgü yazılmadan
+     sənəd keçərdi. Bayraq yalnız bloklamaq üçündür, icazə üçün deyil. */
+  DB.splitReady = false;
+  try {
+    const { error: spErr } = await SB.rpc('movement_split_supported');
+    if (!spErr) DB.splitReady = true;
+  } catch (e) { /* 032 tətbiq edilməyib — bölgü UI-da bloklanır */ }
   DB.whs = (warehouses.data || []).filter(r => r.active && r.type === 'anbar').map(r => r.name);
   DB.transferDests = DB.whs.slice();
   DB.locs = (warehouses.data || []).map(r => ({ id: r.id, name: r.name, kind: r.type, active: r.active !== false, seed: true }));
@@ -1338,7 +1350,7 @@ function tbl(cols, rows, opt) {
   <tbody>${rows.map(r => `<tr class="${opt.clk ? 'clk' : ''}" ${r._a || ''}>${r.c.map((c, i) => `<td class="${cols[i].r ? 'num' : ''} ${cols[i].cls || ''}">${c}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
 }
 const TYPE_TAG = t => {
-  const m = { 'Satınalma': 't-in', 'Əvvələ qalıq': 't-op', 'Yerdəyişmə': 't-mv', 'Silinmə': 't-rm', 'Sahəyə': 't-out', 'Qaytarma': 't-mut' };
+  const m = { 'Satınalma': 't-in', 'Əvvələ qalıq': 't-op', 'Yerdəyişmə': 't-mv', 'Silinmə': 't-rm', 'Sahəyə': 't-out', 'Qaytarma': 't-mut', 'İcarə': 't-op' };
   return `<span class="tag ${m[t] || 't-mut'}">${esc(t)}</span>`;
 };
 
@@ -1485,7 +1497,7 @@ function rDash() {
   $('#ch-wh').innerHTML = barChart(whData, { fmt: v => money(v) }) +
     `<div class="hint" style="margin-top:11px">Dəyər = qalıq × son məlum vahid qiyməti. Qiyməti daxil edilməmiş mallar sıfır dəyərlə iştirak edir.</div>`;
 
-  const colors = { 'Satınalma': '#0E7C6B', 'Əvvələ qalıq': '#1F4E6B', 'Yerdəyişmə': '#5B4B9E', 'Silinmə': '#A9231C', 'Sahəyə': '#B06A11', 'Qaytarma': '#71838F' };
+  const colors = { 'Satınalma': '#0E7C6B', 'Əvvələ qalıq': '#1F4E6B', 'Yerdəyişmə': '#5B4B9E', 'Silinmə': '#A9231C', 'Sahəyə': '#B06A11', 'Qaytarma': '#71838F', 'İcarə': '#7A5C29' };
   const tData = Array.from(new Set(movs.map(m => m.t))).map(t => ({ k: t, v: movs.filter(m => m.t === t).length, color: colors[t] || '#71838F' })).sort((a, b) => b.v - a.v);
   $('#ch-type').innerHTML = donut(tData);
 
@@ -1539,7 +1551,7 @@ function movFilters() {
   el.innerHTML = `
     <input type="search" id="mf-q" placeholder="Mal adı, kod, kontragent, qaimə…">
     <select id="mf-w"><option value="">Bütün anbarlar</option>${DB.whs.map(w => `<option>${esc(w)}</option>`).join('')}</select>
-    <select id="mf-t"><option value="">Bütün növlər</option>${['Əvvələ qalıq','Satınalma','Yerdəyişmə','Silinmə','Sahəyə','Qaytarma'].map(t => `<option>${esc(t)}</option>`).join('')}</select>
+    <select id="mf-t"><option value="">Bütün növlər</option>${['Əvvələ qalıq','Satınalma','Yerdəyişmə','Silinmə','Sahəyə','Qaytarma','İcarə','Satış'].map(t => `<option>${esc(t)}</option>`).join('')}</select>
     <select id="mf-p"><option value="">İstiqamət / kontragent</option></select>
     <input type="date" id="mf-d1" title="Başlanğıc tarix"><input type="date" id="mf-d2" title="Son tarix">
     <button class="btn" id="mf-reset">Sıfırla</button>`;
@@ -1946,12 +1958,87 @@ function getInitialBalanceRows() {
    INSERT/UPDATE/DELETE siyasəti yoxdur, ona görə birbaşa PostgREST yazısı hər
    rol üçün rədd edilir. Aşağıdakı canEditCond() sadəcə interfeysi gizlədir —
    qayda serverdədir (CLAUDE.md §6). */
+/* «İcarədə» digər üçündən bir cəhətlə fərqlənir: onu SERVER özü aparır —
+   «İcarə» mədaxili artırır, «Qaytarma» məxarici azaldır (sql/031). Əl ilə
+   düzəliş yenə mümkündür, çünki sənədlərin tutmadığı hallar ola bilər. */
 const COND_COLS = [
   { k: 'unfit',  t: 'Yararsız' },
   { k: 'repair', t: 'Təmirə ehtiyaclı' },
-  { k: 'onsite', t: 'Sahədə' }
+  { k: 'onsite', t: 'Sahədə' },
+  { k: 'icare',  t: 'İcarədə' }
 ];
 const condOf = (w, c) => DB.conds.get(w + '|' + c) || null;
+/* ---------- Tiplərə görə bölgü (mal hərəkətində) ----------
+   Qalıq sətri tiplərə bölünür: hər işarə öz kovasıdır, qalanı «Normal»dır.
+   Mal anbardan çıxanda (silinmə, sahəyə, satış, qaytarma, yerdəyişmə) hansı
+   tipdən nə qədər getdiyi AÇIQ göstərilir — sistem özü təxmin etmir.
+
+   `normal` = qalıq − bütün işarələrin cəmi. İşarələr qalığı aşa bilər
+   (set_stock_condition bunu bloklamır, yalnız xəbərdarlıq edir), ona görə hər
+   kova mövcud qalıqla məhdudlaşdırılır və `normal` mənfi olmur. */
+/* `pend` — həmin anbar+mal üzrə QARALAMADA artıq tutulmuş kovalar. Ümumi
+   miqdarda gözləyən sətirlər onsuz da çıxılır (bax bulkWriteOffRows), amma
+   kovalar da çıxılmasa eyni 3 ədəd «İcarədə» iki qaralama sətrində ikiqat
+   götürülə bilərdi: forma buraxardı, server isə bütün sənədi rədd edərdi. */
+function condBuckets(w, code, avail, pend) {
+  const cd = condOf(w, code) || {};
+  const p = pend || {};
+  const out = { keys: [], marked: false };
+  let sum = 0;
+  COND_COLS.forEach(cc => {
+    const v = Math.max(0, (Number(cd[cc.k]) || 0) - (Number(p[cc.k]) || 0));
+    out[cc.k] = +Math.min(v, avail).toFixed(4);
+    if (out[cc.k] > 1e-9) { out.keys.push(cc.k); out.marked = true; }
+    sum += v;
+  });
+  out.normal = +Math.max(0, avail - sum).toFixed(4);
+  return out;
+}
+/* Qaralamadakı sətirlərin həmin anbar+mal üzrə kova-kova cəmi. */
+function condPending(w, code) {
+  const p = {};
+  for (const l of OP.lines) {
+    if (l.kind === 'in' || l.w !== w || l.c !== code || !l.cond) continue;
+    COND_COLS.forEach(cc => { p[cc.k] = (p[cc.k] || 0) + (Number(l.cond[cc.k]) || 0); });
+  }
+  return p;
+}
+/* Boş (hamısı sıfır) bölgü — işarəsiz mal üçün bütün miqdar «normal»dır. */
+function condSplitZero() {
+  const s = { normal: 0 };
+  COND_COLS.forEach(cc => { s[cc.k] = 0; });
+  return s;
+}
+const condSplitSum = s => +COND_COLS.reduce((a, cc) => a + (Number(s[cc.k]) || 0),
+  Number(s && s.normal) || 0).toFixed(4);
+/* RPC-yə gedən forma: yalnız SIFIRDAN BÖYÜK işarə kovaları. «normal» ötürülmür —
+   server onu qalıqdan çıxma yolu ilə özü bilir və artıq açar yazmaq iki mənbə
+   yaradardı. */
+function condSplitPayload(split) {
+  const out = {};
+  COND_COLS.forEach(cc => {
+    const v = Number(split[cc.k]) || 0;
+    if (v > 1e-9) out[cc.k] = +v.toFixed(4);
+  });
+  return Object.keys(out).length ? out : null;
+}
+const SPLIT_UNSUPPORTED_MSG =
+  'Tiplərə görə bölgü serverdə hələ aktiv deyil (sql/031 tətbiq edilməyib) — '
+  + 'bölgü yazılmadan sənəd qeyd edilsəydi, işarələr mənbədə qalardı. '
+  + 'İşarəli malı seçimdən çıxarın və ya migrasiyanı tətbiq edin.';
+/* Bölgünü kovalara qarşı yoxlayır. Qaytarır: {ok, error}. */
+function condSplitCheck(split, buckets) {
+  const all = [{ k: 'normal', t: 'Normal' }].concat(COND_COLS);
+  for (const cc of all) {
+    const v = Number(split[cc.k]) || 0;
+    if (v < 0) return { ok: false, error: `${cc.t}: miqdar mənfi ola bilməz` };
+    if (v > (buckets[cc.k] || 0) + 1e-9) {
+      return { ok: false, error: `${cc.t} statuslu mal kifayət deyil. Mövcud: ${nf(buckets[cc.k] || 0, 2)}` };
+    }
+  }
+  if (!(condSplitSum(split) > 1e-9)) return { ok: false, error: 'Ən azı bir tipdən miqdar göstərin' };
+  return { ok: true };
+}
 /* Yalnız konkret anbar sətrində redaktə var: "bütün anbarlar" (__sum) və
    hərəkəti olmayan "—" sətirləri cəm/şərti sətirlərdir, real anbar deyil. */
 function canEditCond(w) {
@@ -1966,15 +2053,30 @@ async function saveCond(w, code, key, raw) {
   let v = txt === '' ? 0 : Number(txt);
   if (!Number.isFinite(v) || v < 0) { toast('Miqdar mənfi olmayan düzgün ədəd olmalıdır', true); return false; }
   v = Math.round(v * 100) / 100;
-  const cur = condOf(w, code) || { unfit: 0, repair: 0, onsite: 0, note: '' };
-  const next = { unfit: cur.unfit, repair: cur.repair, onsite: cur.onsite };
+  const cur = condOf(w, code) || { unfit: 0, repair: 0, onsite: 0, icare: 0, note: '' };
+  const next = { unfit: cur.unfit, repair: cur.repair, onsite: cur.onsite, icare: cur.icare || 0 };
   next[key] = v;
+  /* sql/031 (icare_qty) tətbiq edilməyibsə serverdəki funksiya hələ 6
+     arqumentlidir və p_icare_qty ilə çağırış PGRST202 ilə rədd olunur — yəni
+     ADİ Yararsız/Təmirə/Sahədə işarələməsi də işləməz. Ona görə əvvəlcə tam
+     çağırış, uyğunsuzluq halında isə köhnə imza ilə təkrar cəhd edilir.
+     İcarə sütunu 031-siz onsuz da mövcud olmadığından bu halda 0 qalır. */
+  const baseArgs = {
+    p_warehouse: w, p_item_code: code,
+    p_unfit_qty: next.unfit, p_repair_qty: next.repair, p_onsite_qty: next.onsite,
+    p_note: cur.note || null
+  };
   try {
-    const { data, error } = await SB.rpc('set_stock_condition', {
-      p_warehouse: w, p_item_code: code,
-      p_unfit_qty: next.unfit, p_repair_qty: next.repair, p_onsite_qty: next.onsite,
-      p_note: cur.note || null
-    });
+    let { data, error } = await SB.rpc('set_stock_condition',
+      Object.assign({}, baseArgs, { p_icare_qty: next.icare }));
+    if (error && error.code === 'PGRST202') {
+      if (key === 'icare') {
+        toast('İcarə sütunu bazada yoxdur — sql/031 hələ tətbiq edilməyib', true);
+        setSync(false);
+        return false;
+      }
+      ({ data, error } = await SB.rpc('set_stock_condition', baseArgs));
+    }
     if (error) throw error;
     const key2 = w + '|' + code;
     if (!data || data.action === 'DELETE') DB.conds.delete(key2);
@@ -1983,6 +2085,7 @@ async function saveCond(w, code, key, raw) {
       unfit: parseFloat(data.unfit_qty) || 0,
       repair: parseFloat(data.repair_qty) || 0,
       onsite: parseFloat(data.onsite_qty) || 0,
+      icare: parseFloat(data.icare_qty) || 0,
       note: data.note || ''
     });
     setSync(true);
@@ -2100,26 +2203,28 @@ function rBal() {
     const byCode = new Map();
     for (const cd of DB.conds.values()) {
       let x = byCode.get(cd.c);
-      if (!x) { x = { unfit: 0, repair: 0, onsite: 0 }; byCode.set(cd.c, x); }
-      x.unfit += cd.unfit; x.repair += cd.repair; x.onsite += cd.onsite;
+      if (!x) { x = { unfit: 0, repair: 0, onsite: 0, icare: 0 }; byCode.set(cd.c, x); }
+      x.unfit += cd.unfit; x.repair += cd.repair; x.onsite += cd.onsite; x.icare += (cd.icare || 0);
     }
     for (const b of src) {
       const x = byCode.get(b.c);
       b.cUnfit = x ? x.unfit : 0; b.cRepair = x ? x.repair : 0; b.cOnsite = x ? x.onsite : 0;
+      b.cIcare = x ? x.icare : 0;
     }
   } else {
     for (const b of src) {
       const cd = condOf(b.w, b.c);
       b.cUnfit = cd ? cd.unfit : 0; b.cRepair = cd ? cd.repair : 0; b.cOnsite = cd ? cd.onsite : 0;
+      b.cIcare = cd ? (cd.icare || 0) : 0;
     }
   }
-  const CONDF = { unfit: 'cUnfit', repair: 'cRepair', onsite: 'cOnsite' };
+  const CONDF = { unfit: 'cUnfit', repair: 'cRepair', onsite: 'cOnsite', icare: 'cIcare' };
   let rows = src.filter(b => {
     if (BF.z === 'act' && Math.abs(b.q) < 1e-9) return false;
     if (BF.z === 'neg' && b.q >= 0) return false;
     if (BF.z === 'zero' && Math.abs(b.q) > 1e-9) return false;
     if (BF.q && (b.name + ' ' + b.c).toLowerCase().indexOf(BF.q) < 0) return false;
-    if (BF.cond === 'any') { if (!(b.cUnfit > 0 || b.cRepair > 0 || b.cOnsite > 0)) return false; }
+    if (BF.cond === 'any') { if (!(b.cUnfit > 0 || b.cRepair > 0 || b.cOnsite > 0 || b.cIcare > 0)) return false; }
     else if (BF.cond && !(b[CONDF[BF.cond]] > 0)) return false;
     return true;
   });
@@ -2157,8 +2262,15 @@ function rBal() {
   $$('#t-bal .cond-ed').forEach(el => el.onclick = ev => { ev.stopPropagation(); condEditStart(el); });
   $('#bal-pager').innerHTML = `<span class="hint">${nf(rows.length)} sətir` + cutNote(rows, 'bal', rBal) + `</span>`;
   $('#bal-print').onclick = () => { printHead('Anbar qalıqları', (BF.w === '__sum' ? 'ümumi' : (BF.w || 'bütün anbarlar')) + ' · ' + nf(rows.length) + ' mövqe'); setTimeout(() => window.print(), 60); };
+  /* İxracın sətirləri də COND_COLS/CONDF-dən qurulur — başlıq oradan, sətirlər
+     əl ilə sayılsaydı (əvvəl belə idi) yeni sütun əlavə edilən kimi başlıqda 4,
+     sətirdə 3 xana olar və ondan sonrakı BÜTÜN sütunlar bir xana sürüşərdi:
+     qiymət «İcarədə»nin altına düşərdi. Tək mənbə bu səhvi struktur olaraq
+     mümkünsüz edir. */
   $('#bal-exp').onclick = () => xls([['Anbar', 'Kod', 'Malın adı', 'Ölçü', 'Mədaxil', 'Məxaric', 'Qalıq'].concat(COND_COLS.map(cc => cc.t)).concat(['Vahid qiyməti', 'Dəyər', 'Son hərəkət'])]
-    .concat(rows.map(b => [b.w, b.c, b.name, b.unit, b.in, b.out, b.q, b.cUnfit || 0, b.cRepair || 0, b.cOnsite || 0, b.price || '', b.val.toFixed(2), b.last])), 'anbar_qaliqlari');
+    .concat(rows.map(b => [b.w, b.c, b.name, b.unit, b.in, b.out, b.q]
+      .concat(COND_COLS.map(cc => b[CONDF[cc.k]] || 0))
+      .concat([b.price || '', b.val.toFixed(2), b.last]))), 'anbar_qaliqlari');
 }
 
 /* Vəziyyət xanasının sətir-daxili redaktəsi. Enter/fokus itirmə saxlayır,
@@ -2952,10 +3064,18 @@ async function refSend(kind, action, id) {
 </script>
 <script>
 /* ================= OPERATION ENTRY ================= */
-const OP = { kind: 'in', lines: [], pick: null };
+/* editDoc — qeyd edilmiş sənədin düzəliş rejimi (sql/030 correct_document).
+   null olduqda forma adi «yeni əməliyyat» kimi işləyir. Dolu olduqda sətirlər
+   mövcud sənədin düzəlişidir: bazada HEÇ NƏ dəyişmir, ta ki «Düzəlişi qeyd et»
+   basılana qədər — o zaman ləğv və yeni sənəd serverdə TƏK tranzaksiyada yazılır. */
+const OP = { kind: 'in', lines: [], pick: null, editDoc: null };
 /* Hər tabın icazəli əməliyyat növləri — TƏK mənbə. rOp() forması, sətir
    validasiyası və sətir redaktoru eyni siyahını oxuyur. */
-const OP_TYPES = { in: ['Satınalma', 'Qaytarma', 'Əvvələ qalıq'], out: ['Sahəyə', 'Silinmə', 'Satış'], mv: ['Yerdəyişmə'] };
+/* «İcarə» yalnız mədaxildir: firma malı icarəyə GÖTÜRÜR — mal anbara gəlir,
+   qalığa düşür, amma bizim deyil və qaytarılacaq (sql/031).
+   «Qaytarma» hər iki tabda var: mədaxildə müştəri bizə qaytarır, məxaricdə isə
+   biz sahibinə qaytarırıq — məhz bu, icarədə olan miqdarı azaldan sənəddir. */
+const OP_TYPES = { in: ['Satınalma', 'Qaytarma', 'İcarə', 'Əvvələ qalıq'], out: ['Sahəyə', 'Silinmə', 'Satış', 'Qaytarma'], mv: ['Yerdəyişmə'] };
 $$('#op-seg button').forEach(b => b.onclick = () => { OP.kind = b.dataset.k; $$('#op-seg button').forEach(x => x.classList.toggle('on', x === b)); rOp(); });
 
 const DEFAULT_CHANNELS = ['Nağd alış', 'Kommersiya şirkəti', 'Köçürmə', 'Sahə üzrə məsul şəxs'];
@@ -2993,6 +3113,21 @@ function rOp() {
   captureOpHeader();
   const H = (OP.hdr && OP.hdr.kind === k) ? OP.hdr : {};
   const typeOpts = k === 'in' ? OP_TYPES.in : k === 'out' ? OP_TYPES.out : OP_TYPES.mv;
+  /* Silinmə tək mal seçimi VƏ qrup seçimi üçün əvvəllər iki ayrı yol var idi
+     (əl ilə axtarıb "Sətri əlavə et", ya da "Qrup üzrə silinmə"). Axtarış
+     bütün anbarlar üzrə DB.items-dən gəlirdi — seçilmiş anbarda olmayan mal da
+     təklif olunurdu. Bunun əvəzinə Silinmə üçün TƏK giriş nöqtəsi qalır:
+     "Malları seç" düyməsi mövcud bulkWriteOff* siyahısını açır (IX.bal üzrə
+     seçilmiş anbarda müsbət qalığı olanlar) — 1 və ya 100 sətir fərq etmir.
+     Sənəd düzəlişi zamanı (OP.editDoc) köhnə forma saxlanılır, çünki bulk
+     axını post_movement_document-i BİRBAŞA çağırır və correct_document
+     tranzaksiyasını yan keçər — düzəliş rejimində bunu göstərmək səhv olardı. */
+  const isWoOut = k === 'out' && H.t === 'Silinmə' && !OP.editDoc;
+  /* Yerdəyişmədə hər iki yol saxlanılır: tək mal üçün adi forma, çoxlu mal üçün
+     eyni siyahı pəncərəsi. Silinmədən fərqi — burada sətirlər sənədə əlavə
+     olunur (post_transfer_document iki ayaqlı yazı tələb edir), birbaşa
+     yazılmır. */
+  const isMvPick = k === 'mv' && !OP.editDoc;
   $('#op-form').innerHTML = `
     <div class="row" style="grid-template-columns:1fr 1fr">
       <label class="f"><span>Tarix</span><input type="date" id="o-date" value="${H.d || today()}"></label>
@@ -3006,7 +3141,7 @@ function rOp() {
         <label class="f"><span>Anbar</span><select id="o-wh">${allowedWarehouses().map(w => `<option ${w === (H.w || ME.wh) ? 'selected' : ''}>${esc(w)}</option>`).join('')}</select></label>
         <label class="f"><span>${k === 'in' ? 'Kontragent' : 'Təhvil alan / layihə'}</span><select id="o-p">${partnerOptions(k).map(p => `<option ${p === H.p ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select></label>
       </div>`}
-    <label class="f"><span>Mal (ad və ya kod yazın)</span>
+    ${isWoOut ? '' : `<label class="f"><span>Mal (ad və ya kod yazın)</span>
       <div style="position:relative"><input type="text" id="o-item" autocomplete="off" placeholder="məs. kabel, 0000123…">
       <div id="o-res" style="position:absolute;left:0;right:0;top:100%;background:#fff;border:1px solid var(--line);border-radius:0 0 4px 4px;max-height:230px;overflow:auto;z-index:20;display:none"></div></div>
       <span class="hint" id="o-itemsel">Seçilməyib</span></label>
@@ -3015,6 +3150,7 @@ function rOp() {
       <label class="f"><span>Ölçü vahidi</span><input type="text" id="o-unit" readonly placeholder="—"></label>
       ${k === 'in' ? `<label class="f"><span>Vahidin qiyməti (₼)</span><input type="number" id="o-price" step="0.01" min="0" placeholder="0.00"></label>` : ''}
     </div>
+    ${k === 'in' ? '' : `<div id="o-cond"></div>`}`}
     ${k === 'in' ? `<div class="row" style="grid-template-columns:1fr 1fr 1fr">
       <label class="f"><span>Alınma kanalı</span><select id="o-ch"><option value="">—</option>${channelOptions().map(c => `<option ${c === H.ch ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>
       <label class="f"><span>Müqavilə №</span><input type="text" id="o-ct" value="${esc(H.ct || '')}" placeholder="məs. №06/2026"></label>
@@ -3024,47 +3160,102 @@ function rOp() {
     ${k === 'mv' ? `<div class="row" style="grid-template-columns:1fr">
       <label class="f"><span>Qaimə №</span><input type="text" id="o-iv" value="${esc(H.iv || '')}" placeholder="məs. YD-2026/041"><span class="hint">Anbarlararası təhvil-təslim sənədinin nömrəsi — əl ilə yazılır, kontragentə bağlı deyil. Hər iki sətirdə eyni saxlanılır.</span></label></div>` : ''}
     <label class="f"><span>Qeyd</span><input type="text" id="o-note" value="${esc(H.note || '')}" placeholder="istəyə bağlı — əsaslandırma, sifariş nömrəsi, məsul şəxs"></label>
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="btn pri" id="o-add">Sətri əlavə et</button>${k === 'out' ? `<button class="btn" id="o-bulk">Qrup üzrə silinmə</button>` : ''}<span class="hint" id="o-err"></span></div>
-    ${k === 'out' ? `<div class="hint" id="o-bulk-hint" style="margin-top:6px"></div>` : ''}`;
+    ${isWoOut
+      ? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="btn pri" id="o-bulk">Malları seç</button><span class="hint" id="o-err"></span></div>
+         <div class="hint" id="o-bulk-hint" style="margin-top:6px"></div>`
+      : `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="btn pri" id="o-add">Sətri əlavə et</button>${isMvPick ? `<button class="btn" id="o-bulk">Malları seç</button>` : ''}<span class="hint" id="o-err"></span></div>
+         ${isMvPick ? `<div class="hint" id="o-bulk-hint" style="margin-top:6px"></div>` : ''}`}`;
 
-  // item combobox
+  // item combobox — Silinmə (redaktə rejimində olmayan) tabında bu blok
+  // ümumiyyətlə DOM-da yoxdur, ona görə hər yerdə mövcudluq yoxlanılır.
   const inp = $('#o-item'), res = $('#o-res');
-  const search = () => {
-    const q = inp.value.trim().toLowerCase();
-    if (q.length < 2) { res.style.display = 'none'; return; }
-    const hit = DB.items.filter(i => i.name.toLowerCase().indexOf(q) >= 0 || i.code.indexOf(q) >= 0).slice(0, 12);
-    res.innerHTML = hit.length ? hit.map(i => `<div data-c="${esc(i.code)}" style="padding:7px 9px;cursor:pointer;border-bottom:1px solid var(--line-2)"><b>${esc(i.name)}</b><div class="hint"><span class="code">${esc(i.code)}</span> · ${esc(i.unit)}${i.price ? ' · ' + nf(i.price, 2) + ' ₼' : ''}</div></div>`).join('')
-      : `<div style="padding:9px" class="hint">Tapılmadı. ${can('item.add') ? '<a href="#" id="o-new">Yeni mal yarat →</a>' : ''}</div>`;
-    res.style.display = 'block';
-    $$('#o-res [data-c]').forEach(d => d.onmouseenter = () => d.style.background = 'var(--line-2)');
-    $$('#o-res [data-c]').forEach(d => d.onmouseleave = () => d.style.background = '');
-    $$('#o-res [data-c]').forEach(d => d.onclick = () => pickItem(d.dataset.c));
-    if ($('#o-new')) $('#o-new').onclick = e => { e.preventDefault(); res.style.display = 'none'; editItem(null, inp.value); };
-  };
-  inp.oninput = debounce(search, 160);
-  inp.onblur = () => setTimeout(() => res.style.display = 'none', 200);
-  // Silinmə üçün təhvil alan həmişə "Sahə üzrə məsul şəxs"
-  // Eyni yerdə «Qrup üzrə silinmə» düyməsi də sinxronlaşdırılır: o, YALNIZ
-  // əməliyyat növü dəqiq «Silinmə» olduqda aktivdir (Mal hərəkətindəki
-  // «Silinmə hesabatının ixracı» düyməsi ilə eyni davranış).
+  if (inp && res) {
+    const search = () => {
+      const q = inp.value.trim().toLowerCase();
+      if (q.length < 2) { res.style.display = 'none'; return; }
+      /* Çıxış (məxaric/yerdəyişmə) sətrində yalnız SEÇİLMİŞ anbarda müsbət
+         qalığı olan mallar təklif olunur. Əvvəl bütün nomenklatura göstərilirdi
+         və anbarda olmayan mal seçilə bilirdi — sətir yalnız «Sətri əlavə et»
+         mərhələsində rədd olunurdu. Mədaxildə süzgəc YOXDUR: alınan mal həmin
+         anbarda ilk dəfə görünə bilər. */
+      const whSel = $('#o-wh') ? $('#o-wh').value : '';
+      const stock = (k === 'in' || !whSel) ? null
+        : new Set(bulkWriteOffRows(whSel).map(r => r.c));
+      const hit = DB.items.filter(i =>
+        (!stock || stock.has(i.code))
+        && (i.name.toLowerCase().indexOf(q) >= 0 || i.code.indexOf(q) >= 0)).slice(0, 12);
+      res.innerHTML = hit.length ? hit.map(i => `<div data-c="${esc(i.code)}" style="padding:7px 9px;cursor:pointer;border-bottom:1px solid var(--line-2)"><b>${esc(i.name)}</b><div class="hint"><span class="code">${esc(i.code)}</span> · ${esc(i.unit)}${i.price ? ' · ' + nf(i.price, 2) + ' ₼' : ''}</div></div>`).join('')
+        : (stock
+          ? `<div style="padding:9px" class="hint">«${esc(whSel)}» anbarında bu axtarışa uyğun qalıq yoxdur.</div>`
+          : `<div style="padding:9px" class="hint">Tapılmadı. ${can('item.add') ? '<a href="#" id="o-new">Yeni mal yarat →</a>' : ''}</div>`);
+      res.style.display = 'block';
+      $$('#o-res [data-c]').forEach(d => d.onmouseenter = () => d.style.background = 'var(--line-2)');
+      $$('#o-res [data-c]').forEach(d => d.onmouseleave = () => d.style.background = '');
+      $$('#o-res [data-c]').forEach(d => d.onclick = () => pickItem(d.dataset.c));
+      if ($('#o-new')) $('#o-new').onclick = e => { e.preventDefault(); res.style.display = 'none'; editItem(null, inp.value); };
+    };
+    inp.oninput = debounce(search, 160);
+    inp.onblur = () => setTimeout(() => res.style.display = 'none', 200);
+  }
+  /* Silinmə üçün təhvil alan həmişə "Sahə üzrə məsul şəxs". Növ dəyişəndə
+     forma quruluşu da dəyişə bilər (Silinməyə keçəndə mal/miqdar bloku
+     "Malları seç" düyməsi ilə əvəz olunur), ona görə #o-type.onchange TAM
+     rOp() çağırır — H.t yenilənmiş DOM dəyərini captureOpHeader() vasitəsilə
+     oxuyacaq. #o-wh dəyişəndə isə quruluş sabit qalır, sadəcə mətn yenilənir. */
   if (k === 'out' && $('#o-type') && $('#o-p')) {
     const syncSil = () => {
       const isWo = $('#o-type').value === 'Silinmə';
+      /* «Qaytarma» məxaricdə malı SAHİBİNƏ qaytarmaqdır (icarəyə götürülmüş mal
+         və ya təchizatçıya geri qaytarılan alış), ona görə qarşı tərəf obyekt
+         deyil, KONTRAGENTDİR. Məxaric tabının adi siyahısı obyektlərdir, orada
+         sahibin adı ümumiyyətlə yoxdur — növ dəyişəndə siyahını dəyişirik.
+         Seçilmiş dəyər siyahıda qalırsa saxlanılır. */
+      const isRet = $('#o-type').value === 'Qaytarma';
+      const want = isRet ? partnerOptions('in') : partnerOptions('out');
+      const cur = $('#o-p').value;
+      const have = Array.from($('#o-p').options || []).map(o => o.value);
+      if (have.length !== want.length || have.some((v, i) => v !== want[i])) {
+        $('#o-p').innerHTML = want.map(p => `<option ${p === cur ? 'selected' : ''}>${esc(p)}</option>`).join('');
+        if (want.indexOf(cur) < 0 && want.length) $('#o-p').value = want[0];
+      }
       if (isWo) $('#o-p').value = 'Sahə üzrə məsul şəxs';
-      const b = $('#o-bulk'), h = $('#o-bulk-hint');
-      if (b) b.disabled = !isWo;
+      const h = $('#o-bulk-hint');
       if (h) h.textContent = isWo
-        ? 'Bir neçə malı seçib bir atomar «Silinmə» sənədi kimi qeyd edin — seçilmiş anbar: ' + ($('#o-wh') ? $('#o-wh').value : '—') + '.'
-        : 'Əvvəlcə əməliyyat növü olaraq «Silinmə» seçin.';
+        ? 'Seçilmiş anbarda müsbət qalığı olan mallardan istənilən sayda seçib BİR atomar «Silinmə» sənədi kimi qeyd edin — seçilmiş anbar: ' + ($('#o-wh') ? $('#o-wh').value : '—') + '.'
+        : '';
     };
-    $('#o-type').onchange = syncSil;
-    if ($('#o-wh')) $('#o-wh').onchange = syncSil;
+    $('#o-type').onchange = rOp;
+    if ($('#o-wh')) $('#o-wh').onchange = () => { clearPickedItem(); syncSil(); };
     syncSil();
   }
+  /* Mənbə anbarı dəyişdikdə seçilmiş mal ARTIQ başqa anbarın malıdır: süzgəc
+     yeni anbara görə işləyir, ona görə köhnə seçim silinir ki, qalığı olmayan
+     mal sükutla sənədə düşməsin. Mədaxildə süzgəc olmadığından seçim qalır. */
+  if (k === 'mv' && $('#o-wh')) {
+    const syncMvHint = () => {
+      const h = $('#o-bulk-hint');
+      if (h) h.textContent = 'Bir neçə malı birdən seçmək üçün «Malları seç» — marşrut: '
+        + ($('#o-wh') ? $('#o-wh').value : '—') + ' → ' + ($('#o-wh2') ? $('#o-wh2').value : '—') + '.';
+    };
+    $('#o-wh').onchange = () => { clearPickedItem(); syncMvHint(); };
+    if ($('#o-wh2')) $('#o-wh2').onchange = syncMvHint;
+    syncMvHint();
+  }
   if ($('#o-bulk')) $('#o-bulk').onclick = bulkWriteOffOpen;
-  $('#o-add').onclick = addLine;
-  if (OP.pick) pickItem(OP.pick, true);
+  if ($('#o-add')) $('#o-add').onclick = addLine;
+  if (OP.pick && $('#o-item')) pickItem(OP.pick, true);
   renderLines();
+}
+function clearPickedItem() {
+  OP.pick = null;
+  OP.condSplit = null;
+  if ($('#o-item')) $('#o-item').value = '';
+  if ($('#o-qty')) { $('#o-qty').value = ''; $('#o-qty').readOnly = false; }
+  if ($('#o-unit')) $('#o-unit').value = '';
+  if ($('#o-itemsel')) $('#o-itemsel').textContent = 'Seçilməyib';
+  if ($('#o-res')) $('#o-res').style.display = 'none';
+  if ($('#o-cond')) $('#o-cond').innerHTML = '';
+  if ($('#op-state')) $('#op-state').innerHTML = '<div class="hint">Mal seçin — bütün anbarlar üzrə qalıq burada görünəcək.</div>';
 }
 function pickItem(code, keep) {
   const it = DB.itemBy.get(code); if (!it) return;
@@ -3075,7 +3266,50 @@ function pickItem(code, keep) {
   $('#o-unit').value = it.unit;
   if ($('#o-price') && it.price && !$('#o-price').value) $('#o-price').value = it.price;
   renderItemBalance(code);
-  if (!keep) $('#o-qty').focus();
+  renderOpCondSplit();
+  if (!keep && !OP.condSplit) $('#o-qty').focus();
+}
+/* ---------- Tək mal formasında tiplərə görə bölgü ----------
+   Siyahı pəncərəsi ilə EYNİ qayda, sadəcə bir sətir üçün: işarəsi olan malda
+   miqdar tiplərə görə yazılır, ümumi miqdar isə onların cəmidir (o səbəbdən
+   #o-qty oxunan hala keçir). İşarəsiz malda blok ümumiyyətlə qurulmur və forma
+   əvvəlki kimi işləyir.
+
+   Bu blok olmasaydı, eyni yerdəyişmə düymədən asılı olaraq fərqli davranardı:
+   siyahı pəncərəsindən işarələr malla birlikdə köçürdü, formadan isə sükutla
+   mənbədə qalırdı. */
+function renderOpCondSplit() {
+  const box = $('#o-cond');
+  if (!box) return;
+  const code = OP.pick, w = $('#o-wh') ? $('#o-wh').value : '';
+  if (!code || !w || OP.kind === 'in') { box.innerHTML = ''; OP.condSplit = null; return; }
+  const b = IX.bal.find(x => x.w === w && x.c === code);
+  const avail = b ? b.q : 0;
+  const bk = condBuckets(w, code, avail, condPending(w, code));
+  if (!bk.marked) { box.innerHTML = ''; OP.condSplit = null; if ($('#o-qty')) $('#o-qty').readOnly = false; return; }
+
+  if (!OP.condSplit) OP.condSplit = condSplitZero();
+  const fld = (k, t, max) => max <= 1e-9 ? '' :
+    `<label class="f" style="min-width:150px"><span>${esc(t)} <b>≤${esc(nf(max, 2))}</b></span>
+       <input type="number" data-ocs="${esc(k)}" step="0.01" min="0" max="${esc(String(max))}"
+              value="${esc(String(OP.condSplit[k] || 0))}"></label>`;
+  box.innerHTML = `<div class="hint" style="margin:2px 0 6px">Bu malın bir hissəsi işarələnib — hansı tipdən nə qədər çıxdığını göstərin. Ümumi miqdar bunların cəmidir.</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      ${fld('normal', 'Normal', bk.normal)}${COND_COLS.map(cc => fld(cc.k, cc.t, bk[cc.k])).join('')}
+    </div>`;
+  const sync = () => {
+    $$('#o-cond [data-ocs]').forEach(i => {
+      const k = i.dataset.ocs;
+      let v = parseFloat(i.value);
+      if (!(v > 0)) v = 0;
+      const max = parseFloat(i.max) || 0;
+      if (v > max) { v = max; i.value = String(v); toast(`Maksimum ${nf(max, 2)} mövcuddur`, true); }
+      OP.condSplit[k] = v;
+    });
+    if ($('#o-qty')) { $('#o-qty').value = String(condSplitSum(OP.condSplit)); $('#o-qty').readOnly = true; }
+  };
+  $$('#o-cond [data-ocs]').forEach(i => i.oninput = sync);
+  sync();
 }
 /* Seçilmiş mal üzrə anbar qalıqlarını #op-state panelində göstərir. Qalıqlar
    IX.bal-dan (baza qalığı) götürülür — gözləyən sənəd sətirlərindən asılı deyil. */
@@ -3107,6 +3341,103 @@ function prefillOp(code) { OP.pick = code; go('op'); setTimeout(() => pickItem(c
 
    Qaytarır: { ok:false, code, error } və ya { ok:true, q, warn, item }.
    Mətnlərin sonluğu çağırana aiddir — hər iki yol öz kontekst sonluğunu əlavə edir. */
+/* Düzəliş rejimində orijinal sənədin çıxışları HƏLƏ qalıqdan çıxılmış vəziyyətdədir —
+   ləğv yalnız serverdə, düzəlişlə eyni tranzaksiyada baş verir. Ona görə mövcud
+   qalığa həmin miqdarları geri əlavə edirik; əks halda sənəd öz sətrini kəsərdi.
+   Adi rejimdə (OP.editDoc = null) həmişə 0 qaytarır — davranış dəyişmir. */
+/* ---------- İcarədə olan maldan məxaric ----------
+   Qalıq 10, onun 5-i icarədədir → sərbəst (bizim) 5. 6 ədəd silinsə, 1 ədəd
+   BAŞQASININ malından çıxır. Bu qadağa deyil — anbardar doğrudan da icarə malı
+   köçürməli ola bilər — amma təsdiq və yazılı izahat tələb olunur.
+   Server eyni hesabı özü aparır və faktı audit jurnalına yazır (sql/031), ona
+   görə dialoqu keçmək izsiz qalmır. */
+const ICARE_USE_MARK = reason => 'İcarədə olan maldan: ' + reason;
+/* Markeri qeyddən çıxarır (təkrar əlavə olunmasın deyə) — sonda, ' · ' ayırıcısı
+   ilə və ya tək başına dayandığı halların hər ikisi. */
+const ICARE_USE_RE = /\s*·?\s*İcarədə olan maldan:[^·]*$/;
+const icareQtyOf = (w, c) => { const cd = condOf(w, c); return cd ? (cd.icare || 0) : 0; };
+/* qty-nin nə qədəri icarədə olan hissədən çıxır (0 = hamısı sərbəst qalıqdan) */
+function icareExposure(w, c, qty, alreadyTaken) {
+  const ic = icareQtyOf(w, c);
+  if (!(ic > 0) || !(qty > 0)) return 0;
+  const b = IX.bal.find(x => x.w === w && x.c === c);
+  const free = Math.max((b ? b.q : 0) - ic - (alreadyTaken || 0), 0);
+  return Math.max(Math.round((qty - free) * 100) / 100, 0);
+}
+/* Sənəddəki bütün məxaric sətirlərini yoxlayır. «Qaytarma» sayılmır — icarə
+   malını sahibinə qaytarmaq məhz İcarədə rəqəminin təyinatıdır. */
+function icareExposedLines(lines) {
+  const taken = new Map(), out = [];
+  for (const l of lines) {
+    if (l.kind === 'in' || l.t === 'Qaytarma') continue;
+    // Yerdəyişmədə də çıxış MƏNBƏ anbarındandır (l.w) — təyinat (l.w2) deyil.
+    const w = l.w;
+    const k = w + '|' + l.c;
+    const exp = icareExposure(w, l.c, l.q, taken.get(k) || 0);
+    taken.set(k, (taken.get(k) || 0) + l.q);
+    if (exp > 0) out.push({ line: l, w, exp });
+  }
+  return out;
+}
+function editRestoreQty(w, c) {
+  if (!OP.editDoc || !OP.editDoc.restore) return 0;
+  return OP.editDoc.restore.get(w + '|' + c) || 0;
+}
+/* ---------- Qaimə № təkrarının qarşısı ----------
+   Qayda (istifadəçi ilə razılaşdırılıb): eyni Qaimə № yalnız o halda təkrar
+   istifadə oluna bilər ki, TARİX və KONTRAGENT də üst-üstə düşsün — yəni bu,
+   həmin göndərişin davamıdır. Fərqli tarix və ya fərqli kontragentlə eyni
+   nömrə iki AYRI sənəd deməkdir və bloklanır.
+
+   Müqayisə operativ (ləğv edilməmiş, storno olmayan) sənədlərlə aparılır və
+   redaktə rejimində sənədin özü çıxarılır. Boş Qaimə № yoxlanmır. */
+function normKey(s) { return String(s == null ? '' : s).trim().toLowerCase(); }
+/* Yerdəyişmə sətirlərində DB-də saxlanan partner mətni " anbarına"/" anbarı"
+   şəkilçisi daşıyır (bax post_transfer_document, sql/007), amma formadakı
+   sətirdə (OP.lines) sadəcə çılpaq anbar adı var. Müqayisə üçün hər ikisi bu
+   şəkilçidən təmizlənir ki, eyni marşrut fərqli kimi görünməsin. */
+function bareWh(s) { return normKey(String(s || '').replace(/\s+anbar(ına|ı)?$/i, '')); }
+function qaimeConflict(iv, date, partner, selfDoc) {
+  const key = normKey(iv);
+  if (!key) return null;                       // Qaimə № boşdursa yoxlama yoxdur
+  const d = normKey(date), p = bareWh(partner);
+  /* doc_num -> {dates:Set, partners:Set}. Sənədin BÜTÜN sətirləri yığılır, ilk
+     rastlaşan yox: yerdəyişmə sənədi iki sətirdir və onların kontragenti FƏRQLİ
+     olur — çıxış sətrində "B anbarına", giriş sətrində "A anbarı". İlk sətri
+     götürmək sətir sırasından asılı olardı (sıra zəmanətli deyil), yəni eyni
+     marşrutun davamı təsadüfən münaqişə kimi bloklanardı. */
+  const seen = new Map();
+  for (const m of operationalMovements()) {
+    if (normKey(m.iv) !== key) continue;
+    const doc = m.doc || '';
+    if (selfDoc && doc === selfDoc) continue;   // redaktə: öz sənədini sayma
+    let rec = seen.get(doc);
+    if (!rec) { rec = { doc, dates: new Set(), partners: new Set() }; seen.set(doc, rec); }
+    rec.dates.add(normKey(m.d));
+    rec.partners.add(bareWh(m.p));
+  }
+  for (const rec of seen.values()) {
+    // Eyni tarix + eyni kontragent = davamı, icazə var. Başqa hər şey — münaqişə.
+    // Sənədin İSTƏNİLƏN sətri uyğun gəlirsə, bu həmin göndərişin davamıdır.
+    if (!rec.dates.has(d) || !rec.partners.has(p)) {
+      return { iv, doc: rec.doc,
+               date: Array.from(rec.dates).join(', '),
+               partner: Array.from(rec.partners).join(', ') };
+    }
+  }
+  return null;
+}
+/* Sənədin bütün sətirlərini öz Qaimə № dəyərinə görə yoxlayır (hər sətir öz
+   `.iv`-ni daşıyır — eyni sənəd daxilində nəzəri olaraq fərqli ola bilər).
+   mv (yerdəyişmə) sətirlərində kontragent təyinat anbardır. */
+function documentQaimeConflict(lines, selfDoc) {
+  for (const l of lines) {
+    const partner = l.kind === 'mv' ? l.w2 : l.p;
+    const c = qaimeConflict(l.iv, l.d, partner, selfDoc);
+    if (c) return c;
+  }
+  return null;
+}
 function validateOpLine(line, opts) {
   opts = opts || {};
   const skip = (opts.skipIndex == null) ? -1 : opts.skipIndex;
@@ -3141,7 +3472,7 @@ function validateOpLine(line, opts) {
     const pending = OP.lines
       .filter((x, j) => j !== skip && x.c === line.c && x.w === line.w && x.kind !== 'in')
       .reduce((s, x) => s + x.q, 0);
-    const avail = have - pending;
+    const avail = have + editRestoreQty(line.w, line.c) - pending;
     if (avail <= 0) {
       return { ok: false, code: 'stock', error: `${line.w} anbarında "${it.name}" üzrə mövcud qalıq yoxdur` };
     }
@@ -3166,8 +3497,16 @@ function addLine() {
     p: OP.kind === 'mv' ? $('#o-wh2').value : $('#o-p').value,
     ch: $('#o-ch') ? $('#o-ch').value.trim() : '',
     ct: $('#o-ct') ? $('#o-ct').value.trim() : '', iv: $('#o-iv') ? $('#o-iv').value.trim() : '',
-    note: $('#o-note').value.trim()
+    note: $('#o-note').value.trim(),
+    // Tiplərə görə bölgü (işarəli mal, çıxış sətri) — siyahı pəncərəsi ilə eyni forma.
+    cond: (OP.kind !== 'in' && OP.condSplit) ? Object.assign({}, OP.condSplit) : null
   };
+  if (line.cond) {
+    const b = IX.bal.find(x => x.w === w && x.c === it.code);
+    const bk = condBuckets(w, it.code, b ? b.q : 0, condPending(w, it.code));
+    const cv = condSplitCheck(line.cond, bk);
+    if (!cv.ok) return err.innerHTML = `<span style="color:var(--alarm)">${esc(cv.error)} — sətir əlavə edilmədi.</span>`;
+  }
   // Bütün yoxlama paylaşılan validateOpLine()-dadır; burada yalnız mövcud
   // mesaj formatı saxlanılır (mətnlər dəyişməyib).
   const v = validateOpLine(line, {});
@@ -3176,11 +3515,18 @@ function addLine() {
     if (v.code === 'initbal') return err.innerHTML = `<span style="color:var(--alarm)">${esc(v.error)} Sətir əlavə edilmədi.</span>`;
     return err.textContent = v.error;
   }
+  /* Bölgü varsa miqdar onun cəmidir — qalığa görə sükutla kəsilsə, cəm ilə
+     uyğunsuzluq yaranardı. Belə halda sətir kəsilmir, rədd edilir. */
+  if (line.cond && Math.abs(v.q - line.q) > 1e-9) {
+    return err.innerHTML = '<span style="color:var(--alarm)">Qalıq dəyişib — tiplərə görə bölgünü yeniləyin. Sətir əlavə edilmədi.</span>';
+  }
   line.q = v.q;
   if (v.warn) err.innerHTML = `<span style="color:var(--alarm)">${esc(v.warn)}</span>`;
   OP.lines.push(line);
-  OP.pick = null;
-  $('#o-item').value = ''; $('#o-qty').value = ''; $('#o-unit').value = ''; $('#o-itemsel').textContent = 'Seçilməyib';
+  OP.pick = null; OP.condSplit = null;
+  $('#o-item').value = ''; $('#o-unit').value = ''; $('#o-itemsel').textContent = 'Seçilməyib';
+  if ($('#o-qty')) { $('#o-qty').value = ''; $('#o-qty').readOnly = false; }
+  if ($('#o-cond')) $('#o-cond').innerHTML = '';
   if ($('#o-price')) $('#o-price').value = '';
   renderLines(); $('#o-item').focus();
 }
@@ -3189,7 +3535,13 @@ function renderLines() {
   $('#op-cnt').textContent = L.length ? nf(L.length) + ' sətir · ' + money(L.reduce((s, l) => s + l.q * l.pr, 0)) : '';
   /* Bərpa edilmiş qaralama üçün görünən bildiriş — istifadəçi sətirlərin
      əvvəlki sessiyadan gəldiyini bilməlidir (toast itə bilər). */
-  const banner = OP.restoredAt
+  const banner = OP.editDoc
+    ? `<div class="hint" style="padding:8px 10px;background:var(--out-l);border-radius:4px;margin-bottom:8px;display:flex;gap:8px;align-items:center">
+         <span style="flex:1"><b>Düzəliş rejimi</b> · <span class="code">${esc(OP.editDoc.doc)}</span> sənədi redaktə olunur.
+         Bazada hələ heç nə dəyişməyib. «Düzəlişi qeyd et» basıldıqda köhnə sənəd ləğv edilir və düzəldilmiş sənəd
+         eyni anda yazılır. Pəncərəni bağlasanız, köhnə sənəd olduğu kimi qalır.</span>
+         <button class="btn sm dgr" id="op-edit-cancel">Düzəlişdən imtina</button></div>`
+    : OP.restoredAt
     ? `<div class="hint" style="padding:8px 10px;background:var(--out-l);border-radius:4px;margin-bottom:8px;display:flex;gap:8px;align-items:center">
          <span style="flex:1">Bu sətirlər <b>${esc(draftStamp(OP.restoredAt))}</b> tarixli yadda saxlanılmamış qaralamadan bərpa edildi. Yoxlayın və «Sənədi qeyd et» ilə tamamlayın.</span>
          <button class="btn sm" id="op-draft-ok">Anladım</button></div>`
@@ -3205,7 +3557,9 @@ function renderLines() {
       `<button class="btn sm" onclick="editLine(${i})">Redaktə et</button> <button class="btn sm dgr" onclick="OP.lines.splice(${i},1);renderLines()">Sil</button>`]
     })), { empty: 'Sətir əlavə edin — sənəd bir neçə maldan ibarət ola bilər.' });
   if ($('#op-draft-ok')) $('#op-draft-ok').onclick = () => { OP.restoredAt = 0; renderLines(); };
+  if ($('#op-edit-cancel')) $('#op-edit-cancel').onclick = () => exitEditMode(true);
   $('#op-post').disabled = !L.length || !can('mv.add');
+  if ($('#op-post')) $('#op-post').textContent = OP.editDoc ? 'Düzəlişi qeyd et' : 'Sənədi qeyd et';
   saveDraft();
 }
 
@@ -3239,6 +3593,10 @@ const DRAFT_MAX_LINES = 2000;
 const draftKey = () => 'anbar_op_draft_' + ((ME && ME.id) ? ME.id : 'anon');
 function saveDraft() {
   if (!ME) return;
+  /* Düzəliş rejimi qaralama kimi SAXLANILMIR. Bərpa edilsəydi, növbəti sessiyada
+     sətirlər düzəliş kontekstini itirib YENİ sənəd kimi yazılardı — yəni köhnə
+     sənəd ləğv edilmədən dublikat yaranardı. */
+  if (OP.editDoc) { clearDraft(); return; }
   try {
     if (!OP.lines.length || OP.lines.length > DRAFT_MAX_LINES) { localStorage.removeItem(draftKey()); return; }
     captureOpHeader();
@@ -3445,7 +3803,15 @@ function saveEditLine() {
    Qaralama (`Sənədin sətirləri`) toxunulmur: qrup silinməsi ayrıca sənəddir,
    lakin mövcudluq hesablanarkən həmin anbar+mal üzrə gözləyən çıxış sətirləri
    ÇIXILIR ki, qaralama + qrup silinməsi birlikdə də qalığı aşa bilməsin. */
-const BW = { wh: '', q: '', sel: new Map(), note: '' };
+/* icareOk — icarə xəbərdarlığı bu seçim üçün təsdiqlənibmi. Seçim və ya
+   miqdar dəyişəndə sıfırlanır: bir dəfə təsdiq alıb sonra daha çox mal
+   seçmək yoxlamanı keçə bilməməlidir. */
+/* split — kod → {normal, unfit, repair, onsite, icare}. YALNIZ işarəsi olan
+   mallar üçün doldurulur; işarəsiz malda bütün miqdar «normal»dır və sətir
+   əvvəlki kimi tək miqdar xanası ilə idarə olunur. sel həmişə bölgünün CƏMİdir,
+   ona görə «cəm ümumi miqdarla uyğun gəlmir» vəziyyəti struktur olaraq mümkün
+   deyil — istifadəçi tipləri yazır, ümumi miqdar özü hesablanır. */
+const BW = { mode: 'wo', wh: '', dst: '', q: '', sel: new Map(), split: new Map(), note: '', icareOk: false };
 
 /* Seçilmiş anbarda müsbət qalığı olan, nomenklaturada mövcud olan mövqelər.
    `avail` = cari qalıq − həmin anbar+mal üzrə gözləyən (hələ qeyd edilməmiş)
@@ -3483,14 +3849,39 @@ function bulkWriteOffSummary() {
     if (!r) { bad.push({ code, why: 'mövcud deyil' }); continue; }
     if (!(q > 0)) { bad.push({ code, why: 'miqdar sıfırdır' }); continue; }
     if (q > r.avail + 1e-9) { bad.push({ code, why: 'qalıqdan çoxdur' }); continue; }
+    /* İşarəli malda hər tip öz kovası ilə məhdudlaşır: 2 ədəd «İcarədə» olan
+       maldan 3 ədəd icarə köçürmək olmaz. Kova yoxlaması sel-dən AYRICA aparılır,
+       çünki sel yalnız cəmi bilir. */
+    const bk = condBuckets(BW.wh, code, r.avail, condPending(BW.wh, code));
+    if (bk.marked) {
+      const sp = BW.split.get(code);
+      if (!sp) { bad.push({ code, why: 'tiplərə görə bölgü göstərilməyib' }); continue; }
+      const v = condSplitCheck(sp, bk);
+      if (!v.ok) { bad.push({ code, why: v.error }); continue; }
+    }
     n++; qty += q; amount += q * (r.price || 0);
   }
   return { n, qty, amount, bad };
 }
 function bulkWriteOffOpen() {
   if (!need('mv.add')) return;
-  if (!$('#o-type') || $('#o-type').value !== 'Silinmə') {
+  /* İki rejim, EYNİ siyahı:
+       · 'wo' (Silinmə)     — seçim birbaşa post_movement_document ilə yazılır;
+       · 'mv' (Yerdəyişmə)  — seçim yalnız qaralamaya sətir kimi əlavə olunur,
+                              yazı adi «Sənədi qeyd et» yolu ilə gedir, çünki
+                              yerdəyişmə iki ayaqlı sənəddir (post_transfer_document).
+     Rejim buradan təyin olunur ki, aşağıdakı render/post funksiyaları eyni
+     BW obyektini paylaşsın. */
+  const isMv = OP.kind === 'mv';
+  if (!isMv && (!$('#o-type') || $('#o-type').value !== 'Silinmə')) {
     return toast('Əvvəlcə əməliyyat növü olaraq «Silinmə» seçin', true);
+  }
+  // Sənəd düzəlişi rejimində bu düymə render olunmur (bax rOp/isWoOut), lakin
+  // birbaşa çağırışdan qorunmaq üçün burada da yoxlanılır: bulkWriteOffPost
+  // post_movement_document-i BİRBAŞA yazır və correct_document tranzaksiyasını
+  // yan keçər — düzəliş gedişində bu, redaktəni sükutla pozardı.
+  if (OP.editDoc) {
+    return toast('Sənəd düzəliş rejimindədir — əvvəlcə düzəlişi tamamlayın və ya ləğv edin', true);
   }
   const wh = $('#o-wh') ? $('#o-wh').value : '';
   if (!wh) return toast('Əvvəlcə anbar seçin', true);
@@ -3498,18 +3889,30 @@ function bulkWriteOffOpen() {
   if (!allowedWarehouses().includes(wh)) {
     return toast('Bu anbarda əməliyyat aparmağa icazəniz yoxdur', true);
   }
+  if (isMv) {
+    const dst = $('#o-wh2') ? $('#o-wh2').value : '';
+    if (!dst) return toast('Əvvəlcə təyinat anbarını seçin', true);
+    if (dst === wh) return toast('Mənbə və təyinat anbarı eyni ola bilməz', true);
+    BW.dst = dst;
+  } else {
+    BW.dst = '';
+  }
+  BW.mode = isMv ? 'mv' : 'wo';
   BW.wh = wh;
   BW.q = '';
-  BW.sel = new Map();
+  BW.sel = new Map(); BW.split = new Map(); BW.icareOk = false;
   BW.note = $('#o-note') ? $('#o-note').value.trim() : '';
   renderBulkWriteOff();
 }
 function renderBulkWriteOff() {
-  modal('Qrup üzrə silinmə · ' + BW.wh, `
-    <div class="hint" style="margin-bottom:8px">Yalnız <b>${esc(BW.wh)}</b> anbarında müsbət qalığı olan mallar. Seçilmiş sətirlər BİR atomar «Silinmə» sənədi kimi qeyd olunur — bir sətir keçməzsə, heç biri yazılmır. Miqdar mövcud qalıqdan çox ola bilməz.</div>
+  const isMv = BW.mode === 'mv';
+  modal((isMv ? 'Yerdəyişmə üçün mal seçimi · ' + BW.wh + ' → ' + BW.dst : 'Qrup üzrə silinmə · ' + BW.wh), `
+    <div class="hint" style="margin-bottom:8px">${isMv
+      ? `Yalnız <b>${esc(BW.wh)}</b> anbarında müsbət qalığı olan mallar. Seçilmiş sətirlər sənədin qaralamasına əlavə olunur — Supabase-ə heç nə yazılmır, yazı «Sənədi qeyd et» ilə gedir. Miqdar mövcud qalıqdan çox ola bilməz.`
+      : `Yalnız <b>${esc(BW.wh)}</b> anbarında müsbət qalığı olan mallar. Seçilmiş sətirlər BİR atomar «Silinmə» sənədi kimi qeyd olunur — bir sətir keçməzsə, heç biri yazılmır. Miqdar mövcud qalıqdan çox ola bilməz.`}</div>
     <div class="row" style="grid-template-columns:2fr 1fr">
       <label class="f"><span>Axtarış (kod və ya ad)</span><input type="text" id="bw-q" value="${esc(BW.q)}" placeholder="məs. kabel və ya 0000123"></label>
-      <label class="f"><span>Anbar</span><input type="text" id="bw-wh" value="${esc(BW.wh)}" readonly></label>
+      <label class="f"><span>${isMv ? 'Marşrut' : 'Anbar'}</span><input type="text" id="bw-wh" value="${esc(isMv ? BW.wh + ' → ' + BW.dst : BW.wh)}" readonly></label>
     </div>
     <div style="display:flex;align-items:center;gap:10px;margin:6px 0">
       <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="bw-all"><span class="hint">Süzülmüş sətirlərin hamısını seç</span></label>
@@ -3518,23 +3921,64 @@ function renderBulkWriteOff() {
     <div class="card"><div class="tw" id="bw-list" style="max-height:42vh"></div></div>
     <label class="f" style="margin-top:10px"><span>Ümumi qeyd (bütün sətirlərə eyni yazılır)</span><input type="text" id="bw-note" value="${esc(BW.note)}" placeholder="məs. yararsız hala düşüb — akt №12"></label>
     <div class="hint" id="bw-err" style="margin-top:6px"></div>`,
-    `<span class="hint" id="bw-sum" style="margin-right:auto"></span><button class="btn" data-close>İmtina</button><button class="btn pri" id="bw-post" disabled>Sənədi qeyd et</button>`);
+    `<span class="hint" id="bw-sum" style="margin-right:auto"></span><button class="btn" data-close>İmtina</button><button class="btn pri" id="bw-post" disabled>${isMv ? 'Sətirləri əlavə et' : 'Sənədi qeyd et'}</button>`);
   $('#bw-q').oninput = debounce(() => { BW.q = $('#bw-q').value; renderBulkWriteOffList(); }, 160);
   $('#bw-note').oninput = () => { BW.note = $('#bw-note').value; };
   $('#bw-all').onchange = () => {
     const rows = bulkWriteOffFiltered();
-    if ($('#bw-all').checked) rows.forEach(r => { if (!BW.sel.has(r.c)) BW.sel.set(r.c, r.avail); });
-    else rows.forEach(r => BW.sel.delete(r.c));
+    BW.icareOk = false;
+    // Tək-tək seçimlə EYNİ yol: işarəli malda bölgü də doldurulur, yoxsa
+    // «hamısını seç» sonradan «bölgü göstərilməyib» kimi bloklanardı.
+    if ($('#bw-all').checked) rows.forEach(r => { if (!BW.sel.has(r.c)) bwSelectRow(r); });
+    else rows.forEach(r => { BW.sel.delete(r.c); BW.split.delete(r.c); });
     renderBulkWriteOffList();
   };
   $('#bw-post').onclick = bulkWriteOffPost;
   renderBulkWriteOffList();
 }
+/* Sətri seçir: standart olaraq bütün mövcud miqdar götürülür — işarəsiz malda
+   tək rəqəm, işarəlidə isə hər kova öz maksimumu ilə (cəmi yenə mövcud qalıq).
+   Həm tək-tək seçim, həm «hamısını seç» BUNU çağırır — iki fərqli yol olsaydı,
+   biri bölgünü doldurmayıb sonra yoxlamada bloklanardı. */
+function bwSelectRow(r) {
+  const bk = condBuckets(BW.wh, r.c, r.avail, condPending(BW.wh, r.c));
+  if (bk.marked) {
+    const sp = condSplitZero();
+    sp.normal = bk.normal;
+    COND_COLS.forEach(cc => { sp[cc.k] = bk[cc.k]; });
+    BW.split.set(r.c, sp);
+    BW.sel.set(r.c, condSplitSum(sp));
+  } else {
+    BW.split.delete(r.c);
+    BW.sel.set(r.c, r.avail);
+  }
+}
 function renderBulkWriteOffList() {
   const rows = bulkWriteOffFiltered();
   const byCode = new Map(rows.map(r => [r.c, r]));
+  /* İşarəsi olan malda miqdar xanası TİPLƏRƏ görə xanalarla əvəz olunur:
+     «Normal», sonra hansı işarə varsa o. Ümumi miqdar bunların CƏMİdir və
+     oxunur, yazılmır — beləliklə «cəm ümumi miqdarla uyğun gəlmir» səhvi
+     ümumiyyətlə yarana bilmir. İşarəsiz malda hər şey əvvəlki kimi qalır. */
+  const bucketsOf = r => condBuckets(BW.wh, r.c, r.avail, condPending(BW.wh, r.c));
+  const splitCell = (r, on) => {
+    const bk = bucketsOf(r);
+    if (!bk.marked) {
+      const q = on ? BW.sel.get(r.c) : '';
+      return `<input type="number" data-bwq="${esc(r.c)}" step="0.01" min="0" max="${esc(String(r.avail))}" value="${on ? esc(String(q)) : ''}" ${on ? '' : 'disabled'} style="width:112px;text-align:right">`;
+    }
+    const sp = BW.split.get(r.c) || condSplitZero();
+    const fld = (k, t, max) => max <= 1e-9 ? '' :
+      `<div style="display:flex;align-items:center;gap:6px;justify-content:flex-end;margin-bottom:3px">
+         <span class="hint" style="white-space:nowrap">${esc(t)} <b>≤${esc(nf(max, 2))}</b></span>
+         <input type="number" data-bws="${esc(r.c)}" data-bsk="${esc(k)}" step="0.01" min="0" max="${esc(String(max))}"
+                value="${on ? esc(String(sp[k] || 0)) : ''}" ${on ? '' : 'disabled'} style="width:84px;text-align:right"></div>`;
+    return fld('normal', 'Normal', bk.normal)
+      + COND_COLS.map(cc => fld(cc.k, cc.t, bk[cc.k])).join('')
+      + `<div style="text-align:right"><span class="hint">Cəmi:</span> <b data-bwt="${esc(r.c)}">${on ? esc(nf(BW.sel.get(r.c) || 0, 2)) : '—'}</b></div>`;
+  };
   $('#bw-list').innerHTML = tbl(
-    [{ t: '' }, { t: 'Kod' }, { t: 'Malın adı' }, { t: 'Ölçü' }, { t: 'Mövcud qalıq', r: 1 }, { t: 'Silinən miqdar', r: 1 }, { t: 'Məbləğ', r: 1 }],
+    [{ t: '' }, { t: 'Kod' }, { t: 'Malın adı' }, { t: 'Ölçü' }, { t: 'Mövcud qalıq', r: 1 }, { t: (BW.mode === 'mv' ? 'Köçürülən miqdar' : 'Silinən miqdar'), r: 1 }, { t: 'Məbləğ', r: 1 }],
     rows.map(r => {
       const on = BW.sel.has(r.c);
       const q = on ? BW.sel.get(r.c) : '';
@@ -3544,18 +3988,21 @@ function renderBulkWriteOffList() {
           `<div class="nm">${esc(r.name)}</div>`,
           esc(r.unit),
           nf(r.avail, 2) + (r.pending ? ` <span class="hint">(qaralamada ${esc(nf(r.pending, 2))})</span>` : ''),
-          `<input type="number" data-bwq="${esc(r.c)}" step="0.01" min="0" max="${esc(String(r.avail))}" value="${on ? esc(String(q)) : ''}" ${on ? '' : 'disabled'} style="width:112px;text-align:right">`,
+          splitCell(r, on),
           `<span data-bwa="${esc(r.c)}">${on && r.price ? money(q * r.price) : '—'}</span>`]
       };
     }), { empty: BW.q ? 'Axtarışa uyğun mal tapılmadı.' : 'Bu anbarda müsbət qalığı olan mal yoxdur.' });
 
+  /* Sətir seçiləndə standart olaraq BÜTÜN mövcud miqdar götürülür — işarəsiz
+     malda tək rəqəm, işarəlidə isə hər kova öz maksimumu ilə. İstifadəçi sonra
+     azaldır. Seçim dəyişdikdə siyahı yenidən qurulur, çünki xanalar aktivləşir. */
   $$('#bw-list [data-bw]').forEach(cb => cb.onchange = () => {
     const code = cb.dataset.bw, r = byCode.get(code);
-    const qi = $('#bw-list [data-bwq="' + code + '"]');
     if (!r) return;
-    if (cb.checked) { BW.sel.set(code, r.avail); if (qi) { qi.disabled = false; qi.value = String(r.avail); } }
-    else { BW.sel.delete(code); if (qi) { qi.disabled = true; qi.value = ''; } }
-    updateBulkWriteOffTotals();
+    BW.icareOk = false;
+    if (cb.checked) bwSelectRow(r);
+    else { BW.sel.delete(code); BW.split.delete(code); }
+    renderBulkWriteOffList();
   });
   // Miqdar dəyişəndə siyahı YENİDƏN qurulmur (fokus itməsin) — yalnız model,
   // sətir məbləği və yekunlar yenilənir. Qalıqdan artıq dəyər dərhal maksimuma
@@ -3564,9 +4011,32 @@ function renderBulkWriteOffList() {
     const code = inp.dataset.bwq, r = byCode.get(code);
     if (!r) return;
     let v = parseFloat(inp.value);
+    BW.icareOk = false;
     if (!(v > 0)) { BW.sel.set(code, 0); updateBulkWriteOffTotals(); return; }
     if (v > r.avail) { v = r.avail; inp.value = String(v); toast(`${r.name}: maksimum ${nf(r.avail, 2)} ${r.unit} mövcuddur`, true); }
     BW.sel.set(code, v);
+    updateBulkWriteOffTotals();
+  });
+  /* Tip xanaları: hər biri ÖZ kovası ilə məhdudlaşır (İcarədə 2-dirsə 3 yazmaq
+     olmaz), ümumi miqdar isə cəmdən yenidən hesablanır. */
+  $$('#bw-list [data-bws]').forEach(inp => inp.oninput = () => {
+    const code = inp.dataset.bws, key = inp.dataset.bsk, r = byCode.get(code);
+    if (!r) return;
+    const bk = bucketsOf(r);
+    const label = key === 'normal' ? 'Normal' : (COND_COLS.find(c => c.k === key) || {}).t || key;
+    let v = parseFloat(inp.value);
+    BW.icareOk = false;
+    if (!(v > 0)) v = 0;
+    if (v > (bk[key] || 0)) {
+      v = bk[key] || 0; inp.value = String(v);
+      toast(`${r.name} · ${label}: maksimum ${nf(v, 2)} ${r.unit} mövcuddur`, true);
+    }
+    const sp = Object.assign(condSplitZero(), BW.split.get(code) || {});
+    sp[key] = v;
+    BW.split.set(code, sp);
+    BW.sel.set(code, condSplitSum(sp));
+    const tot = $('#bw-list [data-bwt="' + code + '"]');
+    if (tot) tot.textContent = nf(BW.sel.get(code) || 0, 2);
     updateBulkWriteOffTotals();
   });
   updateBulkWriteOffTotals();
@@ -3601,11 +4071,91 @@ function updateBulkWriteOffTotals() {
   const btn = $('#bw-post');
   if (btn) {
     btn.disabled = !(s.n > 0) || s.bad.length > 0;
-    btn.textContent = s.n ? nf(s.n) + ' sətri sənəd kimi qeyd et' : 'Sənədi qeyd et';
+    btn.textContent = BW.mode === 'mv'
+      ? (s.n ? nf(s.n) + ' sətri əlavə et' : 'Sətirləri əlavə et')
+      : (s.n ? nf(s.n) + ' sətri sənəd kimi qeyd et' : 'Sənədi qeyd et');
   }
 }
 async function bulkWriteOffPost() {
   if (!need('mv.add')) return;
+  // Qrup üzrə silinmə də icarə yoxlamasından keçir — tək sətirlik silinmə ilə
+  // eyni qayda. Təsdiq alındıqdan sonra funksiya özünü yenidən çağırır.
+  if (!BW.icareOk) {
+    const probe = [];
+    for (const [code, q] of BW.sel) {
+      const it = DB.itemBy.get(code) || {};
+      if (q > 0) probe.push({ kind: BW.mode === 'mv' ? 'mv' : 'out',
+                              t: BW.mode === 'mv' ? 'Yerdəyişmə' : 'Silinmə',
+                              w: BW.wh, w2: BW.dst, c: code, q,
+                              name: it.name || code, unit: it.unit || '', note: '' });
+    }
+    if (icareExposedLines(probe).length) {
+      return confirmIcareUse(probe, reason => {
+        // Qrup silinməsində bütün sətirlərin qeydi ortaqdır — izahat oraya yazılır
+        const cur = String(BW.note || '').trim();
+        const mark = ICARE_USE_MARK(reason);
+        BW.note = cur ? (cur + ' · ' + mark) : mark;
+        BW.icareOk = true;
+        bulkWriteOffPost();
+      });
+    }
+    BW.icareOk = true;
+  }
+  /* Yerdəyişmə rejimi: seçim yalnız QARALAMAYA sətir kimi düşür. Supabase-ə
+     yazı yoxdur — yerdəyişmə iki ayaqlı sənəddir və post_transfer_document
+     ilə adi «Sənədi qeyd et» yolundan gedir. Hər sətir addLine() ilə eyni
+     formada qurulur ki, validateOpLine və renderLines fərq görməsin. */
+  if (BW.mode === 'mv') {
+    const errMv = $('#bw-err');
+    const sMv = bulkWriteOffSummary();
+    if (!sMv.n || sMv.bad.length) {
+      if (errMv) errMv.innerHTML = '<span style="color:var(--alarm)">Etibarsız seçim var — sətirlər əlavə edilmədi.</span>';
+      return;
+    }
+    const dt = ($('#o-date') && $('#o-date').value) || today();
+    const ivMv = $('#o-iv') ? $('#o-iv').value.trim() : '';
+    const noteMv = String(BW.note || '').trim();
+    /* Hamısı-və-ya-heç biri: sətirlər əvvəlcə yığılır, yalnız hamısı keçəndən
+       sonra OP.lines-a əlavə olunur. Dövr içində push etsək, ortada bir sətir
+       keçməyəndə qaralamada yarımçıq seçim qalardı.
+       validateOpLine mövcud OP.lines-ı nəzərə aldığından, artıq qəbul edilmiş
+       sətirlər müvəqqəti olaraq oraya yazılır və xəta halında geri alınır. */
+    const base = OP.lines.length;
+    for (const [code, q] of BW.sel) {
+      if (!(q > 0)) continue;
+      const it = DB.itemBy.get(code) || {};
+      // p = təyinat anbarı — addLine()-dakı yerdəyişmə qaydası ilə eyni.
+      const line = { kind: 'mv', d: dt, t: 'Yerdəyişmə', w: BW.wh, w2: BW.dst,
+                     c: code, name: it.name || code, unit: it.unit || '',
+                     q, pr: it.price || 0, p: BW.dst, ch: '', ct: '', iv: ivMv, note: noteMv,
+                     // Tiplərə görə bölgü sətirlə birlikdə gedir; yoxdursa
+                     // bütün miqdar «normal»dır (aşağıda postOpDocument-ə bax).
+                     cond: BW.split.get(code) || null };
+      // addLine() ilə eyni yeganə validasiya mənbəyi — qalıq/marşrut/hüquq.
+      const v = validateOpLine(line);
+      if (!v.ok) {
+        OP.lines.length = base;     // yarımçıq seçimi geri al
+        if (errMv) errMv.innerHTML = `<span style="color:var(--alarm)">${esc(it.name || code)}: ${esc(v.error)} — heç bir sətir əlavə edilmədi.</span>`;
+        return;
+      }
+      /* validateOpLine miqdarı qalığa görə kəsə bilər. Bölgü varsa bu, cəmlə
+         uyğunsuzluq yaradardı — o halda sətir kəsilmir, rədd edilir: bölgünü
+         istifadəçi özü yazıb, sükutla dəyişdirmək olmaz. */
+      if (line.cond && Math.abs(v.q - line.q) > 1e-9) {
+        OP.lines.length = base;
+        if (errMv) errMv.innerHTML = `<span style="color:var(--alarm)">${esc(it.name || code)}: qalıq dəyişib, tiplərə görə bölgünü yeniləyin — heç bir sətir əlavə edilmədi.</span>`;
+        return;
+      }
+      line.q = v.q;                 // qalığı aşan miqdar maksimuma endirilir
+      OP.lines.push(line);
+    }
+    const added = OP.lines.length - base;
+    BW.sel = new Map(); BW.split = new Map(); BW.icareOk = false;
+    closeModal();
+    renderLines();
+    toast(added + ' sətir qaralamaya əlavə edildi — yazmaq üçün «Sənədi qeyd et»');
+    return;
+  }
   const btn = $('#bw-post'), err = $('#bw-err');
   const s = bulkWriteOffSummary();
   if (!s.n || s.bad.length) {
@@ -3622,20 +4172,38 @@ async function bulkWriteOffPost() {
   // Silinmə üçün təhvil alan formadakı dəyərdir (syncSil onu «Sahə üzrə məsul
   // şəxs» kimi sabitləyir) — addLine() ilə eyni mənbə.
   const pt = ($('#o-p') && $('#o-p').value) || 'Sahə üzrə məsul şəxs';
+  {
+    const c = qaimeConflict(iv, dt, pt, null);
+    if (c) {
+      if (err) err.innerHTML = `<span style="color:var(--alarm)">Qaimə № "${esc(c.iv)}" artıq başqa sənəddə var (${esc(c.doc || '—')}) —
+        tarix və ya kontragent üst-üstə düşmür. Qaimə № sahəsini düzəldin.</span>`;
+      return;
+    }
+  }
   const note = String(BW.note || '').trim();
   const p_lines = [];
+  let needsSplit = false;
   for (const [code, q] of BW.sel) {
     const r = byCode.get(code);
     if (!r || !(q > 0)) continue;
+    const sp = BW.split.get(code) || null;
+    if (sp) needsSplit = true;
     p_lines.push({
       date: dt, warehouse: BW.wh, code, type: 'Silinmə',
       in_qty: 0, out_qty: q,
       partner: pt, channel: '', contract: '', invoice: iv,
-      price: r.price || 0, note
+      price: r.price || 0, note,
+      // sql/031 bunu oxuyur. Server dəstəkləmirsə aşağıda BLOKLANIR — açar
+      // sadəcə susqun iqnor edilsəydi, bölgü yazılmadan sənəd keçərdi.
+      conditions: sp ? condSplitPayload(sp) : null
     });
   }
   if (!p_lines.length) {
     if (err) err.innerHTML = '<span style="color:var(--alarm)">Yazılacaq etibarlı sətir yoxdur.</span>';
+    return;
+  }
+  if (needsSplit && !DB.splitReady) {
+    if (err) err.innerHTML = `<span style="color:var(--alarm)">${esc(SPLIT_UNSUPPORTED_MSG)}</span>`;
     return;
   }
   if (btn) { btn.disabled = true; btn.textContent = 'Yazılır…'; }
@@ -3649,7 +4217,7 @@ async function bulkWriteOffPost() {
     return;
   }
   const n = p_lines.length;
-  BW.sel = new Map();
+  BW.sel = new Map(); BW.split = new Map(); BW.icareOk = false;
   closeModal();
   captureOpHeader();
   if (OP.hdr) OP.hdr.iv = '';                 // yeni sənəd — yeni qaimə nömrəsi
@@ -3670,15 +4238,119 @@ $('#op-clear').onclick = () => {
     `<div style="flex:1"></div><button class="btn" data-close>İmtina</button><button class="btn dgr" id="oc-go">Təmizlə</button>`);
   $('#oc-go').onclick = () => { closeModal(); OP.lines = []; OP.restoredAt = 0; clearDraft(); renderLines(); };
 };
+/* İcarədə olan maldan məxaric edilirsə, təsdiq + yazılı izahat tələb olunur.
+   İzahat sətirlərin qeydinə yazılır (server də faktı audit jurnalına salır),
+   yəni sonradan «niyə icarə malı silinib?» sualına cavab sənəddə qalır.
+   ok(false) → istifadəçi imtina etdi, sənəd yazılmır. */
+function confirmIcareUse(lines, onOk) {
+  const hits = icareExposedLines(lines);
+  if (!hits.length) return onOk(null);
+  const rows = hits.map(h => ({
+    c: [`<div class="nm">${esc(h.line.name)}</div><span class="code">${esc(h.line.c)}</span>`,
+        esc(h.w), esc(h.line.t),
+        nf(h.line.q, 2) + ' ' + esc(h.line.unit || ''),
+        `<b style="color:var(--alarm)">${nf(h.exp, 2)}</b>`]
+  }));
+  modal('Diqqət: icarədə olan maldan məxaric',
+    `<div class="hint" style="margin-bottom:10px">Aşağıdakı sətirlərdə sərbəst qalıq çatmır və məxaric
+       <b>icarəyə götürülmüş</b> maldan gedir — yəni bizim olmayan mal. Davam etmək üçün səbəbi yazın.</div>
+     <div class="card"><div class="tw">${tbl(
+        [{ t: 'Mal' }, { t: 'Anbar' }, { t: 'Növ' }, { t: 'Miqdar', r: 1 }, { t: 'İcarədən', r: 1 }], rows)}</div></div>
+     <label class="f" style="margin-top:12px"><span>Səbəb (məcburi)</span>
+       <input type="text" id="iu-why" placeholder="məs. obyektə təcili lazım oldu, sahibi ilə razılaşdırılıb"></label>`,
+    `<div style="flex:1"></div><button class="btn" data-close>İmtina</button>
+     <button class="btn dgr" id="iu-go" disabled>Başa düşdüm, davam et</button>`);
+  const why = $('#iu-why');
+  why.oninput = () => { $('#iu-go').disabled = !why.value.trim(); };
+  $('#iu-go').onclick = () => {
+    const reason = why.value.trim();
+    if (!reason) return;
+    const mark = ICARE_USE_MARK(reason);
+    hits.forEach(h => {
+      /* Əvvəlki markeri ƏVVƏLCƏ silirik. İstifadəçi bu dialoqu təsdiqləyib
+         sonrakı «qeyd edilsin?» dialoqundan imtina edə bilər — o zaman qeyd
+         artıq dəyişmiş qalır və ikinci cəhd markeri TƏKRAR əlavə edərdi. */
+      const cur = String(h.line.note || '').replace(ICARE_USE_RE, '').trim();
+      h.line.note = cur ? (cur + ' · ' + mark) : mark;
+    });
+    closeModal();
+    onOk(reason);
+  };
+}
+/* Qaimə № münaqişəsi — sənəd blok olunur, «başa düş, davam et» yoxdur. Bu
+   digər xəbərdarlıqlardan fərqlidir: iki sənədin eyni nömrə daşıması sadəcə
+   səhvdir, ondan «məsuliyyətlə davam etmək» olmaz — düzgün Qaimə № yazılmalıdır. */
+function blockOnQaimeConflict(lines, selfDoc) {
+  const c = documentQaimeConflict(lines, selfDoc);
+  if (!c) return null;
+  modal('Qaimə № artıq istifadə olunub',
+    `<div class="hint" style="margin-bottom:10px">
+       Qaimə № <span class="code">${esc(c.iv)}</span> artıq başqa sənəddə var
+       (<span class="code">${esc(c.doc || '—')}</span>) — tarix və ya kontragent üst-üstə düşmür,
+       ona görə bu davamı sayıla bilməz.</div>
+     <div class="hint" style="padding:9px;background:var(--out-l);border-radius:4px">
+       Eyni Qaimə № yalnız <b>eyni tarix və eyni kontragentlə</b> təkrar istifadə oluna bilər
+       (eyni göndərişin ikinci hissəsi). Başqa halda hər sənədin öz nömrəsi olmalıdır —
+       Qaimə № sahəsini düzəldin.</div>`,
+    `<div style="flex:1"></div><button class="btn pri" data-close>Anladım</button>`);
+  return c;
+}
 $('#op-post').onclick = () => {
   if (!need('mv.add') || !OP.lines.length) return;
+  if (blockOnQaimeConflict(OP.lines, OP.editDoc ? OP.editDoc.doc : null)) return;
   const n = OP.lines.length;
+  /* İcarə xəbərdarlığı HƏR İKİ yol üçündür — həm adi qeyd, həm sənəd düzəlişi.
+     Düzəliş rejimində məxaric miqdarını artırmaq da icarə malına toxuna bilər;
+     əvvəlki quruluşda `if (OP.editDoc) … return` yoxlamadan ƏVVƏL dayanırdı və
+     düzəliş yolu xəbərdarlıqsız keçirdi. */
+  confirmIcareUse(OP.lines, () => {
+    renderLines();   // qeydlərə əlavə edilmiş izahat sətirlərdə görünsün
+    postConfirmDialog(n);
+  });
+};
+function postConfirmDialog(n) {
+  if (OP.editDoc) {
+    modal('Düzəliş qeyd edilsin?',
+      `<div class="hint" style="margin-bottom:10px"><span class="code">${esc(OP.editDoc.doc)}</span> sənədi ləğv ediləcək və
+         ${nf(n)} sətirlik düzəldilmiş sənəd eyni tranzaksiyada yazılacaq. Biri alınmazsa, heç nə yazılmır —
+         köhnə sənəd olduğu kimi qalır. Orijinal sətirlər silinmir, tarixçə tam saxlanılır.</div>
+       <div class="hint" style="padding:9px;background:var(--out-l);border-radius:4px;margin-bottom:10px">
+         Excel ixracı sistemdə qeyd edilmir. Bu sənəd artıq ixrac edilibsə və ya mühasibatlığa verilibsə, düzəliş etməyin.</div>
+       <label class="f"><span>Düzəlişin səbəbi (audit üçün məcburi)</span>
+         <input type="text" id="op-edit-why" placeholder="məs. qaimədə miqdar səhv göstərilib"></label>`,
+      `<div style="flex:1"></div><button class="btn" data-close>İmtina</button><button class="btn pri" id="op-post-go" disabled>Bəli, düzəlişi qeyd et</button>`);
+    const why = $('#op-edit-why');
+    why.oninput = () => { $('#op-post-go').disabled = !why.value.trim(); };
+    $('#op-post-go').onclick = async () => {
+      const reason = why.value.trim();
+      if (!reason) return;
+      closeModal();
+      await postOpDocument(reason);
+    };
+    return;
+  }
   modal('Sənəd qeyd edilsin?',
     `<div class="hint">${nf(n)} sətir sənəd kimi Supabase-ə yazılacaq. Qeyd edildikdən sonra sətirlər birbaşa redaktə olunmur — yalnız ləğv və ya düzəliş sənədi ilə geri qaytarıla bilər.</div>`,
     `<div style="flex:1"></div><button class="btn" data-close>İmtina</button><button class="btn pri" id="op-post-go">Bəli, qeyd et</button>`);
   $('#op-post-go').onclick = async () => { closeModal(); await postOpDocument(); };
-};
-async function postOpDocument() {
+}
+/* Düzəliş rejimindən çıxış — bazada heç nə dəyişmir, yalnız formadakı sətirlər atılır. */
+function exitEditMode(confirmFirst) {
+  if (!OP.editDoc) return;
+  const doc = OP.editDoc.doc;
+  const finish = () => {
+    OP.editDoc = null; OP.lines = []; OP.restoredAt = 0;
+    clearDraft(); rOp(); renderLines();
+    toast('Düzəlişdən imtina edildi · ' + doc + ' sənədi dəyişməyib');
+  };
+  if (!confirmFirst) return finish();
+  modal('Düzəlişdən imtina edilsin?',
+    `<div class="hint"><span class="code">${esc(doc)}</span> sənədi olduğu kimi qalacaq — bazada heç nə dəyişməyib.
+       Formadakı düzəlişləriniz itəcək.</div>`,
+    `<div style="flex:1"></div><button class="btn" data-close>Geri qayıt</button><button class="btn dgr" id="ee-go">Bəli, imtina et</button>`);
+  $('#ee-go').onclick = () => { closeModal(); finish(); };
+}
+async function postOpDocument(editReason) {
   // ---- Tarixi ilkin qalıq yalnız Admin ----
   // addLine() belə sətrin əlavə olunmasına icazə vermir; bu ikinci yoxlama rol
   // sessiya ərzində dəyişdiyi (və ya sətir başqa yolla düşdüyü) hal üçündür.
@@ -3706,7 +4378,9 @@ async function postOpDocument() {
       const k = l.w + '|' + l.c;
       if (!remain.has(k)) {
         const b = IX.bal.find(x => x.w === l.w && x.c === l.c);
-        remain.set(k, b ? b.q : 0);
+        // Düzəliş rejimində orijinal sənədin çıxışı serverdə ləğvlə geri qayıdır —
+        // başlanğıc qalığa bir DƏFƏ əlavə olunur, sətir başına yox.
+        remain.set(k, (b ? b.q : 0) + editRestoreQty(l.w, l.c));
       }
       const avail = remain.get(k);
       if (avail <= 0) { msgs.push(`${l.name} (${l.w}): qalıq dəyişib, mövcud deyil — sətir çıxarıldı`); continue; }
@@ -3722,6 +4396,43 @@ async function postOpDocument() {
     if (!OP.lines.length) { toast('Yazılacaq etibarlı sətir yoxdur.', true); return; }
   }
 
+  // ---- Sənəd düzəlişi: ləğv + yeni sənəd serverdə TƏK tranzaksiyada ----
+  // Ayrıca yol lazımdır, çünki adi qeyd sadəcə yeni sənəd yazardı və köhnəsi
+  // ləğv edilmədən qalardı (dublikat). Yerdəyişmə bu yolla düzəldilmir.
+  if (OP.editDoc) {
+    if (OP.lines.some(l => l.kind === 'mv')) {
+      toast('Yerdəyişmə sətri düzəliş sənədinə əlavə edilə bilməz.', true);
+      return;
+    }
+    const reason = String(editReason || '').trim();
+    if (!reason) { toast('Düzəlişin səbəbi tələb olunur.', true); return; }
+    const p_lines = OP.lines.map(l => ({
+      date: l.d, warehouse: l.w, code: l.c, type: l.t,
+      in_qty: l.kind === 'in' ? l.q : 0, out_qty: l.kind === 'in' ? 0 : l.q,
+      partner: l.p || '', channel: l.ch || '', contract: l.ct || '', invoice: l.iv || '',
+      price: l.pr || 0, note: l.note || ''
+    }));
+    const doc = OP.editDoc.doc;
+    try {
+      const { data, error } = await SB.rpc('correct_document',
+        { p_doc_num: doc, p_lines, p_reason: reason });
+      if (error) throw error;
+      OP.editDoc = null;
+      const n2 = OP.lines.length; OP.lines = [];
+      OP.restoredAt = 0; clearDraft();
+      captureOpHeader();
+      if (OP.hdr) { OP.hdr.iv = ''; OP.hdr.ct = ''; }
+      await loadFromDB();
+      if (typeof loadAuditTotal === 'function') loadAuditTotal();
+      rOp(); renderAll();
+      toast(`Sənəd düzəldildi · köhnə: ${doc} → yeni: ${(data && data.new_doc_num) || '—'} · ${nf(n2)} sətir`);
+    } catch (err) {
+      toast('Düzəliş qeyd edilmədi: ' + ((err && err.message) || 'server xətası') +
+            ' — ' + doc + ' sənədi dəyişməyib.', true);
+    }
+    return;
+  }
+
   const mvLines = OP.lines.filter(l => l.kind === 'mv');
   const other = OP.lines.filter(l => l.kind !== 'mv');
 
@@ -3730,8 +4441,17 @@ async function postOpDocument() {
   if (mvLines.length) {
     const p_lines = mvLines.map(l => ({
       date: l.d, source: l.w, dest: l.w2, code: l.c, qty: l.q,
-      note: l.note || '', channel: l.ch || '', contract: l.ct || '', invoice: l.iv || ''
+      note: l.note || '', channel: l.ch || '', contract: l.ct || '', invoice: l.iv || '',
+      // Tiplərə görə bölgü (sql/031): mənbədən çıxır, təyinatda EYNİ tiplə
+      // yaranır. Yoxdursa bütün miqdar «normal» sayılır.
+      conditions: l.cond ? condSplitPayload(l.cond) : null
     }));
+    // Server bölgünü tanımırsa naməlum açar SÜKUTLA iqnor edilər və mal
+    // təyinat anbarında işarəsiz görünərdi — ona görə bloklanır, keçilmir.
+    if (p_lines.some(x => x.conditions) && !DB.splitReady) {
+      toast(SPLIT_UNSUPPORTED_MSG, true);
+      return;
+    }
     try {
       const { data, error } = await SB.rpc('post_transfer_document', { p_lines });
       if (error) throw error;
@@ -3751,8 +4471,14 @@ async function postOpDocument() {
       date: l.d, warehouse: l.w, code: l.c, type: l.t,
       in_qty: l.kind === 'in' ? l.q : 0, out_qty: l.kind === 'in' ? 0 : l.q,
       partner: l.p || '', channel: l.ch || '', contract: l.ct || '', invoice: l.iv || '',
-      price: l.pr || 0, note: l.note || ''
+      price: l.pr || 0, note: l.note || '',
+      // Mədaxil sətrində bölgü ola bilməz (server də rədd edir) — yalnız çıxış.
+      conditions: (l.kind !== 'in' && l.cond) ? condSplitPayload(l.cond) : null
     }));
+    if (p_lines.some(x => x.conditions) && !DB.splitReady) {
+      toast(SPLIT_UNSUPPORTED_MSG, true);
+      return;
+    }
     try {
       const { data, error } = await SB.rpc('post_movement_document', { p_lines });
       if (error) throw error;
@@ -3950,7 +4676,7 @@ function documentCancelView(m) {
     statusHtml = `
       <div class="hint" style="margin:4px 0 8px">Ləğv zamanı ${inbound ? 'əks məxaric' : 'əks mədaxil'} yeni sənəd kimi yazılır. Orijinal sətirlər dəyişmir.${inbound ? ' Qalıq çatmırsa, ləğv baş tutmur.' : ''}</div>
       <label class="f" style="max-width:220px"><span>Ləğv tarixi</span><input type="date" id="dc-date" value="${today()}"></label>`;
-    actionsHtml = `<div style="flex:1"></div><button class="btn" data-close>İmtina</button><button class="btn dgr" id="dc-go">Əməliyyatı ləğv et</button>`;
+    actionsHtml = `<button class="btn" id="dc-edit">Sənədi redaktə et</button><div style="flex:1"></div><button class="btn" data-close>İmtina</button><button class="btn dgr" id="dc-go">Əməliyyatı ləğv et</button>`;
   }
   modal(m.t + ' sənədi' + (doc ? ' · ' + doc : ''), `
     <div class="hint" style="margin-bottom:10px">${esc(it.name || '')} · ${nf(rows.length)} sətir · qeyd edən: ${esc(m.by || '—')}</div>
@@ -3961,6 +4687,7 @@ function documentCancelView(m) {
     const row = DB.movs.find(x => String(x.id) === b.dataset.repl);
     if (row) replaceItemDialog(row);
   });
+  if ($('#dc-edit')) $('#dc-edit').onclick = () => editPostedDocument(doc);
   if ($('#dc-go')) $('#dc-go').onclick = () => {
     if (!doc) return;
     $('#dc-go').disabled = true;
@@ -3981,6 +4708,84 @@ function documentCancelView(m) {
     })();
   };
 }
+/* ---------- Qeyd edilmiş sənədin düzəlişi (sql/030) ----------
+   Axın: təsir yoxlaması (server, yalnız oxu) → sətirlər formaya qaralama kimi
+   yüklənir → Admin düzəldir → «Düzəlişi qeyd et» TƏK RPC ilə ləğv + yeni sənəd.
+   Formaya yükləmə bazada HEÇ NƏ dəyişmir: pəncərə bağlansa, sənəd olduğu kimi qalır. */
+const EDIT_REPLACES_MARKER = /\s*·?\s*Əvəz edir:\s*[^·]+$/;
+async function editPostedDocument(docNum) {
+  if (!isAdmin()) return toast('Sənədi yalnız Rəhbər (Admin) redaktə edə bilər', true);
+  if (!docNum) return toast('Bu qeydin etibarlı sənəd nömrəsi yoxdur', true);
+  if (OP.editDoc && OP.editDoc.doc !== docNum) {
+    return toast('Artıq başqa sənəd düzəliş rejimindədir: ' + OP.editDoc.doc, true);
+  }
+  let res;
+  try {
+    const { data, error } = await SB.rpc('document_edit_impact', { p_doc_num: docNum });
+    if (error) throw error;
+    res = data;
+  } catch (err) {
+    return toast('Təsir yoxlaması alınmadı: ' + ((err && err.message) || 'server xətası'), true);
+  }
+  if (!res) return toast('Təsir yoxlaması boş cavab qaytardı', true);
+
+  const blocks = Array.isArray(res.blocks) ? res.blocks : [];
+  if (!res.editable) {
+    modal('Sənəd redaktə edilə bilməz · ' + docNum,
+      `<div class="hint" style="margin-bottom:10px">Bu sənədə əsaslanan sonrakı əməliyyatlar var və ya sənədin özü redaktəyə uyğun deyil.
+         Düzəliş üçün əvvəlcə aşağıdakıları həll edin, ya da sənədi bütövlükdə ləğv edib yenisini yazın.</div>
+       <div class="card"><div class="tw">${tbl([{ t: 'Səbəb' }],
+         blocks.map(b => ({ c: [esc(b.message || b.code || '—')] })))}</div></div>`,
+      `<div style="flex:1"></div><button class="btn" data-close>Bağla</button>`);
+    return;
+  }
+
+  const lines = Array.isArray(res.lines) ? res.lines : [];
+  if (!lines.length) return toast('Sənəddə redaktə ediləcək sətir yoxdur', true);
+
+  modal('Sənəd redaktə edilsin? · ' + docNum,
+    `<div class="hint" style="margin-bottom:10px">${nf(lines.length)} sətir «Yeni əməliyyat» formasına yüklənəcək.
+       <b>Bazada heç nə dəyişməyəcək</b> — köhnə sənəd yalnız siz «Düzəlişi qeyd et» basdığınız anda,
+       yeni sənədlə eyni tranzaksiyada ləğv olunacaq.</div>
+     <div class="hint" style="padding:9px;background:var(--out-l);border-radius:4px">
+       ${esc(res.export_warning || 'Excel ixracı sistemdə qeyd edilmir — bu sənəd artıq ixrac edilibsə, düzəliş etməyin.')}</div>`,
+    `<div style="flex:1"></div><button class="btn" data-close>İmtina</button><button class="btn pri" id="de-go">Bəli, redaktəyə keç</button>`);
+
+  $('#de-go').onclick = () => {
+    closeModal();
+    const kind = res.direction === 'in' ? 'in' : 'out';
+    const restore = new Map();
+    OP.lines = lines.map(r => {
+      const it = DB.itemBy.get(r.code) || {};
+      const q = Number(r.in_qty) > 0 ? Number(r.in_qty) : Number(r.out_qty);
+      if (kind !== 'in') {
+        const k = r.warehouse + '|' + r.code;
+        restore.set(k, (restore.get(k) || 0) + (Number(r.out_qty) || 0));
+      }
+      return {
+        kind, d: r.date, t: r.type, w: r.warehouse, w2: '',
+        c: r.code, name: it.name || r.code, unit: it.unit || '',
+        q, pr: Number(r.price) || 0, p: r.partner || '',
+        ch: r.channel || '', ct: r.contract || '', iv: r.invoice || '',
+        // Köhnə düzəliş markerini təkrar-təkrar yığmamaq üçün təmizləyirik
+        note: String(r.note || '').replace(EDIT_REPLACES_MARKER, '').trim()
+      };
+    });
+    OP.editDoc = { doc: docNum, type: res.type, direction: res.direction, restore };
+    OP.kind = kind;
+    OP.restoredAt = 0;
+    clearDraft();
+    const first = OP.lines[0] || {};
+    OP.hdr = { kind, d: first.d || today(), t: first.t || '', w: first.w || '', w2: '',
+               p: first.p || '', ch: first.ch || '', ct: first.ct || '', iv: first.iv || '', note: '' };
+    $$('#op-seg button').forEach(x => x.classList.toggle('on', x.dataset.k === kind));
+    go('op');
+    rOp();
+    renderLines();
+    toast(docNum + ' sənədi düzəliş rejiminə yükləndi · bazada hələ heç nə dəyişməyib');
+  };
+}
+
 /* Yerdəyişmə sənədinə baxış + ləğv (orijinal sətirlər redaktə OLUNMUR) */
 function transferDocView(m) {
   const doc = m.doc || '';
@@ -4294,7 +5099,7 @@ function editMov(id) {
     <div class="row" style="grid-template-columns:1fr 1fr 1fr">
       <label class="f"><span>Tarix</span><input type="date" id="e-d" value="${esc(m.d)}"></label>
       <label class="f"><span>Anbar</span><select id="e-w">${DB.whs.map(w => `<option ${w === m.w ? 'selected' : ''}>${esc(w)}</option>`).join('')}</select></label>
-      <label class="f"><span>Növü</span><select id="e-t">${['Əvvələ qalıq','Satınalma','Yerdəyişmə','Silinmə','Sahəyə','Qaytarma'].map(t => `<option ${t === m.t ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></label>
+      <label class="f"><span>Növü</span><select id="e-t">${['Əvvələ qalıq','Satınalma','Yerdəyişmə','Silinmə','Sahəyə','Qaytarma','İcarə','Satış'].map(t => `<option ${t === m.t ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></label>
     </div>
     <div class="row" style="grid-template-columns:1fr 1fr 1fr">
       <label class="f"><span>Giriş</span><input type="number" step="0.01" id="e-i" value="${m.i || ''}"></label>
@@ -4958,6 +5763,9 @@ function rRep() {
   const k = pick.value;
   const out = $('#rep-out');
   const C = { in: 'var(--in)', out: 'var(--out)', st: 'var(--steel)', mv: 'var(--move)', al: 'var(--alarm)' };
+  // Yalnız 'qaime' #rep-filters-dan istifadə edir (sütun seçimi) — başqa
+  // hesabata keçəndə köhnə checkbox-lar qalmasın.
+  if (k !== 'qaime') $('#rep-filters').innerHTML = '';
 
   if (k === 'knt') {
     const rows = Array.from(IX.byPartner.entries()).map(([n, s]) => ({ n, s })).sort((a, b) => b.s.val - a.s.val);
@@ -5040,6 +5848,112 @@ function rRep() {
       rows.map(r => ({ c: [`<b>${esc(r.from)}</b>`, `<b>${esc(r.to)}</b>`, nf(r.n), nf(r.q, 2), money(r.val)] })), { empty: 'Yerdəyişmə qeydi tapılmadı.' })}</div>
       <div class="pad hint">Yerdəyişmə hər iki anbarda cüt qeyd yaratmalıdır. Cütü olmayan qeydlər «Nəzarət və risklər» bölməsində göstərilir.</div></div>`;
   }
+  else if (k === 'qaime') {
+    rQaimeReport(out);
+  }
+}
+
+/* ================= QAİMƏLƏR ÜZRƏ HESABAT =================
+   Qruplaşdırma: Qaimə № (invoice_num) + sənəd № (doc_num) — İKİSİ BİRLİKDƏ,
+   çünki bir Qaimə qanuni olaraq bir neçə sənəddən ibarət ola bilər (eyni
+   göndərişin iki ayrı əməliyyatla yazılması — bax docs/CHANGELOG.md
+   2026-08-21, Qaimə 42893 nümunəsi). Sənəd № HƏMİŞƏ göstərilir, çünki məhz
+   onunla auditdə konkret əməliyyata keçmək mümkündür (istifadəçi tələbi).
+   Mənbə normalMovements() — ləğv edilmiş sənədlər ekrandakı digər hesabatlarla
+   eyni qaydada görünmür. */
+const QAIME_COLS = [
+  { k: 'date',    t: 'Tarix',        def: true  },
+  { k: 'type',    t: 'Növ',          def: true  },
+  { k: 'wh',      t: 'Anbar(lar)',   def: true  },
+  { k: 'partner', t: 'Kontragent',   def: true  },
+  { k: 'ch',      t: 'Kanal',        def: false },
+  { k: 'ct',      t: 'Müqavilə №',   def: false },
+  { k: 'lines',   t: 'Sətir sayı',   def: true  },
+  { k: 'qty',     t: 'Miqdar',       def: true  },
+  { k: 'val',     t: 'Məbləğ',       def: true  },
+  { k: 'note',    t: 'Qeyd',         def: false },
+  { k: 'by',      t: 'Qeyd edən',    def: false }
+];
+const QAIME_SEL = {};
+QAIME_COLS.forEach(c => { if (!(c.k in QAIME_SEL)) QAIME_SEL[c.k] = c.def; });
+
+function qaimeReportRows() {
+  const groups = new Map();   // "iv|doc" -> {...}
+  for (const m of normalMovements()) {
+    const iv = String(m.iv || '').trim();
+    if (!iv) continue;
+    const key = iv + '|' + (m.doc || '—');
+    let g = groups.get(key);
+    if (!g) {
+      g = { iv, doc: m.doc || '—', dMin: m.d, dMax: m.d, types: new Set(), whs: new Set(),
+            partners: new Set(), chs: new Set(), cts: new Set(), notes: [], bys: new Set(),
+            n: 0, qty: 0, val: 0 };
+      groups.set(key, g);
+    }
+    g.n++;
+    if (m.d < g.dMin) g.dMin = m.d; if (m.d > g.dMax) g.dMax = m.d;
+    g.types.add(m.t); g.whs.add(m.w);
+    if (m.p) g.partners.add(m.p);
+    if (m.ch) g.chs.add(m.ch);
+    if (m.ct) g.cts.add(m.ct);
+    if (m.by) g.bys.add(m.by);
+    if (m.note && g.notes.indexOf(m.note) < 0) g.notes.push(m.note);
+    g.qty += (m.i || 0) + (m.o || 0);
+    g.val += ((m.i || 0) + (m.o || 0)) * (m.pr || 0);
+  }
+  return Array.from(groups.values()).sort((a, b) => dsort(b.dMax, a.dMax) || a.iv.localeCompare(b.iv, 'az'));
+}
+function rQaimeReport(out) {
+  const filt = $('#rep-filters');
+  filt.innerHTML = `<div class="hint" style="margin-bottom:6px">Göstəriləcək sütunlar:</div>
+    <div style="display:flex;flex-wrap:wrap;gap:4px 14px">${QAIME_COLS.map(c =>
+      `<label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer">
+         <input type="checkbox" data-qc="${c.k}" ${QAIME_SEL[c.k] ? 'checked' : ''}>${esc(c.t)}</label>`).join('')}</div>`;
+  $$('[data-qc]').forEach(cb => cb.onclick = () => { QAIME_SEL[cb.dataset.qc] = cb.checked; rQaimeReport(out); });
+
+  const rows = qaimeReportRows();
+  const cols = QAIME_COLS.filter(c => QAIME_SEL[c.k]);
+  const head = [{ t: 'Qaimə №' }, { t: 'Sənəd №' }].concat(cols.map(c => ({ t: c.t, r: /qty|val|lines/.test(c.k) ? 1 : 0 })));
+  const cellOf = (g, k) => {
+    switch (k) {
+      case 'date': return g.dMin === g.dMax ? esc(fmtD(g.dMin)) : esc(fmtD(g.dMin)) + ' – ' + esc(fmtD(g.dMax));
+      case 'type': return Array.from(g.types).map(t => TYPE_TAG(t)).join(' ');
+      case 'wh': return esc(Array.from(g.whs).join(', '));
+      case 'partner': return esc(Array.from(g.partners).join(', ')) || '<span class="muted">—</span>';
+      case 'ch': return esc(Array.from(g.chs).join(', ')) || '<span class="muted">—</span>';
+      case 'ct': return esc(Array.from(g.cts).join(', ')) || '<span class="muted">—</span>';
+      case 'lines': return nf(g.n);
+      case 'qty': return nf(g.qty, 2);
+      case 'val': return money(g.val);
+      case 'note': return g.notes.length ? esc(g.notes.join(' · ')) : '<span class="muted">—</span>';
+      case 'by': return esc(Array.from(g.bys).join(', ')) || '<span class="muted">—</span>';
+      default: return '';
+    }
+  };
+  REP_NAME = 'qaimeler_uzre';
+  REP_ROWS = [['Qaimə №', 'Sənəd №'].concat(cols.map(c => c.t))]
+    .concat(rows.map(g => [g.iv, g.doc].concat(cols.map(c => {
+      switch (c.k) {
+        case 'date': return g.dMin === g.dMax ? g.dMin : g.dMin + ' – ' + g.dMax;
+        case 'type': return Array.from(g.types).join(', ');
+        case 'wh': return Array.from(g.whs).join(', ');
+        case 'partner': return Array.from(g.partners).join(', ');
+        case 'ch': return Array.from(g.chs).join(', ');
+        case 'ct': return Array.from(g.cts).join(', ');
+        case 'lines': return g.n;
+        case 'qty': return g.qty;
+        case 'val': return g.val.toFixed(2);
+        case 'note': return g.notes.join(' · ');
+        case 'by': return Array.from(g.bys).join(', ');
+        default: return '';
+      }
+    }))));
+  out.innerHTML = `<div class="hint" style="margin-bottom:10px">${nf(rows.length)} qaimə (sənəd birləşməsi) · mənbə: qeyd edilmiş və ləğv edilməmiş əməliyyatlar.
+      Bir Qaimə № bir neçə Sənəd № altında ola bilər — eyni göndərişin bir neçə əməliyyatla yazılması halında (bax: Nəzarət bölməsi).</div>
+    <div class="card"><div class="tw">${tbl(head,
+      cut(rows, 'qaime').map(g => ({ c: [`<span class="code">${esc(g.iv)}</span>`, `<span class="code">${esc(g.doc)}</span>`]
+        .concat(cols.map(c => cellOf(g, c.k))) })), { empty: 'Qaimə № yazılmış sənəd tapılmadı.' })}</div>
+      ${cutNote(rows, 'qaime', () => rQaimeReport(out))}</div>`;
 }
 
 /* ================= FINANCE ================= */
@@ -5321,7 +6235,7 @@ function rSet() {
     // it bypassed server-side warehouse/item/negative-balance validation and
     // is now blocked by RLS anyway (direct movements INSERT is admin-only, and
     // even admin must not skip the balance/atomicity guarantees).
-    const NON_TRANSFER = ['Satınalma', 'Əvvələ qalıq', 'Qaytarma', 'Silinmə', 'Sahəyə', 'Satış'];
+    const NON_TRANSFER = ['Satınalma', 'Əvvələ qalıq', 'Qaytarma', 'İcarə', 'Silinmə', 'Sahəyə', 'Satış'];
     const lines = $('#imp-txt').value.split(/\n/).map(l => l.trim()).filter(Boolean);
     const p_lines = []; let bad = 0;
     for (const l of lines) {
