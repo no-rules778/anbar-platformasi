@@ -259,6 +259,7 @@ label.f>span{display:block;font-size:10.5px;text-transform:uppercase;letter-spac
       <a data-p="knt">Kontragentlər <b id="c-knt"></b></a>
       <a data-p="anb">Anbar və layihələr <b id="c-anb"></b></a>
       <a data-p="refs" id="nav-refs" style="display:none">Sorğuçalar</a>
+      <a data-p="sm" id="nav-sm">Sərfiyyat Materialları</a>
       <div class="grp">Təhlil</div>
       <a data-p="rep">Hesabatlar</a>
       <a data-p="fin">Maliyyə göstəriciləri</a>
@@ -373,6 +374,19 @@ label.f>span{display:block;font-size:10.5px;text-transform:uppercase;letter-spac
           <div class="card"><header><h3>Fiziki anbarlar</h3></header><div class="tw" id="t-anb"></div></div>
           <div class="card"><header><h3>Layihə və təhvil məntəqələri</h3></header><div class="tw" id="t-loc"></div></div>
         </div>
+      </section>
+
+      <!-- SƏRFİYYAT MATERİALLARI: layihə üzrə dərhal istifadə olunan sərfiyyat
+           materialları (sement, qum, çınqır və s.). Anbar qalığı ilə əlaqəsi yoxdur —
+           bax sql/032_serfiyyat_materiallari.sql. -->
+      <section class="page" id="p-sm">
+        <div class="phead"><div><h2>Sərfiyyat Materialları</h2><p>Layihə üzrə dərhal istifadə olunan tikinti materialları — anbar qalığına təsir etmir.</p></div><div class="sp"></div>
+          <div class="seg" id="sm-seg" data-tab="doc">
+            <button data-tab="doc" class="on">Yeni sənəd</button>
+            <button data-tab="rep">Hesabat</button>
+          </div>
+        </div>
+        <div id="sm-out"></div>
       </section>
 
       <!-- REFERENCE DIRECTORIES: Admin only, one source for shared dropdown values -->
@@ -951,6 +965,7 @@ async function loadFromDB() {
   DB.itemBy = new Map(DB.items.map(i => [i.code, i]));
   DB.events = [];
   index();
+  await smLoad();
   return { ok: !LOAD_ERR, error: LOAD_ERR };
 }
 
@@ -1448,7 +1463,7 @@ $$('.rail a').forEach(a => a.onclick = () => go(a.dataset.p));
 $('#burger').onclick = () => $('#rail').classList.toggle('open');
 
 function render(p) {
-  ({ dash: rDash, op: rOp, mov: rMov, bal: rBal, nom: rNom, nreq: rNreq, grp: rGroups, knt: rKnt, anb: rAnb, refs: rRefs, rep: rRep, fin: rFin, ctrl: rCtrl, log: rLog, set: rSet, azp: (typeof rAzp === 'function' ? rAzp : null) }[p] || (() => { }))();
+  ({ dash: rDash, op: rOp, mov: rMov, bal: rBal, nom: rNom, nreq: rNreq, grp: rGroups, knt: rKnt, anb: rAnb, refs: rRefs, sm: rSm, rep: rRep, fin: rFin, ctrl: rCtrl, log: rLog, set: rSet, azp: (typeof rAzp === 'function' ? rAzp : null) }[p] || (() => { }))();
   counters();
 }
 function renderAll() { render(PAGE); }
@@ -1696,7 +1711,7 @@ function rMov() {
   const sin = all.reduce((s, m) => s + (m.i || 0), 0), sout = all.reduce((s, m) => s + (m.o || 0), 0);
   const sval = all.reduce((s, m) => s + (m.i || 0) * (m.pr || (DB.itemBy.get(m.c) || {}).price || 0), 0);
   $('#t-mov').innerHTML = tbl(
-    [{ t: 'Tarix' }, { t: 'Anbar' }, { t: 'Kod' }, { t: 'Malın adı' }, { t: 'Növü' }, { t: 'İstiqamət / Kontragent' }, { t: 'Kanal' }, { t: 'Qaimə №' }, { t: 'Giriş', r: 1 }, { t: 'Çıxış', r: 1 }, { t: 'Qiymət', r: 1 }, { t: 'Məbləğ', r: 1 }, { t: 'Qeyd edən' }, { t: '' }],
+    [{ t: 'Tarix' }, { t: 'Anbar' }, { t: 'Kod' }, { t: 'Malın adı' }, { t: 'Növü' }, { t: 'İstiqamət / Kontragent' }, { t: 'Kanal' }, { t: 'Qaimə №' }, { t: 'Giriş', r: 1 }, { t: 'Çıxış', r: 1 }, { t: 'Qiymət', r: 1 }, { t: 'Məbləğ', r: 1 }, { t: 'Qeyd' }, { t: 'Qeyd edən' }, { t: '' }],
     rows.map(m => {
       const it = DB.itemBy.get(m.c) || {};
       const pr = m.pr || it.price || 0;
@@ -1713,6 +1728,7 @@ function rMov() {
           m.i ? `<span style="color:var(--in)">${nf(m.i, 2)}</span>` : '—',
           m.o ? `<span style="color:var(--out)">${nf(m.o, 2)}</span>` : '—',
           pr ? nf(pr, 2) : '—', pr ? money(((m.i || 0) + (m.o || 0)) * pr) : '—',
+          m.note ? `<span class="hint" title="${esc(m.note)}">${esc(m.note.length > 40 ? m.note.slice(0, 40) + '…' : m.note)}</span>` : '<span class="muted">—</span>',
           `<span class="hint">${esc(m.by || '—')}</span>`,
           `<button class="btn sm" data-edit="${esc(m.id)}">Baxış</button>`
         ]
@@ -2833,7 +2849,9 @@ const REF_KINDS = [
   { k: 'partner',   t: 'Kontragent' },
   { k: 'channel',   t: 'Alınma kanalı' },
   { k: 'unit',      t: 'Ölçü vahidi' },
-  { k: 'category',  t: 'Mal kateqoriyası' }
+  { k: 'category',  t: 'Mal kateqoriyası' },
+  { k: 'project',           t: 'Layihə (Sərfiyyat Materialları)' },
+  { k: 'serfiyyat_channel', t: 'Alınma kanalı (Sərfiyyat Materialları)' }
 ];
 const REF_KIND_LABEL = k => (REF_KINDS.find(x => x.k === k) || {}).t || k;
 /* Səhifə vəziyyəti — filtrlər və səhifələmə (skrinşotdakı idarə paneli kimi) */
@@ -2842,6 +2860,7 @@ const RF = { kind: '', status: '', q: '', size: 10, page: 0, newKind: 'warehouse
 /* reference_values ilə idarə olunan növlər 011/012 tətbiq edilməyincə əlçatmazdır */
 function refServerReady(kind) {
   if (kind === 'channel' || kind === 'unit' || kind === 'category') return !!(DB.refs && DB.refs.ready);
+  if (kind === 'project' || kind === 'serfiyyat_channel') return !!DB.smReady;
   return true;
 }
 function refEntities(kind) {
@@ -2849,6 +2868,9 @@ function refEntities(kind) {
   if (kind === 'unit') return (DB.refs && DB.refs.units) || [];
   if (kind === 'category') return (DB.refs && DB.refs.cats) || [];
   if (kind === 'partner') return DB.partners;
+  // Sərfiyyat Materialları: warehouses-dən tamamilə ayrı, öz cədvəlindən.
+  if (kind === 'project') return (DB.smProjects || []).map(p => ({ id: p.id, name: p.name, active: p.active, linked_warehouse: p.wh || '' }));
+  if (kind === 'serfiyyat_channel') return (DB.refs && DB.refs.serfiyyatChannels) || [];
   return DB.locs.filter(x => x.kind === (kind === 'warehouse' ? 'anbar' : 'layihə'));
 }
 /* İstifadə sayı — serverdəki yoxlama ilə eyni sahələr üzərindən hesablanır.
@@ -2871,6 +2893,8 @@ function refUsage(kind, x) {
   if (kind === 'unit') return DB.items.filter(i => REF_EQ(i.unit, n)).length;
   if (kind === 'category') return DB.items.filter(i => REF_EQ(i.category, n)).length;
   if (kind === 'partner') return normalMovements().filter(m => REF_EQ(m.p, n)).length;
+  if (kind === 'project') return (DB.smDocs || []).filter(d => d.projectId === x.id).length;
+  if (kind === 'serfiyyat_channel') return (DB.smDocs || []).filter(d => REF_EQ(d.kanal, n)).length;
   const inMovs = normalMovements().filter(m => REF_EQ(m.w, n) || REF_EQ(m.p, n)).length;
   return inMovs + refStaffCount(n);
 }
@@ -2975,6 +2999,12 @@ function refOpen(kind, id, presetName) {
       <label class="f"><span>VÖEN</span><input id="ref-voen" maxlength="10" value="${esc(x ? x.voen || '' : '')}"></label>
       <label class="f"><span>Müqavilə tarixi</span><input id="ref-cdate" type="date" value="${esc(x ? x.cdate || '' : '')}"></label>
     </div><label class="f"><span>Müqavilə №</span><input id="ref-contract" value="${esc(x ? x.contract || '' : '')}"></label>` : '';
+  // Layihə — hansı anbardarın bu layihəyə giriş/sənəd yaratma haqqı olduğunu
+  // müəyyən edir (sql/032, create_serfiyyat_document). Boş buraxıla bilər —
+  // hələ heç bir anbara bağlanmamış slot kimi qalır.
+  const projectFields = kind === 'project' ? `<label class="f"><span>Bağlı anbar (anbardar giriş haqqı üçün)</span>
+      <select id="ref-linked-wh"><option value="">— bağlanmayıb —</option>${DB.whs.map(w => `<option ${x && x.linked_warehouse === w ? 'selected' : ''}>${esc(w)}</option>`).join('')}</select>
+      <span class="hint">Bu anbara təyin olunmuş anbardar yalnız bu layihədə sənəd yarada və hesabatını görə bilər.</span></label>` : '';
   let note = '';
   if (USERS_ERR && (kind === 'warehouse' || kind === 'location')) {
     note = `<p class="hint" style="color:var(--alarm)">İstifadəçi siyahısı yüklənmədi — anbara təyin olunmuş
@@ -2992,7 +3022,7 @@ function refOpen(kind, id, presetName) {
     note += `<p class="hint">Bu dəyər heç bir qeyddə istifadə olunmayıb — adı dəyişdirilə və ya tamamilə silinə bilər.</p>`;
   }
   modal(x ? REF_KIND_LABEL(kind) + ' — redaktə' : REF_KIND_LABEL(kind) + ' — yeni dəyər', `
-    <label class="f"><span>Ad</span><input id="ref-name" value="${esc(x ? x.name : (presetName || ''))}" autocomplete="off" ${nameLocked ? 'readonly' : ''}></label>${partnerFields}${note}`,
+    <label class="f"><span>Ad</span><input id="ref-name" value="${esc(x ? x.name : (presetName || ''))}" autocomplete="off" ${nameLocked ? 'readonly' : ''}></label>${partnerFields}${projectFields}${note}`,
     `<button class="btn" data-close>İmtina</button><div style="flex:1"></div>
       ${x && x.active !== false ? `<button class="btn" id="ref-deactivate">Gizlət</button>` : ''}
       ${x && x.active === false ? `<button class="btn" id="ref-activate">Aktiv et</button>` : ''}
@@ -3039,6 +3069,8 @@ async function refSend(kind, action, id) {
     voen: ($('#ref-voen') && $('#ref-voen').value.trim()) || '',
     contract: ($('#ref-contract') && $('#ref-contract').value.trim()) || '',
     contract_date: ($('#ref-cdate') && $('#ref-cdate').value) || ''
+  } : kind === 'project' ? {
+    linked_warehouse: ($('#ref-linked-wh') && $('#ref-linked-wh').value) || ''
   } : {};
   if (meta.voen && !/^\d{10}$/.test(meta.voen)) return toast('VÖEN 10 rəqəm olmalıdır', true);
   const btns = $$('#m-foot .btn'); btns.forEach(b => b.disabled = true);
@@ -3907,9 +3939,9 @@ function bulkWriteOffOpen() {
 function renderBulkWriteOff() {
   const isMv = BW.mode === 'mv';
   modal((isMv ? 'Yerdəyişmə üçün mal seçimi · ' + BW.wh + ' → ' + BW.dst : 'Qrup üzrə silinmə · ' + BW.wh), `
-    <div class="hint" style="margin-bottom:8px">${isMv
-      ? `Yalnız <b>${esc(BW.wh)}</b> anbarında müsbət qalığı olan mallar. Seçilmiş sətirlər sənədin qaralamasına əlavə olunur — Supabase-ə heç nə yazılmır, yazı «Sənədi qeyd et» ilə gedir. Miqdar mövcud qalıqdan çox ola bilməz.`
-      : `Yalnız <b>${esc(BW.wh)}</b> anbarında müsbət qalığı olan mallar. Seçilmiş sətirlər BİR atomar «Silinmə» sənədi kimi qeyd olunur — bir sətir keçməzsə, heç biri yazılmır. Miqdar mövcud qalıqdan çox ola bilməz.`}</div>
+    <div class="hint" style="margin-bottom:8px">Yalnız <b>${esc(BW.wh)}</b> anbarında müsbət qalığı olan mallar.
+      Seçilmiş sətirlər sənədin qaralamasına (sağ pəncərə) əlavə olunur — Supabase-ə heç nə yazılmır,
+      real yazı yalnız «Sənədi qeyd et» ilə gedir. Miqdar mövcud qalıqdan çox ola bilməz.</div>
     <div class="row" style="grid-template-columns:2fr 1fr">
       <label class="f"><span>Axtarış (kod və ya ad)</span><input type="text" id="bw-q" value="${esc(BW.q)}" placeholder="məs. kabel və ya 0000123"></label>
       <label class="f"><span>${isMv ? 'Marşrut' : 'Anbar'}</span><input type="text" id="bw-wh" value="${esc(isMv ? BW.wh + ' → ' + BW.dst : BW.wh)}" readonly></label>
@@ -3921,7 +3953,7 @@ function renderBulkWriteOff() {
     <div class="card"><div class="tw" id="bw-list" style="max-height:42vh"></div></div>
     <label class="f" style="margin-top:10px"><span>Ümumi qeyd (bütün sətirlərə eyni yazılır)</span><input type="text" id="bw-note" value="${esc(BW.note)}" placeholder="məs. yararsız hala düşüb — akt №12"></label>
     <div class="hint" id="bw-err" style="margin-top:6px"></div>`,
-    `<span class="hint" id="bw-sum" style="margin-right:auto"></span><button class="btn" data-close>İmtina</button><button class="btn pri" id="bw-post" disabled>${isMv ? 'Sətirləri əlavə et' : 'Sənədi qeyd et'}</button>`);
+    `<span class="hint" id="bw-sum" style="margin-right:auto"></span><button class="btn" data-close>İmtina</button><button class="btn pri" id="bw-post" disabled>Sətirləri əlavə et</button>`);
   $('#bw-q').oninput = debounce(() => { BW.q = $('#bw-q').value; renderBulkWriteOffList(); }, 160);
   $('#bw-note').oninput = () => { BW.note = $('#bw-note').value; };
   $('#bw-all').onchange = () => {
@@ -4071,9 +4103,7 @@ function updateBulkWriteOffTotals() {
   const btn = $('#bw-post');
   if (btn) {
     btn.disabled = !(s.n > 0) || s.bad.length > 0;
-    btn.textContent = BW.mode === 'mv'
-      ? (s.n ? nf(s.n) + ' sətri əlavə et' : 'Sətirləri əlavə et')
-      : (s.n ? nf(s.n) + ' sətri sənəd kimi qeyd et' : 'Sənədi qeyd et');
+    btn.textContent = s.n ? nf(s.n) + ' sətri əlavə et' : 'Sətirləri əlavə et';
   }
 }
 async function bulkWriteOffPost() {
@@ -4156,10 +4186,15 @@ async function bulkWriteOffPost() {
     toast(added + ' sətir qaralamaya əlavə edildi — yazmaq üçün «Sənədi qeyd et»');
     return;
   }
-  const btn = $('#bw-post'), err = $('#bw-err');
+  // <<2026-08-24 fix>> Silinmə də Yerdəyişmə ilə EYNİ yolla işləyir: seçim
+  // yalnız QARALAMAYA sətir kimi düşür, Supabase-ə birbaşa yazı yoxdur. Real
+  // yazı və icarə/qaimə yoxlaması TƏK yerdə — əsas «Sənədi qeyd et» düyməsində
+  // (postConfirmDialog / #op-post) — gedir ki, bir sənəddə həm əl ilə əlavə
+  // edilmiş, həm qrup üzrə seçilmiş sətirlər BİRGƏ və eyni qaydalarla yazılsın.
+  const err = $('#bw-err');
   const s = bulkWriteOffSummary();
   if (!s.n || s.bad.length) {
-    if (err) err.innerHTML = '<span style="color:var(--alarm)">Etibarsız seçim var — sənəd yazılmadı.</span>';
+    if (err) err.innerHTML = '<span style="color:var(--alarm)">Etibarsız seçim var — sətirlər əlavə edilmədi.</span>';
     return;
   }
   if (!allowedWarehouses().includes(BW.wh)) {
@@ -4172,58 +4207,38 @@ async function bulkWriteOffPost() {
   // Silinmə üçün təhvil alan formadakı dəyərdir (syncSil onu «Sahə üzrə məsul
   // şəxs» kimi sabitləyir) — addLine() ilə eyni mənbə.
   const pt = ($('#o-p') && $('#o-p').value) || 'Sahə üzrə məsul şəxs';
-  {
-    const c = qaimeConflict(iv, dt, pt, null);
-    if (c) {
-      if (err) err.innerHTML = `<span style="color:var(--alarm)">Qaimə № "${esc(c.iv)}" artıq başqa sənəddə var (${esc(c.doc || '—')}) —
-        tarix və ya kontragent üst-üstə düşmür. Qaimə № sahəsini düzəldin.</span>`;
+  const note = String(BW.note || '').trim();
+  // Hamısı-və-ya-heç biri: sətirlər əvvəlcə yığılır, yalnız hamısı keçəndən
+  // sonra OP.lines-a əlavə olunur — mv rejimi ilə eyni qayda.
+  const base = OP.lines.length;
+  for (const [code, q] of BW.sel) {
+    if (!(q > 0)) continue;
+    const r = byCode.get(code);
+    const it = DB.itemBy.get(code) || {};
+    const line = { kind: 'out', d: dt, t: 'Silinmə', w: BW.wh, w2: '',
+                   c: code, name: it.name || code, unit: it.unit || '',
+                   q, pr: (r && r.price) || it.price || 0, p: pt,
+                   ch: '', ct: '', iv, note,
+                   cond: BW.split.get(code) || null };
+    const v = validateOpLine(line);
+    if (!v.ok) {
+      OP.lines.length = base;      // yarımçıq seçimi geri al
+      if (err) err.innerHTML = `<span style="color:var(--alarm)">${esc(it.name || code)}: ${esc(v.error)} — heç bir sətir əlavə edilmədi.</span>`;
       return;
     }
+    if (line.cond && Math.abs(v.q - line.q) > 1e-9) {
+      OP.lines.length = base;
+      if (err) err.innerHTML = `<span style="color:var(--alarm)">${esc(it.name || code)}: qalıq dəyişib, tiplərə görə bölgünü yeniləyin — heç bir sətir əlavə edilmədi.</span>`;
+      return;
+    }
+    line.q = v.q;
+    OP.lines.push(line);
   }
-  const note = String(BW.note || '').trim();
-  const p_lines = [];
-  let needsSplit = false;
-  for (const [code, q] of BW.sel) {
-    const r = byCode.get(code);
-    if (!r || !(q > 0)) continue;
-    const sp = BW.split.get(code) || null;
-    if (sp) needsSplit = true;
-    p_lines.push({
-      date: dt, warehouse: BW.wh, code, type: 'Silinmə',
-      in_qty: 0, out_qty: q,
-      partner: pt, channel: '', contract: '', invoice: iv,
-      price: r.price || 0, note,
-      // sql/031 bunu oxuyur. Server dəstəkləmirsə aşağıda BLOKLANIR — açar
-      // sadəcə susqun iqnor edilsəydi, bölgü yazılmadan sənəd keçərdi.
-      conditions: sp ? condSplitPayload(sp) : null
-    });
-  }
-  if (!p_lines.length) {
-    if (err) err.innerHTML = '<span style="color:var(--alarm)">Yazılacaq etibarlı sətir yoxdur.</span>';
-    return;
-  }
-  if (needsSplit && !DB.splitReady) {
-    if (err) err.innerHTML = `<span style="color:var(--alarm)">${esc(SPLIT_UNSUPPORTED_MSG)}</span>`;
-    return;
-  }
-  if (btn) { btn.disabled = true; btn.textContent = 'Yazılır…'; }
-  try {
-    // TƏK çağırış = serverdə TƏK doc_num = atomar sənəd.
-    const { error } = await SB.rpc('post_movement_document', { p_lines });
-    if (error) throw error;
-  } catch (e) {
-    if (btn) { btn.disabled = false; btn.textContent = nf(p_lines.length) + ' sətri sənəd kimi qeyd et'; }
-    if (err) err.innerHTML = `<span style="color:var(--alarm)">Sənəd qeyd edilmədi: ${esc((e && e.message) || 'server xətası')} — heç bir sətir yazılmadı.</span>`;
-    return;
-  }
-  const n = p_lines.length;
+  const added = OP.lines.length - base;
   BW.sel = new Map(); BW.split = new Map(); BW.icareOk = false;
   closeModal();
-  captureOpHeader();
-  if (OP.hdr) OP.hdr.iv = '';                 // yeni sənəd — yeni qaimə nömrəsi
-  await loadFromDB();
-  renderAll();
-  toast(n + ' sətir bir «Silinmə» sənədi kimi qeyd edildi');
+  renderLines();
+  toast(added + ' sətir qaralamaya əlavə edildi — yazmaq üçün «Sənədi qeyd et»');
 }
 
 /* Hər iki düymə (Təmizlə / Sənədi qeyd et) təsdiq tələb edir: birincisi
@@ -5753,6 +5768,538 @@ function importNewItems() {
 /* editPartner() və editLoc() SİLİNİB — kontragent, anbar və ünvan artıq
    yalnız Sorğuçalar bölməsindən (manage_reference RPC) idarə olunur.
    Bax: rRefs() / refOpen() / refSend(). */
+
+/* ================= SƏRFİYYAT MATERİALLARI =================
+   Layihə üzrə DƏRHAL istifadə olunan sərfiyyat materialları (sement, qum,
+   çınqır, aspet, daş, kubik, armatur və s.). Anbar qalığına HEÇ bir təsiri
+   yoxdur — movements cədvəlinə YAZILMIR, ayrı sql/032 cədvəllərinə yazılır.
+   sql/032 hələ Supabase-ə tətbiq edilməyibsə DB.smReady=false qalır və bölmə
+   "hazır deyil" mesajı göstərir (movement_split_supported zondu ilə eyni üsul). */
+const SM = { lines: [], filters: {}, editDocId: null };
+
+async function smLoad() {
+  DB.smReady = false;
+  DB.smProjects = []; DB.smDocs = []; DB.smLines = [];
+  if (!DB.refs) DB.refs = { channels: [], units: [], cats: [], ready: false };
+  DB.refs.serfiyyatChannels = [];
+  try {
+    const [pj, docs, lns] = await Promise.all([
+      SB.from('serfiyyat_projects').select('*').order('name'),
+      SB.from('serfiyyat_documents').select('*').order('doc_date', { ascending: false }),
+      SB.from('serfiyyat_lines').select('*')
+    ]);
+    if (pj.error || docs.error || lns.error) throw (pj.error || docs.error || lns.error);
+    DB.smProjects = (pj.data || []).map(r => ({ id: r.id, name: r.name, wh: r.linked_warehouse || '', active: r.active !== false }));
+    DB.smDocs = (docs.data || []).map(r => ({
+      id: r.id, num: r.doc_num, projectId: r.project_id, kontragent: r.kontragent || '',
+      avto: r.avtomobil_nomresi || '', kanal: r.alinma_kanali || '', d: r.doc_date,
+      note: r.note || '', by: r.created_by || '', ts: r.created_at ? new Date(r.created_at).getTime() : 0
+    }));
+    DB.smLines = (lns.data || []).map(r => ({ id: r.id, docId: r.document_id, code: r.item_code, qty: parseFloat(r.qty) || 0, price: parseFloat(r.price) || 0, sum: parseFloat(r.line_sum) || 0 }));
+    DB.smReady = true;
+  } catch (e) { console.warn('Sərfiyyat Materialları hazır deyil (sql/032 tətbiq edilməyib)', e); }
+  try {
+    const rv = await SB.rpc('get_reference_values');
+    if (!rv.error) DB.refs.serfiyyatChannels = (rv.data || [])
+      .filter(x => x.kind === 'serfiyyat_channel')
+      .map(x => ({ id: x.id, kind: x.kind, name: x.name, active: x.active !== false }));
+  } catch (e) { /* sql/032 tətbiq edilməyib */ }
+}
+// Yalnız aktiv adlar — dropdown seçimləri üçün (Sorğuçalar idarəetmə cədvəli
+// isə refEntities('serfiyyat_channel') ilə deaktiv dəyərləri də göstərir).
+function smActiveChannelNames() { return (DB.refs.serfiyyatChannels || []).filter(x => x.active).map(x => x.name); }
+
+// forWrite=true: yalnız sənəd yaratmaq üçün icazəli layihələr (anbardar → öz anbarı).
+// forWrite=false: hesabatda görünən layihələr (rehber də daxil, hamısını görür).
+function smAllowedProjects(forWrite) {
+  const active = DB.smProjects.filter(p => p.active);
+  if (isAdmin()) return active;
+  if (isAnbardar() && ME.wh) return active.filter(p => p.wh === ME.wh);
+  return forWrite ? [] : active;
+}
+function smCanWrite() { return isAdmin() || isAnbardar(); }
+function smDocById(id) { return DB.smDocs.find(d => d.id === id); }
+function smProjById(id) { return DB.smProjects.find(p => p.id === id); }
+
+function rSm() {
+  if (!$('#sm-seg').dataset.wired) {
+    $('#sm-seg').dataset.wired = '1';
+    $$('#sm-seg button').forEach(b => b.onclick = () => {
+      $('#sm-seg').dataset.tab = b.dataset.tab;
+      $$('#sm-seg button').forEach(x => x.classList.toggle('on', x === b));
+      rSm();
+    });
+  }
+  const out = $('#sm-out');
+  if (!DB.smReady) {
+    out.innerHTML = '<div class="card"><div class="pad hint">Sərfiyyat Materialları hələ aktiv deyil: sql/032 migrasiyası Supabase-ə tətbiq edilməyib.</div></div>';
+    return;
+  }
+  const tab = $('#sm-seg').dataset.tab || 'doc';
+  if (tab === 'rep') smRenderReport(out); else smRenderForm(out);
+}
+
+/* ---------- Sənəd forması: şapka (layihə/kontragent/avtomobil/kanal/tarix/qeyd)
+   + material sətirləri (əl ilə və ya Excel-dən kod/miqdar/qiymət idxalı) ---------- */
+function smRenderForm(out) {
+  const editing = !!SM.editDocId;
+  const editDoc = editing ? smDocById(SM.editDocId) : null;
+  if (editing && !editDoc) { SM.editDocId = null; SM.lines = []; } // sənəd artıq yoxdur (məs. silinib)
+  if (!editing && !smCanWrite()) { out.innerHTML = '<div class="card"><div class="pad hint">Sənəd yaratmaq üçün icazəniz yoxdur (yalnız Admin və Anbardar).</div></div>'; return; }
+  if (editing && !isAdmin()) { out.innerHTML = '<div class="card"><div class="pad hint">Provedilmiş sənədi yalnız Admin düzəldə bilər.</div></div>'; return; }
+  // Düzəliş rejimində Admin istənilən (hətta öz layihəsi olmayan) sənədi aça bilməlidir —
+  // smAllowedProjects(true) admin üçün onsuz da bütün aktiv layihələri qaytarır.
+  const projects = smAllowedProjects(true);
+  if (!editing && !projects.length) { out.innerHTML = '<div class="card"><div class="pad hint">Sizə bağlı aktiv layihə yoxdur. Admin Sorğuçalar bölməsində layihəni sizin anbarınıza bağlamalıdır.</div></div>'; return; }
+  const kanallar = smActiveChannelNames();
+  out.innerHTML = `
+    ${editing ? '' : `<div class="card" style="margin-bottom:12px"><div class="pad">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <b>Excel-dən bir neçə sənəd idxal et</b><div class="sp"></div>
+        <input type="file" id="sm-doc-imp-file" accept=".xlsx,.xls" style="width:auto">
+      </div>
+      <p class="hint" style="margin:6px 0 0">Sütunlar: layihə · material · ölçü · miqdar · qiymət · tarix · qeyd (kontragent/avtomobil/kanal da ötürülə bilər). Eyni layihə+kontragent+avtomobil+kanal+tarix+qeyd olan sətirlər BİR sənəd kimi qruplaşdırılır. Yoxlamadan sonra təsdiq tələb olunur — heç nə sükutla yazılmır.</p>
+    </div></div>`}
+    <div class="card"><div class="pad">
+      ${editing ? `<div class="hint" style="margin-bottom:8px">Düzəliş rejimi: <b>${esc(editDoc.num)}</b> (provedildikdən sonra) <a href="#" id="sm-edit-cancel">— ləğv et</a></div>` : ''}
+      <div class="row" style="grid-template-columns:1fr 1fr 1fr">
+        <label class="f"><span>Layihə</span><select id="sm-proj">${projects.map(p => `<option value="${esc(p.id)}" ${editDoc && editDoc.projectId === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>
+        <label class="f"><span>Tarix</span><input type="date" id="sm-date" value="${editDoc ? editDoc.d : today()}"></label>
+        <label class="f"><span>Alınma kanalı</span><select id="sm-kanal"><option value="">—</option>${kanallar.map(k => `<option ${editDoc && editDoc.kanal === k ? 'selected' : ''}>${esc(k)}</option>`).join('')}</select></label>
+      </div>
+      <div class="row" style="grid-template-columns:1fr 1fr">
+        <label class="f"><span>Kontragent</span><input type="text" id="sm-kontragent" value="${esc(editDoc ? editDoc.kontragent : '')}" placeholder="məs. Anbar Tədarük MMC"></label>
+        <label class="f"><span>Avtomobil nömrəsi</span><input type="text" id="sm-avto" value="${esc(editDoc ? editDoc.avto : '')}" placeholder="məs. 10-AA-123"></label>
+      </div>
+      <label class="f"><span>Qeyd</span><input type="text" id="sm-note" value="${esc(editDoc ? editDoc.note : '')}" placeholder="istəyə bağlı"></label>
+
+      <div style="display:flex;gap:8px;align-items:center;margin:10px 0 4px;flex-wrap:wrap">
+        <b>Material sətirləri</b><div class="sp"></div>
+        <input type="file" id="sm-imp-file" accept=".xlsx,.xls" style="width:auto">
+        <span class="hint">↑ Excel-dən əlavə et (kod · miqdar · qiymət, qalanı əl ilə)</span>
+      </div>
+      <div id="sm-lines-tbl"></div>
+      <div class="row" style="grid-template-columns:2fr 1fr 1fr auto;align-items:end;margin-top:8px">
+        <label class="f"><span>Mal (ad və ya kod)</span>
+          <div style="position:relative"><input type="text" id="sm-item" autocomplete="off">
+          <div id="sm-item-res" style="position:absolute;left:0;right:0;top:100%;background:#fff;border:1px solid var(--line);border-radius:0 0 4px 4px;max-height:220px;overflow:auto;z-index:20;display:none"></div></div>
+        </label>
+        <label class="f"><span>Miqdar</span><input type="number" id="sm-qty" step="0.01" min="0"></label>
+        <label class="f"><span>Qiymət</span><input type="number" id="sm-price" step="0.01" min="0"></label>
+        <button class="btn" id="sm-add-line">Sətri əlavə et</button>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:14px">
+        <button class="btn pri" id="sm-submit">${editing ? 'Düzəlişi yadda saxla' : 'Sənədi yadda saxla'}</button>
+        <span class="hint" id="sm-err"></span>
+      </div>
+    </div></div>`;
+
+  if (editing && $('#sm-edit-cancel')) $('#sm-edit-cancel').onclick = e => { e.preventDefault(); SM.editDocId = null; SM.lines = []; smRenderForm(out); };
+
+  smRenderLines();
+
+  let selCode = '';
+  const inp = $('#sm-item'), res = $('#sm-item-res');
+  const search = () => {
+    const q = inp.value.trim().toLowerCase();
+    if (q.length < 2) { res.style.display = 'none'; return; }
+    const hit = DB.items.filter(i => i.name.toLowerCase().indexOf(q) >= 0 || i.code.indexOf(q) >= 0).slice(0, 12);
+    res.innerHTML = hit.length ? hit.map(i => `<div data-c="${esc(i.code)}" style="padding:7px 9px;cursor:pointer;border-bottom:1px solid var(--line-2)"><b>${esc(i.name)}</b><div class="hint"><span class="code">${esc(i.code)}</span> · ${esc(i.unit)}</div></div>`).join('') : '<div style="padding:9px" class="hint">Tapılmadı</div>';
+    res.style.display = 'block';
+    $$('#sm-item-res [data-c]').forEach(d => d.onclick = () => {
+      selCode = d.dataset.c; const it = DB.itemBy.get(selCode);
+      inp.value = it ? it.name : selCode; res.style.display = 'none';
+      if (it && !$('#sm-price').value) $('#sm-price').value = it.price || '';
+    });
+  };
+  inp.oninput = debounce(search, 160);
+  inp.onblur = () => setTimeout(() => res.style.display = 'none', 150);
+
+  $('#sm-add-line').onclick = () => {
+    const qty = parseFloat($('#sm-qty').value);
+    const price = parseFloat($('#sm-price').value) || 0;
+    if (!selCode || !DB.itemBy.has(selCode)) { $('#sm-err').textContent = 'Mal seçilməyib'; return; }
+    if (!(qty > 0)) { $('#sm-err').textContent = 'Miqdar müsbət olmalıdır'; return; }
+    $('#sm-err').textContent = '';
+    SM.lines.push({ code: selCode, qty, price });
+    selCode = ''; inp.value = ''; $('#sm-qty').value = ''; $('#sm-price').value = '';
+    smRenderLines();
+  };
+
+  $('#sm-imp-file').onchange = e => {
+    const f = e.target.files[0]; if (!f) return;
+    const rd = new FileReader();
+    rd.onload = () => {
+      try {
+        if (typeof XLSX === 'undefined') { toast('Excel kitabxanası yüklənmədi', true); return; }
+        const wb = XLSX.read(rd.result, { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
+        smImportLines(rows);
+      } catch (err) { console.error(err); toast('Fayl oxunmadı: ' + (err.message || ''), true); }
+    };
+    rd.readAsArrayBuffer(f);
+    e.target.value = '';
+  };
+
+  $('#sm-submit').onclick = smSubmitDocument;
+
+  if ($('#sm-doc-imp-file')) $('#sm-doc-imp-file').onchange = smImportDocsFile;
+}
+
+/* Excel sətir idxalı — YALNIZ kod, miqdar, qiymət oxunur. Başlıq sətri varsa
+   sütunlar ad üzrə tapılır (kod/code, miqdar/qty, qiymət/price); yoxdursa
+   sıra ilə (1-ci=kod, 2-ci=miqdar, 3-cü=qiymət) qəbul edilir. Uyğunsuz sətir
+   (mal tapılmadı / miqdar yanlış) YOX edilir və sayılır — sükutla udulmur. */
+function smImportLines(rows2d) {
+  if (!rows2d || !rows2d.length) { toast('Fayl boşdur', true); return; }
+  let start = 0;
+  const head = (rows2d[0] || []).map(x => String(x).toLowerCase());
+  const hasHeader = head.some(h => /kod|code|miqdar|qty|qiymət|price/.test(h));
+  let ci = 0, qi = 1, pi = 2;
+  if (hasHeader) {
+    start = 1;
+    const fc = head.findIndex(h => /kod|code/.test(h)); if (fc >= 0) ci = fc;
+    const fq = head.findIndex(h => /miqdar|qty/.test(h)); if (fq >= 0) qi = fq;
+    const fp = head.findIndex(h => /qiymət|price/.test(h)); if (fp >= 0) pi = fp;
+  }
+  let added = 0, bad = [];
+  for (let r = start; r < rows2d.length; r++) {
+    const row = rows2d[r]; if (!row || !row.length) continue;
+    const code = String(row[ci] == null ? '' : row[ci]).trim();
+    if (!code) continue;
+    const qty = parseFloat(String(row[qi]).replace(',', '.'));
+    const price = parseFloat(String(row[pi]).replace(',', '.')) || 0;
+    if (!DB.itemBy.has(code)) { bad.push(code + ' (mal tapılmadı)'); continue; }
+    if (!(qty > 0)) { bad.push(code + ' (miqdar yanlış)'); continue; }
+    SM.lines.push({ code, qty, price });
+    added++;
+  }
+  smRenderLines();
+  toast(added + ' sətir əlavə olundu' + (bad.length ? ', ' + bad.length + ' sətir rədd edildi (konsola bax)' : ''), !!bad.length && !added);
+  if (bad.length) console.warn('smImportLines rədd edilənlər:', bad);
+}
+
+/* ---------- Excel-dən TAM sənəd(lər) idxalı (bir neçə sənəd birdən) ----------
+   Sətir-səviyyəli "sm-imp-file" (yalnız kod/miqdar/qiymət, açıq sənəd üçün)
+   İLƏ QARIŞDIRILMIR — bu, tamamilə yeni sənəd(lər) yaradır. Eyni şapka
+   dəyərlərinə (layihə/kontragent/avtomobil/kanal/tarix/qeyd) malik sətirlər
+   BİR sənəd kimi qruplaşdırılır. Heç nə sükutla yazılmır: əvvəlcə yoxlama
+   pəncərəsi göstərilir, yalnız təsdiqdən sonra create_serfiyyat_document
+   hər qrup üçün ayrı-ayrı çağırılır (hər sənəd öz tranzaksiyasında atomikdir). */
+function smFindProjectByName(name, allowed) {
+  const q = String(name || '').trim().toLowerCase();
+  return allowed.find(p => p.name.toLowerCase() === q);
+}
+function smFindItemByNameOrCode(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return null;
+  if (DB.itemBy.has(raw)) return DB.itemBy.get(raw);
+  const q = raw.toLowerCase();
+  return DB.items.find(i => i.name.toLowerCase() === q) || null;
+}
+function smParseDocsImport(rows2d) {
+  const allowed = smAllowedProjects(true); // admin: hamısı; anbardar: yalnız öz layihəsi
+  const head = (rows2d[0] || []).map(x => String(x).toLowerCase());
+  const hasHeader = head.some(h => /layih|material|mal|miqdar|qty|qiym|price|tarix|date/.test(h));
+  let ci = { proj: 0, item: 1, qty: 2, price: 3, date: 4, note: 5, kontragent: -1, avto: -1, kanal: -1 };
+  let start = 0;
+  if (hasHeader) {
+    start = 1;
+    const f = (re, def) => { const i = head.findIndex(h => re.test(h)); return i >= 0 ? i : def; };
+    ci = {
+      proj: f(/layih/, 0), item: f(/material|mal/, 1), qty: f(/miqdar|qty/, 2), price: f(/qiym|price/, 3),
+      date: f(/tarix|date/, 4), note: f(/qeyd|note/, 5),
+      kontragent: f(/kontragent/, -1), avto: f(/avtomobil|nömrə|nomre/, -1), kanal: f(/kanal/, -1)
+    };
+  }
+  const groups = new Map(), errors = [];
+  for (let r = start; r < rows2d.length; r++) {
+    const row = rows2d[r];
+    if (!row || !row.length || row.every(c => String(c).trim() === '')) continue;
+    const rn = r + 1;
+    const proj = smFindProjectByName(row[ci.proj], allowed);
+    if (!proj) { errors.push('Sətir ' + rn + ': layihə tapılmadı və ya icazəniz yoxdur: "' + row[ci.proj] + '"'); continue; }
+    const it = smFindItemByNameOrCode(row[ci.item]);
+    if (!it) { errors.push('Sətir ' + rn + ': mal tapılmadı: "' + row[ci.item] + '"'); continue; }
+    const qty = parseFloat(String(row[ci.qty]).replace(',', '.'));
+    if (!(qty > 0)) { errors.push('Sətir ' + rn + ': miqdar yanlış: "' + row[ci.qty] + '"'); continue; }
+    const price = parseFloat(String(row[ci.price]).replace(',', '.')) || 0;
+    const rawDate = ci.date >= 0 ? String(row[ci.date] || '') : '';
+    const date = /^\d{4}-\d{2}-\d{2}/.test(rawDate) ? rawDate.slice(0, 10) : today();
+    const note = ci.note >= 0 ? String(row[ci.note] || '').trim() : '';
+    const kontragent = ci.kontragent >= 0 ? String(row[ci.kontragent] || '').trim() : '';
+    const avto = ci.avto >= 0 ? String(row[ci.avto] || '').trim() : '';
+    const kanal = ci.kanal >= 0 ? String(row[ci.kanal] || '').trim() : '';
+    const key = [proj.id, kontragent.toLowerCase(), avto.toLowerCase(), kanal.toLowerCase(), date, note.toLowerCase()].join('|');
+    if (!groups.has(key)) groups.set(key, { projectId: proj.id, projectName: proj.name, kontragent, avto, kanal, date, note, lines: [] });
+    groups.get(key).lines.push({ code: it.code, name: it.name, qty, price });
+  }
+  return { groups: Array.from(groups.values()), errors };
+}
+
+function smImportDocsFile(e) {
+  const f = e.target.files[0]; if (!f) return;
+  const rd = new FileReader();
+  rd.onload = () => {
+    try {
+      if (typeof XLSX === 'undefined') { toast('Excel kitabxanası yüklənmədi', true); return; }
+      const wb = XLSX.read(rd.result, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
+      smPreviewDocsImport(rows);
+    } catch (err) { console.error(err); toast('Fayl oxunmadı: ' + (err.message || ''), true); }
+  };
+  rd.readAsArrayBuffer(f);
+  e.target.value = '';
+}
+
+function smPreviewDocsImport(rows2d) {
+  const { groups, errors } = smParseDocsImport(rows2d);
+  SM.importGroups = groups;
+  const totalLines = groups.reduce((s, g) => s + g.lines.length, 0);
+  const body = `
+    <p class="hint">${nf(groups.length)} sənəd yaradılacaq, ${nf(totalLines)} sətir.${errors.length ? ' ' + nf(errors.length) + ' sətir rədd edildi (aşağıda).' : ''}</p>
+    ${groups.length ? `<div style="max-height:320px;overflow:auto"><table class="tbl"><thead><tr>
+      <th>Layihə</th><th>Tarix</th><th>Kontragent</th><th>Avtomobil</th><th>Kanal</th><th>Sətir</th><th>Cəm</th></tr></thead><tbody>
+      ${groups.map(g => `<tr><td>${esc(g.projectName)}</td><td>${fmtD(g.date)}</td><td>${esc(g.kontragent)}</td><td>${esc(g.avto)}</td><td>${esc(g.kanal)}</td><td>${nf(g.lines.length)}</td><td>${money(g.lines.reduce((s, l) => s + l.qty * l.price, 0))}</td></tr>`).join('')}
+      </tbody></table></div>` : ''}
+    ${errors.length ? `<p class="hint" style="color:var(--alarm);margin-top:8px;white-space:pre-line">${errors.map(x => esc(x)).join('\n')}</p>` : ''}`;
+  modal('Excel-dən sənəd idxalı — yoxlama', body,
+    `<button class="btn" data-close>İmtina</button><div style="flex:1"></div>
+     <button class="btn pri" id="sm-import-go" ${groups.length ? '' : 'disabled'}>Təsdiqlə və yarat (${nf(groups.length)} sənəd)</button>`);
+  if ($('#sm-import-go')) $('#sm-import-go').onclick = smConfirmDocsImport;
+}
+
+async function smConfirmDocsImport() {
+  const groups = SM.importGroups || [];
+  let ok = 0; const fail = [];
+  for (const g of groups) {
+    const { error } = await SB.rpc('create_serfiyyat_document', {
+      p_project_id: g.projectId, p_doc_date: g.date,
+      p_kontragent: g.kontragent || null, p_avtomobil_nomresi: g.avto || null,
+      p_alinma_kanali: g.kanal || null, p_note: g.note || null,
+      p_lines: g.lines.map(l => ({ code: l.code, qty: l.qty, price: l.price }))
+    });
+    if (error) fail.push(g.projectName + ' (' + g.date + '): ' + error.message); else ok++;
+  }
+  closeModal();
+  SM.importGroups = [];
+  await smLoad();
+  rSm();
+  toast(nf(ok) + ' sənəd yaradıldı' + (fail.length ? ', ' + nf(fail.length) + ' xəta ilə (konsola bax)' : ''), !!fail.length);
+  if (fail.length) console.warn('smConfirmDocsImport xətalar:', fail);
+}
+
+function smRenderLines() {
+  const el = $('#sm-lines-tbl'); if (!el) return;
+  if (!SM.lines.length) { el.innerHTML = '<div class="hint">Hələ sətir əlavə edilməyib.</div>'; return; }
+  el.innerHTML = `<table class="tbl"><thead><tr><th>Mal</th><th>Kod</th><th>Ölçü</th><th>Miqdar</th><th>Qiymət</th><th>Cəm</th><th></th></tr></thead><tbody>
+    ${SM.lines.map((l, i) => { const it = DB.itemBy.get(l.code); return `<tr>
+      <td>${esc(it ? it.name : l.code)}</td><td class="code">${esc(l.code)}</td><td>${esc(it ? it.unit : '')}</td>
+      <td>${nf(l.qty, 2)}</td><td>${nf(l.price, 2)}</td><td>${money(l.qty * l.price)}</td>
+      <td><a href="#" data-i="${i}" class="sm-del">✕</a></td></tr>`; }).join('')}
+  </tbody><tfoot><tr><td colspan="5" style="text-align:right"><b>Cəmi</b></td><td colspan="2"><b>${money(SM.lines.reduce((s, l) => s + l.qty * l.price, 0))}</b></td></tr></tfoot></table>`;
+  $$('.sm-del').forEach(a => a.onclick = e => { e.preventDefault(); SM.lines.splice(+a.dataset.i, 1); smRenderLines(); });
+}
+
+async function smSubmitDocument() {
+  const projId = $('#sm-proj').value;
+  const date = $('#sm-date').value;
+  if (!projId) { $('#sm-err').textContent = 'Layihə seçilməyib'; return; }
+  if (!date) { $('#sm-err').textContent = 'Tarix seçilməyib'; return; }
+  if (!SM.lines.length) { $('#sm-err').textContent = 'Ən azı bir material sətri lazımdır'; return; }
+  $('#sm-err').textContent = '';
+  const args = {
+    p_project_id: projId, p_doc_date: date,
+    p_kontragent: $('#sm-kontragent').value || null,
+    p_avtomobil_nomresi: $('#sm-avto').value || null,
+    p_alinma_kanali: $('#sm-kanal').value || null,
+    p_note: $('#sm-note').value || null,
+    p_lines: SM.lines.map(l => ({ code: l.code, qty: l.qty, price: l.price }))
+  };
+  const editing = !!SM.editDocId;
+  const { data, error } = editing
+    ? await SB.rpc('edit_serfiyyat_document', Object.assign({ p_doc_id: SM.editDocId }, args))
+    : await SB.rpc('create_serfiyyat_document', args);
+  if (error) { toast('Xəta: ' + error.message, true); return; }
+  toast((editing ? 'Sənəd düzəldildi: ' : 'Sənəd yaradıldı: ') + (data && data.doc_num ? data.doc_num : ''));
+  SM.lines = []; SM.editDocId = null;
+  // Hesabat DB.smDocs/DB.smLines-dən oxuyur — yenidən yükləmə ilə dəyişiklik
+  // dərhal həm cari ekranda, həm sonrakı Hesabat açılışında əks olunur.
+  await smLoad();
+  rSm();
+}
+
+/* Admin: provedilmiş sənədi düzəliş üçün açır — şapka + mövcud sətirlər formaya yüklənir. */
+function smOpenEditDocument(docId) {
+  const doc = smDocById(docId); if (!doc) return;
+  SM.editDocId = docId;
+  SM.lines = DB.smLines.filter(l => l.docId === docId).map(l => ({ code: l.code, qty: l.qty, price: l.price }));
+  $('#sm-seg').dataset.tab = 'doc';
+  $$('#sm-seg button').forEach(x => x.classList.toggle('on', x.dataset.tab === 'doc'));
+  rSm();
+}
+
+async function smDeleteDocument(docId) {
+  const doc = smDocById(docId); if (!doc) return;
+  if (!confirm('Sənəd silinsin? ' + doc.num + ' — bu geri qaytarılmır (audit jurnalında iz qalır).')) return;
+  const { error } = await SB.rpc('delete_serfiyyat_document', { p_doc_id: docId });
+  if (error) { toast('Xəta: ' + error.message, true); return; }
+  toast('Sənəd silindi: ' + doc.num);
+  if (SM.editDocId === docId) { SM.editDocId = null; SM.lines = []; }
+  await smLoad();
+  rSm();
+}
+
+/* ---------- Hesabat: jurnal + filtrlər + sıravi + Excel ixracı ---------- */
+function smReportRows() {
+  const allowedIds = new Set(smAllowedProjects(false).map(p => p.id));
+  return DB.smLines.map(l => {
+    const doc = smDocById(l.docId); if (!doc) return null;
+    if (!allowedIds.has(doc.projectId)) return null;
+    const proj = smProjById(doc.projectId);
+    const it = DB.itemBy.get(l.code);
+    return {
+      d: doc.d, proj: proj ? proj.name : '', item: it ? it.name : l.code, code: l.code,
+      unit: it ? it.unit : '', qty: l.qty, price: l.price, sum: l.sum,
+      kontragent: doc.kontragent, avto: doc.avto, kanal: doc.kanal, note: doc.note,
+      by: UMAIL.get(doc.by) || doc.by, docNum: doc.num
+    };
+  }).filter(Boolean);
+}
+
+function smRenderReport(out) {
+  const F = SM.filters;
+  const projects = smAllowedProjects(false);
+  out.innerHTML = `
+    <div class="card"><div class="pad">
+      <div class="row" style="grid-template-columns:repeat(5,1fr)">
+        <label class="f"><span>Tarix (dan)</span><input type="date" id="sm-f-d1" value="${F.d1 || ''}"></label>
+        <label class="f"><span>Tarix (kimi)</span><input type="date" id="sm-f-d2" value="${F.d2 || ''}"></label>
+        <label class="f"><span>Layihə</span><select id="sm-f-proj"><option value="">Hamısı</option>${projects.map(p => `<option ${F.proj === p.name ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>
+        <label class="f"><span>Material</span><input type="text" id="sm-f-item" value="${esc(F.item || '')}" placeholder="ad axtar"></label>
+        <label class="f"><span>Kontragent</span><input type="text" id="sm-f-kontragent" value="${esc(F.kontragent || '')}"></label>
+      </div>
+      <div class="row" style="grid-template-columns:repeat(5,1fr)">
+        <label class="f"><span>Avtomobil nömrəsi</span><input type="text" id="sm-f-avto" value="${esc(F.avto || '')}"></label>
+        <label class="f"><span>Alınma kanalı</span><select id="sm-f-kanal"><option value="">Hamısı</option>${smActiveChannelNames().map(k => `<option ${F.kanal === k ? 'selected' : ''}>${esc(k)}</option>`).join('')}</select></label>
+        <label class="f"><span>Qeyd axtar</span><input type="text" id="sm-f-note" value="${esc(F.note || '')}"></label>
+        <label class="f"><span>Kim daxil edib</span><input type="text" id="sm-f-by" value="${esc(F.by || '')}"></label>
+        <label class="f"><span>Miqdar (min—max)</span><div style="display:flex;gap:6px"><input type="number" id="sm-f-q1" value="${F.q1 || ''}" placeholder="min"><input type="number" id="sm-f-q2" value="${F.q2 || ''}" placeholder="max"></div></label>
+      </div>
+      <div class="row" style="grid-template-columns:1fr 1fr">
+        <label class="f"><span>Qiymət (min—max)</span><div style="display:flex;gap:6px"><input type="number" id="sm-f-p1" value="${F.p1 || ''}" placeholder="min"><input type="number" id="sm-f-p2" value="${F.p2 || ''}" placeholder="max"></div></label>
+        <label class="f"><span>Cəm (min—max)</span><div style="display:flex;gap:6px"><input type="number" id="sm-f-s1" value="${F.s1 || ''}" placeholder="min"><input type="number" id="sm-f-s2" value="${F.s2 || ''}" placeholder="max"></div></label>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button class="btn" id="sm-f-apply">Filtrləri tətbiq et</button>
+        <button class="btn" id="sm-f-clear">Təmizlə</button>
+        <div class="sp"></div>
+        <button class="btn" id="sm-exp">⬇ Excel-ə ixrac et</button>
+      </div>
+    </div></div>
+    ${isAdmin() ? `<div class="card" style="margin-top:12px"><header><h3>Sənədlər</h3><p class="hint" style="margin:0">Provedildikdən sonra düzəliş/silinmə yalnız Admin üçündür.</p></header><div class="tw" id="sm-docs-tbl"></div></div>` : ''}
+    <div class="card" style="margin-top:12px"><div class="tw" id="sm-rep-tbl"></div></div>
+    <div class="card" style="margin-top:12px"><header><h3>Yekun</h3></header><div class="pad" id="sm-rep-sum"></div></div>`;
+
+  if (isAdmin()) smRenderDocsTable();
+
+  $('#sm-f-apply').onclick = () => {
+    SM.filters = {
+      d1: $('#sm-f-d1').value, d2: $('#sm-f-d2').value, proj: $('#sm-f-proj').value,
+      item: $('#sm-f-item').value.trim().toLowerCase(), kontragent: $('#sm-f-kontragent').value.trim().toLowerCase(),
+      avto: $('#sm-f-avto').value.trim().toLowerCase(), kanal: $('#sm-f-kanal').value,
+      note: $('#sm-f-note').value.trim().toLowerCase(), by: $('#sm-f-by').value.trim().toLowerCase(),
+      q1: $('#sm-f-q1').value, q2: $('#sm-f-q2').value,
+      p1: $('#sm-f-p1').value, p2: $('#sm-f-p2').value,
+      s1: $('#sm-f-s1').value, s2: $('#sm-f-s2').value
+    };
+    smRenderReportTable();
+  };
+  $('#sm-f-clear').onclick = () => { SM.filters = {}; smRenderReport(out); };
+  $('#sm-exp').onclick = smExportExcel;
+  smRenderReportTable();
+}
+
+// Admin-only: sənəd-səviyyəli siyahı (Düzəliş/Sil). Layihə skoupu report ilə
+// eyni smAllowedProjects(false)-dan gəlir — admin üçün bu onsuz da hamısıdır.
+function smRenderDocsTable() {
+  const el = $('#sm-docs-tbl'); if (!el) return;
+  const allowedIds = new Set(smAllowedProjects(false).map(p => p.id));
+  const docs = DB.smDocs.filter(d => allowedIds.has(d.projectId))
+    .slice().sort((a, b) => (b.d || '').localeCompare(a.d || ''));
+  if (!docs.length) { el.innerHTML = '<div class="pad hint">Sənəd yoxdur.</div>'; return; }
+  el.innerHTML = `<table class="tbl"><thead><tr><th>Sənəd №</th><th>Tarix</th><th>Layihə</th><th>Sətir sayı</th><th>Cəm</th><th></th></tr></thead><tbody>
+    ${docs.map(d => {
+      const lines = DB.smLines.filter(l => l.docId === d.id);
+      const sum = lines.reduce((s, l) => s + l.sum, 0);
+      const proj = smProjById(d.projectId);
+      return `<tr><td class="code">${esc(d.num)}</td><td>${fmtD(d.d)}</td><td>${esc(proj ? proj.name : '')}</td><td>${nf(lines.length)}</td><td>${money(sum)}</td>
+        <td><a href="#" data-e="${esc(d.id)}" class="sm-doc-edit">Düzəliş</a> · <a href="#" data-x="${esc(d.id)}" class="sm-doc-del">Sil</a></td></tr>`;
+    }).join('')}
+  </tbody></table>`;
+  $$('.sm-doc-edit').forEach(a => a.onclick = e => { e.preventDefault(); smOpenEditDocument(a.dataset.e); });
+  $$('.sm-doc-del').forEach(a => a.onclick = e => { e.preventDefault(); smDeleteDocument(a.dataset.x); });
+}
+
+function smFilteredRows() {
+  const F = SM.filters;
+  return smReportRows().filter(r => {
+    if (F.d1 && r.d < F.d1) return false;
+    if (F.d2 && r.d > F.d2) return false;
+    if (F.proj && r.proj !== F.proj) return false;
+    if (F.item && r.item.toLowerCase().indexOf(F.item) < 0) return false;
+    if (F.kontragent && (r.kontragent || '').toLowerCase().indexOf(F.kontragent) < 0) return false;
+    if (F.avto && (r.avto || '').toLowerCase().indexOf(F.avto) < 0) return false;
+    if (F.kanal && r.kanal !== F.kanal) return false;
+    if (F.note && (r.note || '').toLowerCase().indexOf(F.note) < 0) return false;
+    if (F.by && (r.by || '').toLowerCase().indexOf(F.by) < 0) return false;
+    if (F.q1 && r.qty < parseFloat(F.q1)) return false;
+    if (F.q2 && r.qty > parseFloat(F.q2)) return false;
+    if (F.p1 && r.price < parseFloat(F.p1)) return false;
+    if (F.p2 && r.price > parseFloat(F.p2)) return false;
+    if (F.s1 && r.sum < parseFloat(F.s1)) return false;
+    if (F.s2 && r.sum > parseFloat(F.s2)) return false;
+    return true;
+  });
+}
+
+function smRenderReportTable() {
+  const rows = smFilteredRows();
+  const tbl = $('#sm-rep-tbl');
+  tbl.innerHTML = `<table class="tbl"><thead><tr>
+    <th>Tarix</th><th>Sənəd №</th><th>Layihə</th><th>Material</th><th>Ölçü</th><th>Miqdar</th><th>Qiymət</th><th>Cəm</th>
+    <th>Kontragent</th><th>Avtomobil</th><th>Alınma kanalı</th><th>Qeyd</th><th>Daxil edən</th></tr></thead><tbody>
+    ${rows.map(r => `<tr><td>${fmtD(r.d)}</td><td class="code">${esc(r.docNum)}</td><td>${esc(r.proj)}</td><td>${esc(r.item)}</td><td>${esc(r.unit)}</td>
+      <td>${nf(r.qty, 2)}</td><td>${nf(r.price, 2)}</td><td>${money(r.sum)}</td><td>${esc(r.kontragent)}</td>
+      <td>${esc(r.avto)}</td><td>${esc(r.kanal)}</td><td>${esc(r.note)}</td><td>${esc(r.by)}</td></tr>`).join('')}
+  </tbody></table>${rows.length ? '' : '<div class="pad hint">Uyğun sətir tapılmadı.</div>'}`;
+
+  const byProj = new Map(), byItem = new Map();
+  rows.forEach(r => {
+    byProj.set(r.proj, (byProj.get(r.proj) || 0) + r.sum);
+    byItem.set(r.item, (byItem.get(r.item) || 0) + r.sum);
+  });
+  $('#sm-rep-sum').innerHTML = `<div class="row" style="grid-template-columns:1fr 1fr">
+    <div><b>Layihə üzrə</b><table class="tbl">${Array.from(byProj, ([k, v]) => `<tr><td>${esc(k)}</td><td>${money(v)}</td></tr>`).join('') || '<tr><td class="hint">—</td></tr>'}</table></div>
+    <div><b>Material üzrə</b><table class="tbl">${Array.from(byItem, ([k, v]) => `<tr><td>${esc(k)}</td><td>${money(v)}</td></tr>`).join('') || '<tr><td class="hint">—</td></tr>'}</table></div>
+  </div>`;
+}
+
+function smExportExcel() {
+  const rows = smFilteredRows();
+  const head = ['Tarix', 'Sənəd №', 'Layihə', 'Material', 'Kod', 'Ölçü', 'Miqdar', 'Qiymət', 'Cəm', 'Kontragent', 'Avtomobil', 'Alınma kanalı', 'Qeyd', 'Daxil edən'];
+  const aoa = [head].concat(rows.map(r => [r.d, r.docNum, r.proj, r.item, r.code, r.unit, r.qty, r.price, r.sum, r.kontragent, r.avto, r.kanal, r.note, r.by]));
+  const byProj = new Map(); rows.forEach(r => byProj.set(r.proj, (byProj.get(r.proj) || 0) + r.sum));
+  const sumAoa = [['Layihə', 'Cəm']].concat(Array.from(byProj, ([k, v]) => [k, v]));
+  if (typeof XLSX === 'undefined') { toast('Excel kitabxanası yüklənmədi', true); return; }
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), 'Jurnal');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sumAoa), 'Yekun');
+  XLSX.writeFile(wb, 'Serfiyyat_materiallari_' + today() + '.xlsx');
+  toast('Excel yükləndi (' + rows.length + ' sətir)');
+}
 
 /* ================= REPORTS ================= */
 let REP_ROWS = [], REP_NAME = 'hesabat';
