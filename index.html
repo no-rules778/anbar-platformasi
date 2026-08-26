@@ -5873,20 +5873,27 @@ function smRenderForm(out) {
       </div>
       <label class="f"><span>Qeyd</span><input type="text" id="sm-note" value="${esc(editDoc ? editDoc.note : '')}" placeholder="istəyə bağlı"></label>
 
-      <div style="display:flex;gap:8px;align-items:center;margin:10px 0 4px;flex-wrap:wrap">
-        <b>Material sətirləri</b><div class="sp"></div>
-        <input type="file" id="sm-imp-file" accept=".xlsx,.xls" style="width:auto">
-        <span class="hint">↑ Excel-dən əlavə et (kod · miqdar · qiymət, qalanı əl ilə)</span>
-      </div>
-      <div id="sm-lines-tbl"></div>
-      <div class="row" style="grid-template-columns:2fr 1fr 1fr auto;align-items:end;margin-top:8px">
-        <label class="f"><span>Mal (ad və ya kod)</span>
-          <div style="position:relative"><input type="text" id="sm-item" autocomplete="off">
-          <div id="sm-item-res" style="position:absolute;left:0;right:0;top:100%;background:#fff;border:1px solid var(--line);border-radius:0 0 4px 4px;max-height:220px;overflow:auto;z-index:20;display:none"></div></div>
-        </label>
-        <label class="f"><span>Miqdar</span><input type="number" id="sm-qty" step="0.01" min="0"></label>
-        <label class="f"><span>Qiymət</span><input type="number" id="sm-price" step="0.01" min="0"></label>
-        <button class="btn" id="sm-add-line">Sətri əlavə et</button>
+      <div class="row" style="grid-template-columns:1fr 1.15fr;gap:14px;margin-top:12px;align-items:start">
+        <div>
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;flex-wrap:wrap">
+            <b>Mal əlavə et</b><div class="sp"></div>
+            <input type="file" id="sm-imp-file" accept=".xlsx,.xls" style="width:auto">
+            <span class="hint">↑ Excel (kod · miqdar · qiymət)</span>
+          </div>
+          <label class="f"><span>Mal (ad və ya kod)</span>
+            <div style="position:relative"><input type="text" id="sm-item" autocomplete="off">
+            <div id="sm-item-res" style="position:absolute;left:0;right:0;top:100%;background:#fff;border:1px solid var(--line);border-radius:0 0 4px 4px;max-height:220px;overflow:auto;z-index:20;display:none"></div></div>
+          </label>
+          <div class="row" style="grid-template-columns:1fr 1fr">
+            <label class="f"><span>Miqdar</span><input type="number" id="sm-qty" step="0.01" min="0"></label>
+            <label class="f"><span>Qiymət</span><input type="number" id="sm-price" step="0.01" min="0"></label>
+          </div>
+          <button class="btn" id="sm-add-line" style="width:100%">Sətri əlavə et →</button>
+        </div>
+        <div>
+          <div style="margin-bottom:6px"><b>Sənədin sətirləri</b></div>
+          <div id="sm-lines-tbl" style="border:1px solid var(--line);border-radius:4px;padding:8px;min-height:120px"></div>
+        </div>
       </div>
       <div style="display:flex;gap:8px;align-items:center;margin-top:14px">
         <button class="btn pri" id="sm-submit">${editing ? 'Düzəlişi yadda saxla' : 'Sənədi yadda saxla'}</button>
@@ -6093,7 +6100,7 @@ async function smConfirmDocsImport() {
 
 function smRenderLines() {
   const el = $('#sm-lines-tbl'); if (!el) return;
-  if (!SM.lines.length) { el.innerHTML = '<div class="hint">Hələ sətir əlavə edilməyib.</div>'; return; }
+  if (!SM.lines.length) { el.innerHTML = '<div class="hint" style="padding:24px 8px;text-align:center">Hələ sətir əlavə edilməyib.<br>Soldan mal seçib «Sətri əlavə et» düyməsinə basın və ya Excel-dən idxal edin.</div>'; return; }
   el.innerHTML = `<table class="tbl"><thead><tr><th>Mal</th><th>Kod</th><th>Ölçü</th><th>Miqdar</th><th>Qiymət</th><th>Cəm</th><th></th></tr></thead><tbody>
     ${SM.lines.map((l, i) => { const it = DB.itemBy.get(l.code); return `<tr>
       <td>${esc(it ? it.name : l.code)}</td><td class="code">${esc(l.code)}</td><td>${esc(it ? it.unit : '')}</td>
