@@ -4674,7 +4674,8 @@ function documentCancelView(m) {
     const done = rowReplacedOrCancelled(r);
     const act = !canReplaceRows ? ''
       : done ? '<span class="tag t-rm">ləğv edilib</span>'
-      : `<button class="btn sm" data-repl="${esc(r.id)}">Malı əvəz et</button>`;
+      : `<button class="btn sm" data-repl="${esc(r.id)}">Malı əvəz et</button>
+         <button class="btn sm dgr" data-rowcancel="${esc(r.id)}">Sətri ləğv et</button>`;
     return { c: [esc(fmtD(r.d)), `<div class="nm">${esc(ri.name || r.c)}</div><span class="code">${esc(r.c)}</span>`,
       esc(dir), nf((r.i || r.o) || 0, 2) + ' ' + esc(ri.unit || ''), act] };
   });
@@ -4702,6 +4703,10 @@ function documentCancelView(m) {
     const row = DB.movs.find(x => String(x.id) === b.dataset.repl);
     if (row) replaceItemDialog(row);
   });
+  $$('[data-rowcancel]').forEach(b => b.onclick = () => {
+    const row = DB.movs.find(x => String(x.id) === b.dataset.rowcancel);
+    if (row) cancelRowDialog(row);
+  });
   if ($('#dc-edit')) $('#dc-edit').onclick = () => editPostedDocument(doc);
   if ($('#dc-go')) $('#dc-go').onclick = () => {
     if (!doc) return;
@@ -4723,6 +4728,43 @@ function documentCancelView(m) {
     })();
   };
 }
+/* Sənədin İÇİNDƏ tək sətri ləğv edir — mal əvəzi yaratmadan (sql/034).
+   Sənədin digər sətirləri və doc_num toxunulmaz qalır. Yerdəyişmə dəstəklənmir. */
+function cancelRowDialog(m) {
+  if (!isAdmin()) return toast('Sətri yalnız Rəhbər (Admin) ləğv edə bilər', true);
+  if (m.t === 'Yerdəyişmə') return toast('Yerdəyişmə sətri bu yolla ləğv edilmir — sənədi bütövlükdə ləğv edin', true);
+  if (rowReplacedOrCancelled(m)) return toast('Bu sətir artıq ləğv edilib və ya əvəzlənib', true);
+  const it = DB.itemBy.get(m.c) || {};
+  const dir = (m.i || 0) > 0 ? 'Mədaxil' : 'Məxaric';
+  modal('Sətri ləğv et', `
+    <div class="hint" style="margin-bottom:10px">
+      ${esc(fmtD(m.d))} · ${esc(m.w)} · ${esc(dir)} ${nf((m.i || m.o) || 0, 2)} ${esc(it.unit || '')}
+      · ${esc(it.name || m.c)} · sənəd: <span class="code">${esc(m.doc || '—')}</span></div>
+    <div class="hint" style="padding:9px;background:var(--out-l);border-radius:4px;margin-bottom:10px">
+      Yalnız bu sətir əks-yazı ilə ləğv olunur — sənədin digər sətirləri və sənəd nömrəsi dəyişmir.</div>
+    <label class="f"><span>Ləğvin səbəbi (audit üçün məcburi)</span>
+      <input type="text" id="rc-why" placeholder="məs. sətir səhvən ikiqat daxil edilib"></label>`,
+    `<div style="flex:1"></div><button class="btn" data-close>İmtina</button>
+     <button class="btn dgr" id="rc-go" disabled>Sətri ləğv et</button>`);
+  $('#rc-why').oninput = () => { $('#rc-go').disabled = !$('#rc-why').value.trim(); };
+  $('#rc-go').onclick = async () => {
+    const why = $('#rc-why').value.trim();
+    if (!why) return;
+    $('#rc-go').disabled = true;
+    try {
+      const { data, error } = await SB.rpc('cancel_movement_row', { p_movement_id: m.id, p_reason: why });
+      if (error) throw error;
+      closeModal();
+      await loadFromDB(); if (typeof loadAuditTotal === 'function') loadAuditTotal();
+      renderAll();
+      toast('Sətir ləğv edildi · sənəd: ' + (data && data.doc_num ? data.doc_num : '—'));
+    } catch (err) {
+      $('#rc-go').disabled = false;
+      toast('Ləğv edilmədi: ' + (err.message || 'server xətası'), true);
+    }
+  };
+}
+
 /* ---------- Qeyd edilmiş sənədin düzəlişi (sql/030) ----------
    Axın: təsir yoxlaması (server, yalnız oxu) → sətirlər formaya qaralama kimi
    yüklənir → Admin düzəldir → «Düzəlişi qeyd et» TƏK RPC ilə ləğv + yeni sənəd.
