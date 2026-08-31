@@ -3707,7 +3707,11 @@ function saveDraftLineLayers(){
   const x=draftLayerCalc(),err=$('#dl-err');if(Math.abs(x.qty-DLP.line.q)>0.00005){if(err)err.textContent='Partiya miqdarlarının cəmi çıxış miqdarına bərabər olmalıdır.';return;}
   let finalAmount='',reason='';if(isAdmin()&&DLP.line.kind==='out'){finalAmount=$('#dl-final').value.trim();reason=$('#dl-reason').value.trim();if(finalAmount&&!/^\d{1,16}(?:\.\d{1,2})?$/.test(finalAmount)){if(err)err.textContent='Yekun məbləğ düzgün deyil.';return;}if(finalAmount!==''&&!reason){if(err)err.textContent='Məbləğ dəyişikliyinin səbəbi tələb olunur.';return;}}
   const line=DLP.line;line.layerRevision=DLP.revision;line.allocations=x.allocations;line.sourceAmount=x.sourceAmount;line.knownAmount=x.knownAmount;line.unknownQty=x.unknownQty;line.finalAmount=finalAmount;line.overrideReason=reason;
-  const shown=finalAmount!==''?+finalAmount:x.sourceAmount;line.pr=shown==null?0:+(shown/line.q).toFixed(4);closeModal();commitDraftLine(line);
+  const shown=finalAmount!==''?+finalAmount:x.sourceAmount;line.pr=shown==null?0:+(shown/line.q).toFixed(4);
+  /* Ortalama vahid qiyməti göstərmirik — mənbə partiyaların fərqli qiymətləri
+     ola bilər. Qiymət(lər) sütununda mənbədəki fərqli qiymətlər ayrıca sadalanır. */
+  line.priceVariants=Array.from(new Set(x.allocations.map(a=>{const l=DLP.rows.find(r=>r.id===a.layer_id);return l&&l.price_status!=='unknown'?+(+l.unit_price).toFixed(2):null;}).filter(v=>v!=null))).sort((a,b)=>a-b);
+  closeModal();commitDraftLine(line);
 }
 function renderLines() {
   const L = OP.lines;
@@ -3737,7 +3741,11 @@ function renderLines() {
       c: [`<div class="nm">${esc(l.name)}</div><span class="code">${esc(l.c)}</span>`,
       `${TYPE_TAG(l.t)}<div class="hint">${esc(l.kind === 'mv' ? l.w + ' → ' + l.w2 : (l.kind === 'in' ? l.p + ' → ' + l.w : l.w + ' → ' + l.p))}</div>`,
       nf(l.q, 2) + ' ' + esc(l.unit),
-      l.pr ? nf(l.pr, 2) + ' ₼' : '<span class="muted">—</span>',
+      Array.isArray(l.allocations)
+        ? (l.priceVariants && l.priceVariants.length
+            ? l.priceVariants.map(p => nf(p, 2)).join(' / ') + ' ₼'
+            : '<span class="muted">—</span>')
+        : (l.pr ? nf(l.pr, 2) + ' ₼' : '<span class="muted">—</span>'),
       lineAmount(l)==null ? '—' : money(lineAmount(l)),
       `<button class="btn sm" onclick="editLine(${i})">Redaktə et</button> <button class="btn sm dgr" onclick="removeOpLine(${i})">Sil</button>`]
     })), { empty: 'Sətir əlavə edin — sənəd bir neçə maldan ibarət ola bilər.' });
