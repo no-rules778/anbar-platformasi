@@ -829,6 +829,9 @@ const DB = {
      MƏLUMAT XARAKTERLİDİR: qalıq hesabına, hərəkət registrinə və maliyyə
      hesabatlarına HEÇ VAXT daxil olmur. Qalıq = mədaxil − məxaric dəyişmir. */
   conds: new Map(), condsReady: false,
+  /* SQL 036 — partiya qalığı və Silinmə dəyərinin dəyişməz snapshot-u. */
+  layerReady: false, layerActive: false, layerVersion: 0,
+  woVals: new Map(), woAllocs: [],
   users: {}, dirty: true
 };
 /* Audit jurnalı üçün istifadəçi id → e-poçt xəritəsi (yalnız təsdiqlənmiş users sütunları: id, email).
@@ -940,6 +943,41 @@ async function loadFromDB() {
     note: r.note || '', doc: r.doc_num || '', by: r.created_by || 'sistem',
     ts: new Date(r.created_at).getTime(), seed: true
   }));
+  /* SQL 036 capability ayrıca yoxlanılır. Funksiya yoxdursa köhnə server
+     davranışı qalır; aktivdirsə bütün çıxışlar yalnız partiya-aware RPC ilə
+     yazılmalıdır. Dəyər snapshot-ları ekran/ixrac üçün ayrıca oxunur. */
+  DB.layerReady = false; DB.layerActive = false; DB.layerVersion = 0;
+  DB.woVals = new Map(); DB.woAllocs = [];
+  try {
+    const cap = await SB.rpc('stock_layers_supported');
+    if (!cap.error && cap.data) {
+      DB.layerReady = true;
+      DB.layerActive = cap.data.active === true;
+      DB.layerVersion = +(cap.data.version || 0);
+      if (DB.layerActive) {
+        const [vals, allocs] = await Promise.all([
+          fetchAll('writeoff_valuations', ['created_at']),
+          fetchAll('stock_layer_allocations', ['created_at'])
+        ]);
+        (vals || []).forEach(v => DB.woVals.set(v.movement_id, {
+          source: v.source_amount == null ? null : +v.source_amount,
+          known: +(v.known_amount || 0), unknownQty: +(v.unknown_qty || 0),
+          final: v.final_amount == null ? null : +v.final_amount,
+          method: v.valuation_method || 'unknown', reason: v.override_reason || '',
+          reversedAt: v.reversed_at || ''
+        }));
+        DB.woAllocs = (allocs || []).map(a => ({
+          movementId: a.writeoff_movement_id, layerId: a.layer_id,
+          qty: +(a.qty || 0), sourceMovementId: a.source_movement_id || '',
+          doc: a.source_doc_num_snapshot || '', invoice: a.source_invoice_snapshot || '',
+          date: a.source_date_snapshot || '', status: a.price_status_snapshot || 'unknown',
+          price: a.unit_price_snapshot == null ? null : +a.unit_price_snapshot,
+          amount: a.source_amount_snapshot == null ? null : +a.source_amount_snapshot,
+          reversedAt: a.reversed_at || ''
+        }));
+      }
+    }
+  } catch (e) { /* SQL 036 hələ tətbiq edilməyib — köhnə axın işləyir */ }
   let uname = new Map();
   try {
     // users table SELECT is RLS-restricted to own row for non-admins; the
@@ -1658,13 +1696,25 @@ function cutNote(rows, key, rerender) {
    çıxarılıb — burada ləğv məntiqinə toxunulmur.
    Qiymət yalnız hərəkətin öz qiymətidir (m.pr); nomenklatura qiyməti
    əvəzedici kimi İSTİFADƏ EDİLMİR — boş xana boş qalmalıdır. */
-const SILINME_EXPORT_HEADER = ['Sənəd №', 'Tarix', 'Anbar', 'Kod', 'Malın adı', 'Ölçü vahidi', 'Silinən miqdar', 'Vahid qiyməti', 'Məbləğ', 'Qaimə №', 'Qeyd', 'Qeyd edən'];
+const SILINME_EXPORT_HEADER = ['Sənəd №', 'Tarix', 'Anbar', 'Kod', 'Malın adı', 'Ölçü vahidi', 'Silinən miqdar', 'Yekun vahid qiyməti', 'Yekun məbləğ', 'Mənbə məbləği', 'Məlum qiymətli hissə', 'Qiymətsiz miqdar', 'Qiymətləndirmə üsulu', 'Admin dəyişiklik səbəbi', 'Qaimə №', 'Qeyd', 'Qeyd edən'];
+const SILINME_SOURCE_HEADER = ['Silmə hərəkəti ID', 'Sənəd №', 'Kod', 'Mənbə hərəkəti ID', 'Mənbə sənəd №', 'Mənbə Qaimə №', 'Mənbə tarixi', 'Miqdar', 'Qiymət statusu', 'Mənbə vahid qiyməti', 'Mənbə məbləği'];
+function movementValuation(m) {
+  const v = m && DB.woVals ? DB.woVals.get(m.id) : null;
+  if (v) return v;
+  const qty = +(m && m.o || 0), pr = +(m && m.pr || 0);
+  return { source: pr > 0 ? +(qty * pr).toFixed(2) : null,
+    known: pr > 0 ? +(qty * pr).toFixed(2) : 0, unknownQty: pr > 0 ? 0 : qty,
+    final: pr > 0 ? +(qty * pr).toFixed(2) : null, method: 'legacy', reason: '' };
+}
 function writeOffExportRows(movs, itemBy) {
   return (movs || []).filter(m => m && m.t === 'Silinmə').map(m => {
     const it = (itemBy && itemBy.get ? itemBy.get(m.c) : null) || {};
     const qty = +(m.o || 0);
-    const pr = (m.pr != null && +m.pr > 0) ? +m.pr : null;
+    const val = movementValuation(m);
+    const pr = val.final != null && qty > 0 ? +(val.final / qty).toFixed(4)
+      : ((m.pr != null && +m.pr > 0) ? +m.pr : null);
     return {
+      movementId: String(m.id == null ? '' : m.id),
       doc: String(m.doc == null ? '' : m.doc),
       date: String(m.d == null ? '' : m.d),
       wh: String(m.w == null ? '' : m.w),
@@ -1673,7 +1723,9 @@ function writeOffExportRows(movs, itemBy) {
       unit: String(it.unit == null ? '' : it.unit),
       qty,
       price: pr,
-      amount: pr == null ? null : +(qty * pr).toFixed(2),
+      amount: val.final,
+      sourceAmount: val.source, knownAmount: val.known, unknownQty: val.unknownQty,
+      valuation: val.method, overrideReason: val.reason,
       invoice: String(m.iv == null ? '' : m.iv),
       note: String(m.note == null ? '' : m.note),
       by: String(m.by == null ? '' : m.by)
@@ -1701,15 +1753,35 @@ function xlsWriteOff(rows) {
     N(r, 6, row.qty);
     if (row.price != null) N(r, 7, row.price);
     if (row.amount != null) N(r, 8, row.amount);
-    if (row.invoice) T(r, 9, row.invoice);
-    if (row.note) S(r, 10, row.note);
-    S(r, 11, row.by);
+    if (row.sourceAmount != null) N(r, 9, row.sourceAmount);
+    if (row.knownAmount != null) N(r, 10, row.knownAmount);
+    if (row.unknownQty != null) N(r, 11, row.unknownQty);
+    S(r, 12, row.valuation || '');
+    if (row.overrideReason) S(r, 13, row.overrideReason);
+    if (row.invoice) T(r, 14, row.invoice);
+    if (row.note) S(r, 15, row.note);
+    S(r, 16, row.by);
   });
   ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: rows.length, c: SILINME_EXPORT_HEADER.length - 1 } });
-  ws['!cols'] = [{ wch: 16 }, { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 42 }, { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 36 }, { wch: 22 }];
+  ws['!cols'] = [{ wch: 16 }, { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 42 }, { wch: 12 }, { wch: 14 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 18 }, { wch: 16 }, { wch: 20 }, { wch: 34 }, { wch: 14 }, { wch: 36 }, { wch: 22 }];
   ws['!freeze'] = { xSplit: 0, ySplit: 1 };
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Silinmə hesabatı');
+  /* Mənbə partiyalar ayrıca vərəqdədir. Ana sətrin yekun məbləği burada
+     təkrarlanmır ki, mühasib mənbə sətirlərini cəmləyib ikiqat nəticə almasın. */
+  const srcRows = [];
+  const byMovement = new Map(rows.map(r => [r.movementId, r]));
+  for (const a of (DB.woAllocs || [])) {
+    if (a.reversedAt || !byMovement.has(a.movementId)) continue;
+    const p = byMovement.get(a.movementId);
+    srcRows.push([a.movementId, p.doc, p.code, a.sourceMovementId, a.doc, a.invoice,
+      a.date, a.qty, a.status, a.price == null ? '' : a.price, a.amount == null ? '' : a.amount]);
+  }
+  if (srcRows.length) {
+    const sws = XLSX.utils.aoa_to_sheet([SILINME_SOURCE_HEADER].concat(srcRows));
+    sws['!cols'] = [{wch:38},{wch:18},{wch:12},{wch:38},{wch:18},{wch:18},{wch:12},{wch:12},{wch:18},{wch:18},{wch:18}];
+    XLSX.utils.book_append_sheet(wb, sws, 'Mənbə partiyalar');
+  }
   XLSX.writeFile(wb, 'Silinme_hesabati_' + today() + '.xlsx');
   toast('Silinme_hesabati.xlsx yükləndi (' + rows.length + ' sətir)');
 }
@@ -1727,7 +1799,10 @@ function rMov() {
     [{ t: 'Tarix' }, { t: 'Anbar' }, { t: 'Kod' }, { t: 'Malın adı' }, { t: 'Növü' }, { t: 'İstiqamət / Kontragent' }, { t: 'Kanal' }, { t: 'Qaimə №' }, { t: 'Giriş', r: 1 }, { t: 'Çıxış', r: 1 }, { t: 'Qiymət', r: 1 }, { t: 'Məbləğ', r: 1 }, { t: 'Qeyd' }, { t: 'Qeyd edən' }, { t: '' }],
     rows.map(m => {
       const it = DB.itemBy.get(m.c) || {};
-      const pr = m.pr || it.price || 0;
+      const mvVal = m.t === 'Silinmə' ? movementValuation(m) : null;
+      const pr = mvVal
+        ? (mvVal.final != null && +(m.o || 0)>0 ? +(mvVal.final / m.o).toFixed(4) : (m.pr || 0))
+        : (m.pr || it.price || 0);
       return {
         _a: `data-mv="${esc(m.id)}"`, c: [
           esc(fmtD(m.d)), esc(whLabel(m.w)), `<span class="code">${esc(m.c)}</span>`,
@@ -1740,7 +1815,7 @@ function rMov() {
           m.iv ? `<span class="code">${esc(m.iv)}</span>` : '<span class="muted">—</span>',
           m.i ? `<span style="color:var(--in)">${nf(m.i, 2)}</span>` : '—',
           m.o ? `<span style="color:var(--out)">${nf(m.o, 2)}</span>` : '—',
-          pr ? nf(pr, 2) : '—', pr ? money(((m.i || 0) + (m.o || 0)) * pr) : '—',
+          pr ? nf(pr, 2) : '—', mvVal ? (mvVal.final == null ? '—' : money(mvVal.final)) : (pr ? money(((m.i || 0) + (m.o || 0)) * pr) : '—'),
           m.note ? `<span class="hint" title="${esc(m.note)}">${esc(m.note.length > 40 ? m.note.slice(0, 40) + '…' : m.note)}</span>` : '<span class="muted">—</span>',
           `<span class="hint">${esc(m.by || '—')}</span>`,
           `<button class="btn sm" data-edit="${esc(m.id)}">Baxış</button>`
@@ -1771,7 +1846,7 @@ function rMov() {
   // kanonik marşrut, digər növlər üçün əsl kontragent/layihə mətni.
   // Tam ixrac, SON Excel formatı və idxal yolu bu funksiyaya toxunmur.
   $('#mov-exp').onclick = () => xls([['Tarix', 'Anbar', 'Kod', 'Malın adı', 'Ölçü', 'Növü', 'İstiqamət / Kontragent', 'Alınma kanalı', 'Giriş', 'Çıxış', 'Vahid qiyməti', 'Məbləğ', 'Müqavilə', 'Qaimə', 'Qeyd edən']]
-    .concat(all.map(m => { const it = DB.itemBy.get(m.c) || {}; const pr = m.pr || it.price || 0; return [m.d, whLabel(m.w), m.c, it.name || '', it.unit || '', m.t, movKeyText(m), m.ch || '', m.i || '', m.o || '', pr || '', pr ? (((m.i || 0) + (m.o || 0)) * pr).toFixed(2) : '', m.ct || '', m.iv || '', m.by || '']; })), 'mal_hereketi');
+    .concat(all.map(m => { const it = DB.itemBy.get(m.c) || {}; const v = m.t === 'Silinmə' ? movementValuation(m) : null; const pr = v ? (v.final != null && +(m.o||0)>0 ? +(v.final/m.o).toFixed(4) : (m.pr||0)) : (m.pr || it.price || 0); return [m.d, whLabel(m.w), m.c, it.name || '', it.unit || '', m.t, movKeyText(m), m.ch || '', m.i || '', m.o || '', pr || '', v ? (v.final == null ? '' : v.final) : (pr ? (((m.i || 0) + (m.o || 0)) * pr).toFixed(2) : ''), m.ct || '', m.iv || '', m.by || '']; })), 'mal_hereketi');
 }
 document.addEventListener('click', e => {
   const ed = e.target.closest('[data-edit]');
@@ -3113,7 +3188,17 @@ async function refSend(kind, action, id) {
    null olduqda forma adi «yeni əməliyyat» kimi işləyir. Dolu olduqda sətirlər
    mövcud sənədin düzəlişidir: bazada HEÇ NƏ dəyişmir, ta ki «Düzəlişi qeyd et»
    basılana qədər — o zaman ləğv və yeni sənəd serverdə TƏK tranzaksiyada yazılır. */
-const OP = { kind: 'in', lines: [], pick: null, editDoc: null };
+const OP = { kind: 'in', lines: [], pick: null, editDoc: null, requestKey: '' };
+function invalidateOpRequestKey() { OP.requestKey = ''; }
+function opRequestKey() {
+  if (!OP.requestKey) OP.requestKey = (crypto && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g,c=>(c^crypto.getRandomValues(new Uint8Array(1))[0]&15>>c/4).toString(16));
+  return OP.requestKey;
+}
+/* Şəbəkə cavabı itəndə eyni qaralama eyni açarla təhlükəsiz təkrar göndərilir.
+   İstifadəçi formanı dəyişərsə isə artıq başqa sorğudur və yeni açar almalıdır. */
+['input','change'].forEach(ev => $('#p-op').addEventListener(ev, invalidateOpRequestKey));
 /* Hər tabın icazəli əməliyyat növləri — TƏK mənbə. rOp() forması, sətir
    validasiyası və sətir redaktoru eyni siyahını oxuyur. */
 /* «İcarə» yalnız mədaxildir: firma malı icarəyə GÖTÜRÜR — mal anbara gəlir,
@@ -3121,7 +3206,7 @@ const OP = { kind: 'in', lines: [], pick: null, editDoc: null };
    «Qaytarma» hər iki tabda var: mədaxildə müştəri bizə qaytarır, məxaricdə isə
    biz sahibinə qaytarırıq — məhz bu, icarədə olan miqdarı azaldan sənəddir. */
 const OP_TYPES = { in: ['Satınalma', 'Qaytarma', 'İcarə', 'Əvvələ qalıq'], out: ['Sahəyə', 'Silinmə', 'Satış', 'Qaytarma'], mv: ['Yerdəyişmə'] };
-$$('#op-seg button').forEach(b => b.onclick = () => { OP.kind = b.dataset.k; $$('#op-seg button').forEach(x => x.classList.toggle('on', x === b)); rOp(); });
+$$('#op-seg button').forEach(b => b.onclick = () => { invalidateOpRequestKey(); OP.kind = b.dataset.k; $$('#op-seg button').forEach(x => x.classList.toggle('on', x === b)); rOp(); });
 
 const DEFAULT_CHANNELS = ['Nağd alış', 'Kommersiya şirkəti', 'Köçürmə', 'Sahə üzrə məsul şəxs'];
 function channelOptions() {
@@ -3567,6 +3652,14 @@ function addLine() {
   }
   line.q = v.q;
   if (v.warn) err.innerHTML = `<span style="color:var(--alarm)">${esc(v.warn)}</span>`;
+  if (DB.layerActive && line.kind !== 'in') {
+    openDraftLineLayers(line, v.warn || '');
+    return;
+  }
+  commitDraftLine(line);
+}
+function commitDraftLine(line) {
+  invalidateOpRequestKey();
   OP.lines.push(line);
   OP.pick = null; OP.condSplit = null;
   $('#o-item').value = ''; $('#o-unit').value = ''; $('#o-itemsel').textContent = 'Seçilməyib';
@@ -3575,9 +3668,56 @@ function addLine() {
   if ($('#o-price')) $('#o-price').value = '';
   renderLines(); $('#o-item').focus();
 }
+const DLP = { line:null,revision:'',rows:[],sel:new Map() };
+async function openDraftLineLayers(line) {
+  try {
+    const {data,error}=await SB.rpc('get_stock_layers',{p_warehouse:line.w,p_item_code:line.c});
+    if(error)throw error;
+    DLP.line=line;DLP.revision=data.revision||'';DLP.rows=data.layers||[];DLP.sel=new Map();
+    modal('Mənbə partiyalar · '+line.c,`
+      <div class="hint" style="margin-bottom:8px"><b>${esc(line.name)}</b> · çıxış <b>${esc(nf(line.q,2))} ${esc(line.unit||'')}</b>.</div>
+      <div class="card"><div class="tw" id="dl-list" style="max-height:44vh"></div></div>
+      <div class="hint" id="dl-sum" style="margin-top:7px"></div>
+      ${isAdmin()&&line.kind==='out'?`<div class="row" style="grid-template-columns:1fr 2fr;margin-top:10px">
+        <label class="f"><span>Admin yekun məbləği (₼, istəyə bağlı)</span><input id="dl-final" type="number" min="0" step="0.01" placeholder="mənbə qiymətini saxla"></label>
+        <label class="f"><span>Dəyişiklik səbəbi</span><input id="dl-reason" placeholder="məbləğ dəyişirsə məcburidir"></label></div>`:''}
+      <div class="hint" id="dl-err" style="color:var(--alarm);margin-top:6px"></div>`,
+      `<button class="btn" data-close>İmtina</button><button class="btn pri" id="dl-save">Sətri əlavə et</button>`);
+    $('#dl-save').onclick=saveDraftLineLayers;renderDraftLineLayerList();
+  }catch(e){toast('Partiyalar yüklənmədi: '+((e&&e.message)||'server xətası'),true);}
+}
+function renderDraftLineLayerList(){
+  $('#dl-list').innerHTML=tbl(
+    [{t:''},{t:'Mənbə'},{t:'Tarix'},{t:'Sənəd / Qaimə'},{t:'Qiymət',r:1},{t:'Mövcud',r:1},{t:'Seçilən',r:1}],
+    DLP.rows.map(l=>{const q=+(DLP.sel.get(l.id)||0),on=DLP.sel.has(l.id);return{c:[
+      `<input type="checkbox" data-dll="${esc(l.id)}" ${on?'checked':''}>`,esc(layerSourceLabel(l)),esc(l.received_date||'—'),
+      `${l.source_doc_num?`<span class="code">${esc(l.source_doc_num)}</span>`:'<span class="muted">sənəd yoxdur</span>'}${l.source_invoice_num?`<div class="hint">Qaimə: ${esc(l.source_invoice_num)}</div>`:'<div class="hint">Qaimə göstərilməyib</div>'}`,
+      l.price_status==='unknown'?'<span class="muted">Qiymət yoxdur</span>':money(+(l.unit_price||0)),nf(+l.available_qty,2),
+      `<input type="number" data-dlq="${esc(l.id)}" min="0" max="${esc(String(l.available_qty))}" step="0.01" value="${on?esc(String(q)):''}" ${on?'':'disabled'} style="width:100px;text-align:right">`]};}),
+    {empty:'Bu mal üzrə əlçatan partiya yoxdur.'});
+  $$('#dl-list [data-dll]').forEach(cb=>cb.onchange=()=>{const l=DLP.rows.find(x=>x.id===cb.dataset.dll);if(!l)return;
+    if(cb.checked)DLP.sel.set(l.id,Math.min(+l.available_qty,Math.max(0,DLP.line.q-draftLayerQty())));else DLP.sel.delete(l.id);renderDraftLineLayerList();});
+  $$('#dl-list [data-dlq]').forEach(inp=>inp.oninput=()=>{const l=DLP.rows.find(x=>x.id===inp.dataset.dlq);if(!l)return;let v=+inp.value||0;if(v>+l.available_qty){v=+l.available_qty;inp.value=String(v);}DLP.sel.set(l.id,v);updateDraftLayerTotal();});
+  updateDraftLayerTotal();
+}
+function draftLayerQty(){return Array.from(DLP.sel.values()).reduce((s,q)=>s+(+q||0),0);}
+function draftLayerCalc(){let known=0,unknown=0;const allocations=[];for(const[id,q0]of DLP.sel){const q=+q0||0,l=DLP.rows.find(x=>x.id===id);if(!l||!(q>0))continue;allocations.push({layer_id:id,qty:+q.toFixed(4)});if(l.price_status==='unknown')unknown+=q;else known+=Math.round(q*(+l.unit_price||0)*100)/100;}return{allocations,qty:draftLayerQty(),knownAmount:+known.toFixed(2),unknownQty:+unknown.toFixed(4),sourceAmount:unknown>0?null:+known.toFixed(2)};}
+function updateDraftLayerTotal(){const x=draftLayerCalc(),el=$('#dl-sum');if(el)el.innerHTML=`Seçilib <b>${esc(nf(x.qty,2))}</b> / tələb olunur <b>${esc(nf(DLP.line.q,2))}</b> · məlum məbləğ <b>${esc(money(x.knownAmount))}</b>${x.unknownQty?` · qiymətsiz <b>${esc(nf(x.unknownQty,2))}</b>`:''}`;}
+function saveDraftLineLayers(){
+  const x=draftLayerCalc(),err=$('#dl-err');if(Math.abs(x.qty-DLP.line.q)>0.00005){if(err)err.textContent='Partiya miqdarlarının cəmi çıxış miqdarına bərabər olmalıdır.';return;}
+  let finalAmount='',reason='';if(isAdmin()&&DLP.line.kind==='out'){finalAmount=$('#dl-final').value.trim();reason=$('#dl-reason').value.trim();if(finalAmount&&!/^\d{1,16}(?:\.\d{1,2})?$/.test(finalAmount)){if(err)err.textContent='Yekun məbləğ düzgün deyil.';return;}if(finalAmount!==''&&!reason){if(err)err.textContent='Məbləğ dəyişikliyinin səbəbi tələb olunur.';return;}}
+  const line=DLP.line;line.layerRevision=DLP.revision;line.allocations=x.allocations;line.sourceAmount=x.sourceAmount;line.knownAmount=x.knownAmount;line.unknownQty=x.unknownQty;line.finalAmount=finalAmount;line.overrideReason=reason;
+  const shown=finalAmount!==''?+finalAmount:x.sourceAmount;line.pr=shown==null?0:+(shown/line.q).toFixed(4);closeModal();commitDraftLine(line);
+}
 function renderLines() {
   const L = OP.lines;
-  $('#op-cnt').textContent = L.length ? nf(L.length) + ' sətir · ' + money(L.reduce((s, l) => s + l.q * l.pr, 0)) : '';
+  const lineAmount = l => l && Array.isArray(l.allocations)
+    ? (l.finalAmount !== '' && l.finalAmount != null ? +l.finalAmount : l.sourceAmount)
+    : (l && l.pr ? l.q * l.pr : null);
+  const knownTotal = L.reduce((s,l)=>{const a=lineAmount(l);return s+(a==null?0:+a);},0);
+  const unknownLines = L.filter(l=>lineAmount(l)==null).length;
+  $('#op-cnt').textContent = L.length
+    ? nf(L.length) + ' sətir · ' + money(knownTotal) + (unknownLines ? ' · ' + nf(unknownLines) + ' qiymətsiz' : '') : '';
   /* Bərpa edilmiş qaralama üçün görünən bildiriş — istifadəçi sətirlərin
      əvvəlki sessiyadan gəldiyini bilməlidir (toast itə bilər). */
   const banner = OP.editDoc
@@ -3598,14 +3738,20 @@ function renderLines() {
       `${TYPE_TAG(l.t)}<div class="hint">${esc(l.kind === 'mv' ? l.w + ' → ' + l.w2 : (l.kind === 'in' ? l.p + ' → ' + l.w : l.w + ' → ' + l.p))}</div>`,
       nf(l.q, 2) + ' ' + esc(l.unit),
       l.pr ? nf(l.pr, 2) + ' ₼' : '<span class="muted">—</span>',
-      l.pr ? money(l.q * l.pr) : '—',
-      `<button class="btn sm" onclick="editLine(${i})">Redaktə et</button> <button class="btn sm dgr" onclick="OP.lines.splice(${i},1);renderLines()">Sil</button>`]
+      lineAmount(l)==null ? '—' : money(lineAmount(l)),
+      `<button class="btn sm" onclick="editLine(${i})">Redaktə et</button> <button class="btn sm dgr" onclick="removeOpLine(${i})">Sil</button>`]
     })), { empty: 'Sətir əlavə edin — sənəd bir neçə maldan ibarət ola bilər.' });
   if ($('#op-draft-ok')) $('#op-draft-ok').onclick = () => { OP.restoredAt = 0; renderLines(); };
   if ($('#op-edit-cancel')) $('#op-edit-cancel').onclick = () => exitEditMode(true);
   $('#op-post').disabled = !L.length || !can('mv.add');
   if ($('#op-post')) $('#op-post').textContent = OP.editDoc ? 'Düzəlişi qeyd et' : 'Sənədi qeyd et';
   saveDraft();
+}
+function removeOpLine(i) {
+  if (i < 0 || i >= OP.lines.length) return;
+  invalidateOpRequestKey();
+  OP.lines.splice(i,1);
+  renderLines();
 }
 
 /* ================= QARALAMANIN LOKAL BƏRPASI ==================================
@@ -3646,7 +3792,8 @@ function saveDraft() {
     if (!OP.lines.length || OP.lines.length > DRAFT_MAX_LINES) { localStorage.removeItem(draftKey()); return; }
     captureOpHeader();
     localStorage.setItem(draftKey(), JSON.stringify({
-      v: DRAFT_V, ts: Date.now(), kind: OP.kind, lines: OP.lines, hdr: OP.hdr || null
+      v: DRAFT_V, ts: Date.now(), kind: OP.kind, lines: OP.lines, hdr: OP.hdr || null,
+      requestKey: OP.requestKey || ''
     }));
   } catch (e) { /* kvota dolub və ya localStorage əlçatmazdır — qaralama sadəcə saxlanılmır */ }
 }
@@ -3665,6 +3812,7 @@ function restoreDraft() {
   const kept = d.lines.filter(l => l && l.c && okWh.has(l.w) && (l.kind !== 'mv' || okWh.has(l.w) ));
   if (!kept.length) { clearDraft(); return; }
   OP.lines = kept;
+  OP.requestKey = d.requestKey || '';
   if (d.kind) OP.kind = d.kind;
   if (d.hdr) OP.hdr = d.hdr;
   OP.restoredAt = d.ts;
@@ -3707,6 +3855,10 @@ function optsWith(list, cur) {
 function editLine(i) {
   const l = OP.lines[i];
   if (!l) return;
+  if (Array.isArray(l.allocations)) {
+    toast('Partiyalı sətirdə mal, anbar və ya miqdar dəyişirsə partiyalar yenidən seçilməlidir. Sətri silib yenidən əlavə edin.', true);
+    return;
+  }
   if (!can('mv.add')) return need('mv.add');
   EL.i = i;
   EL.d = Object.assign({}, l);   // işçi nüsxə — orijinal toxunulmur
@@ -3821,6 +3973,7 @@ function saveEditLine() {
   d.q = v.q;
   d.name = v.item.name;
   d.unit = v.item.unit;
+  invalidateOpRequestKey();
   OP.lines[i] = Object.assign({}, d);           // yalnız İNDİ orijinal əvəzlənir
   EL.i = -1; EL.d = null;
   closeModal();
@@ -3856,7 +4009,10 @@ function saveEditLine() {
    əvvəlki kimi tək miqdar xanası ilə idarə olunur. sel həmişə bölgünün CƏMİdir,
    ona görə «cəm ümumi miqdarla uyğun gəlmir» vəziyyəti struktur olaraq mümkün
    deyil — istifadəçi tipləri yazır, ümumi miqdar özü hesablanır. */
-const BW = { mode: 'wo', wh: '', dst: '', q: '', sel: new Map(), split: new Map(), note: '', icareOk: false };
+const BW = { mode: 'wo', wh: '', dst: '', q: '', sel: new Map(), split: new Map(),
+  /* SQL 036: code → {revision,allocations,knownAmount,unknownQty,sourceAmount}
+     və code → {finalAmount,reason}. Yalnız Silinmə rejimində istifadə olunur. */
+  lots: new Map(), values: new Map(), note: '', icareOk: false };
 
 /* Seçilmiş anbarda müsbət qalığı olan, nomenklaturada mövcud olan mövqelər.
    `avail` = cari qalıq − həmin anbar+mal üzrə gözləyən (hələ qeyd edilməmiş)
@@ -3904,6 +4060,17 @@ function bulkWriteOffSummary() {
       const v = condSplitCheck(sp, bk);
       if (!v.ok) { bad.push({ code, why: v.error }); continue; }
     }
+    if (DB.layerActive) {
+      const lot = BW.lots.get(code);
+      const aq = lot && Array.isArray(lot.allocations)
+        ? lot.allocations.reduce((s, a) => s + (+a.qty || 0), 0) : 0;
+      if (!lot) { bad.push({ code, why: 'mənbə partiyası seçilməyib' }); continue; }
+      if (Math.abs(aq - q) > 0.00005) { bad.push({ code, why: 'partiya cəmi miqdara bərabər deyil' }); continue; }
+      const ov = BW.values.get(code);
+      if (ov && ov.finalAmount !== '' && ov.finalAmount != null && !String(ov.reason || '').trim()) {
+        bad.push({ code, why: 'məbləğ dəyişikliyinin səbəbi yoxdur' }); continue;
+      }
+    }
     n++; qty += q; amount += q * (r.price || 0);
   }
   return { n, qty, amount, bad };
@@ -3945,7 +4112,7 @@ function bulkWriteOffOpen() {
   BW.mode = isMv ? 'mv' : 'wo';
   BW.wh = wh;
   BW.q = '';
-  BW.sel = new Map(); BW.split = new Map(); BW.icareOk = false;
+  BW.sel = new Map(); BW.split = new Map(); BW.lots = new Map(); BW.values = new Map(); BW.icareOk = false;
   BW.note = $('#o-note') ? $('#o-note').value.trim() : '';
   renderBulkWriteOff();
 }
@@ -3975,7 +4142,7 @@ function renderBulkWriteOff() {
     // Tək-tək seçimlə EYNİ yol: işarəli malda bölgü də doldurulur, yoxsa
     // «hamısını seç» sonradan «bölgü göstərilməyib» kimi bloklanardı.
     if ($('#bw-all').checked) rows.forEach(r => { if (!BW.sel.has(r.c)) bwSelectRow(r); });
-    else rows.forEach(r => { BW.sel.delete(r.c); BW.split.delete(r.c); });
+    else rows.forEach(r => { BW.sel.delete(r.c); BW.split.delete(r.c); BW.lots.delete(r.c); BW.values.delete(r.c); });
     renderBulkWriteOffList();
   };
   $('#bw-post').onclick = bulkWriteOffPost;
@@ -3997,6 +4164,20 @@ function bwSelectRow(r) {
     BW.split.delete(r.c);
     BW.sel.set(r.c, r.avail);
   }
+}
+function bulkLotCell(r, on, q) {
+  if (!DB.layerActive) {
+    return `<span data-bwa="${esc(r.c)}">${on && r.price ? money(q * r.price) : '—'}</span>`;
+  }
+  const lot = BW.lots.get(r.c), ov = BW.values.get(r.c);
+  let amount = null, label = 'Partiyaları seç';
+  if (lot) {
+    amount = ov && ov.finalAmount !== '' && ov.finalAmount != null ? +ov.finalAmount : lot.sourceAmount;
+    label = nf(lot.allocations.length) + ' partiya';
+  }
+  return `<div style="display:flex;gap:6px;align-items:center;justify-content:flex-end">
+    <span data-bwa="${esc(r.c)}">${amount == null ? '—' : money(amount)}</span>
+    <button type="button" class="btn sm" data-bwl="${esc(r.c)}" ${on ? '' : 'disabled'}>${esc(label)}</button></div>`;
 }
 function renderBulkWriteOffList() {
   const rows = bulkWriteOffFiltered();
@@ -4034,7 +4215,7 @@ function renderBulkWriteOffList() {
           esc(r.unit),
           nf(r.avail, 2) + (r.pending ? ` <span class="hint">(qaralamada ${esc(nf(r.pending, 2))})</span>` : ''),
           splitCell(r, on),
-          `<span data-bwa="${esc(r.c)}">${on && r.price ? money(q * r.price) : '—'}</span>`]
+          bulkLotCell(r, on, q)]
       };
     }), { empty: BW.q ? 'Axtarışa uyğun mal tapılmadı.' : 'Bu anbarda müsbət qalığı olan mal yoxdur.' });
 
@@ -4046,9 +4227,10 @@ function renderBulkWriteOffList() {
     if (!r) return;
     BW.icareOk = false;
     if (cb.checked) bwSelectRow(r);
-    else { BW.sel.delete(code); BW.split.delete(code); }
+    else { BW.sel.delete(code); BW.split.delete(code); BW.lots.delete(code); BW.values.delete(code); }
     renderBulkWriteOffList();
   });
+  $$('#bw-list [data-bwl]').forEach(btn => btn.onclick = () => bulkLayerOpen(btn.dataset.bwl));
   // Miqdar dəyişəndə siyahı YENİDƏN qurulmur (fokus itməsin) — yalnız model,
   // sətir məbləği və yekunlar yenilənir. Qalıqdan artıq dəyər dərhal maksimuma
   // endirilir; serverdə də eyni qadağa var.
@@ -4057,6 +4239,7 @@ function renderBulkWriteOffList() {
     if (!r) return;
     let v = parseFloat(inp.value);
     BW.icareOk = false;
+    BW.lots.delete(code); BW.values.delete(code);
     if (!(v > 0)) { BW.sel.set(code, 0); updateBulkWriteOffTotals(); return; }
     if (v > r.avail) { v = r.avail; inp.value = String(v); toast(`${r.name}: maksimum ${nf(r.avail, 2)} ${r.unit} mövcuddur`, true); }
     BW.sel.set(code, v);
@@ -4071,6 +4254,7 @@ function renderBulkWriteOffList() {
     const label = key === 'normal' ? 'Normal' : (COND_COLS.find(c => c.k === key) || {}).t || key;
     let v = parseFloat(inp.value);
     BW.icareOk = false;
+    BW.lots.delete(code); BW.values.delete(code);
     if (!(v > 0)) v = 0;
     if (v > (bk[key] || 0)) {
       v = bk[key] || 0; inp.value = String(v);
@@ -4094,7 +4278,11 @@ function updateBulkWriteOffTotals() {
     const el = $('#bw-list [data-bwa="' + r.c + '"]');
     if (!el) continue;
     const q = BW.sel.has(r.c) ? BW.sel.get(r.c) : 0;
-    el.textContent = (q > 0 && r.price) ? money(q * r.price) : '—';
+    if (DB.layerActive) {
+      const lot = BW.lots.get(r.c), ov = BW.values.get(r.c);
+      const a = lot ? (ov && ov.finalAmount !== '' && ov.finalAmount != null ? +ov.finalAmount : lot.sourceAmount) : null;
+      el.textContent = a == null ? '—' : money(a);
+    } else el.textContent = (q > 0 && r.price) ? money(q * r.price) : '—';
   }
   const s = bulkWriteOffSummary();
   const all = $('#bw-all');
@@ -4118,6 +4306,92 @@ function updateBulkWriteOffTotals() {
     btn.disabled = !(s.n > 0) || s.bad.length > 0;
     btn.textContent = s.n ? nf(s.n) + ' sətri əlavə et' : 'Sətirləri əlavə et';
   }
+}
+const BLP = { code: '', revision: '', rows: [], sel: new Map() };
+async function bulkLayerOpen(code) {
+  if (!DB.layerActive) return;
+  const qty = +(BW.sel.get(code) || 0), it = DB.itemBy.get(code) || {};
+  if (!(qty > 0)) return toast('Əvvəlcə silinən miqdarı yazın', true);
+  try {
+    const { data, error } = await SB.rpc('get_stock_layers', { p_warehouse: BW.wh, p_item_code: code });
+    if (error) throw error;
+    BLP.code = code; BLP.revision = data.revision || ''; BLP.rows = data.layers || [];
+    const old = BW.lots.get(code);
+    BLP.sel = new Map((old && old.revision === BLP.revision ? old.allocations : [])
+      .map(a => [a.layer_id, +a.qty]));
+    const ov = BW.values.get(code) || { finalAmount: '', reason: '' };
+    modal('Mənbə partiyalar · ' + code, `
+      <div class="hint" style="margin-bottom:8px"><b>${esc(it.name || code)}</b> · silinən miqdar <b>${esc(nf(qty,2))} ${esc(it.unit || '')}</b>.
+      Miqdarı real mədaxil sətirləri üzrə bölün. Qaimə olmadıqda sistem sənədi/partiya ID-si istifadə olunur.</div>
+      <div class="card"><div class="tw" id="bl-list" style="max-height:44vh"></div></div>
+      <div class="hint" id="bl-sum" style="margin-top:7px"></div>
+      ${isAdmin() && BW.mode === 'wo' ? `<div class="row" style="grid-template-columns:1fr 2fr;margin-top:10px">
+        <label class="f"><span>Admin yekun məbləği (₼, istəyə bağlı)</span><input id="bl-final" type="number" min="0" step="0.01" value="${esc(String(ov.finalAmount == null ? '' : ov.finalAmount))}" placeholder="mənbə qiymətini saxla"></label>
+        <label class="f"><span>Dəyişiklik səbəbi</span><input id="bl-reason" value="${esc(ov.reason || '')}" placeholder="məbləğ dəyişirsə məcburidir"></label>
+      </div>` : ''}
+      <div class="hint" id="bl-err" style="color:var(--alarm);margin-top:6px"></div>`,
+      `<button class="btn" id="bl-back">Geri</button><button class="btn pri" id="bl-save">Partiyaları yadda saxla</button>`);
+    $('#bl-back').onclick = () => renderBulkWriteOff();
+    $('#bl-save').onclick = bulkLayerSave;
+    renderBulkLayerList();
+  } catch (e) {
+    toast('Partiyalar yüklənmədi: ' + ((e && e.message) || 'server xətası'), true);
+  }
+}
+function layerSourceLabel(l) {
+  if (l.source_type === 'legacy_unresolved') return 'Köhnə qalıq · mənbə dəqiqləşməyib';
+  if (l.source_type === 'legacy_adjustment') return 'Tarixi bərpa';
+  if (l.source_type === 'transfer') return 'Yerdəyişmə partiyası';
+  return 'Mədaxil partiyası';
+}
+function renderBulkLayerList() {
+  const required = +(BW.sel.get(BLP.code) || 0);
+  $('#bl-list').innerHTML = tbl(
+    [{t:''},{t:'Mənbə'},{t:'Tarix'},{t:'Sənəd / Qaimə'},{t:'Qiymət',r:1},{t:'Mövcud',r:1},{t:'Seçilən',r:1}],
+    BLP.rows.map(l => {
+      const q = +(BLP.sel.get(l.id) || 0), on = BLP.sel.has(l.id);
+      const ref = (l.source_doc_num ? `<span class="code">${esc(l.source_doc_num)}</span>` : '<span class="muted">sənəd yoxdur</span>')
+        + (l.source_invoice_num ? `<div class="hint">Qaimə: <span class="code">${esc(l.source_invoice_num)}</span></div>` : '<div class="hint">Qaimə göstərilməyib</div>');
+      const price = l.price_status === 'unknown' ? '<span class="muted">Qiymət yoxdur</span>' : money(+(l.unit_price || 0));
+      return {c:[`<input type="checkbox" data-bll="${esc(l.id)}" ${on?'checked':''}>`,esc(layerSourceLabel(l)),esc(l.received_date || '—'),ref,price,
+        nf(+l.available_qty,2),`<input type="number" data-blq="${esc(l.id)}" min="0" max="${esc(String(l.available_qty))}" step="0.01" value="${on?esc(String(q)):''}" ${on?'':'disabled'} style="width:100px;text-align:right">`]};
+    }),{empty:'Bu mal üzrə əlçatan partiya yoxdur.'});
+  $$('#bl-list [data-bll]').forEach(cb => cb.onchange=()=>{
+    const l=BLP.rows.find(x=>x.id===cb.dataset.bll); if(!l)return;
+    if(cb.checked) BLP.sel.set(l.id,Math.min(+l.available_qty,Math.max(0,required-layerSelectedQty())));
+    else BLP.sel.delete(l.id);
+    renderBulkLayerList();
+  });
+  $$('#bl-list [data-blq]').forEach(inp=>inp.oninput=()=>{
+    const l=BLP.rows.find(x=>x.id===inp.dataset.blq); if(!l)return;
+    let v=+inp.value||0; if(v>+l.available_qty){v=+l.available_qty;inp.value=String(v);}
+    BLP.sel.set(l.id,v); updateBulkLayerTotal();
+  });
+  updateBulkLayerTotal();
+}
+function layerSelectedQty(){return Array.from(BLP.sel.values()).reduce((s,q)=>s+(+q||0),0);}
+function bulkLayerCalc(){
+  let known=0,unknown=0; const allocations=[];
+  for(const [id,q0] of BLP.sel){const q=+q0||0,l=BLP.rows.find(x=>x.id===id);if(!l||!(q>0))continue;
+    allocations.push({layer_id:id,qty:+q.toFixed(4)});
+    if(l.price_status==='unknown')unknown+=q;else known+=Math.round(q*(+l.unit_price||0)*100)/100;
+  }
+  return {allocations,qty:layerSelectedQty(),knownAmount:+known.toFixed(2),unknownQty:+unknown.toFixed(4),sourceAmount:unknown>0?null:+known.toFixed(2)};
+}
+function updateBulkLayerTotal(){
+  const x=bulkLayerCalc(),req=+(BW.sel.get(BLP.code)||0),el=$('#bl-sum');if(!el)return;
+  el.innerHTML=`Seçilib <b>${esc(nf(x.qty,2))}</b> / tələb olunur <b>${esc(nf(req,2))}</b> · məlum məbləğ <b>${esc(money(x.knownAmount))}</b>${x.unknownQty?` · qiymətsiz <b>${esc(nf(x.unknownQty,2))}</b>`:''}`;
+}
+function bulkLayerSave(){
+  const x=bulkLayerCalc(),req=+(BW.sel.get(BLP.code)||0),err=$('#bl-err');
+  if(Math.abs(x.qty-req)>0.00005){if(err)err.textContent='Partiya miqdarlarının cəmi silinən miqdara bərabər olmalıdır.';return;}
+  let finalAmount='',reason='';
+  if(isAdmin() && BW.mode === 'wo'){finalAmount=$('#bl-final').value.trim();reason=$('#bl-reason').value.trim();
+    if(finalAmount && !/^\d{1,16}(?:\.\d{1,2})?$/.test(finalAmount)){if(err)err.textContent='Yekun məbləğ düzgün deyil.';return;}
+    if(finalAmount!==''&&!reason){if(err)err.textContent='Məbləğ dəyişikliyinin səbəbi tələb olunur.';return;}}
+  BW.lots.set(BLP.code,{revision:BLP.revision,allocations:x.allocations,knownAmount:x.knownAmount,unknownQty:x.unknownQty,sourceAmount:x.sourceAmount});
+  BW.values.set(BLP.code,{finalAmount,reason});
+  renderBulkWriteOff();
 }
 async function bulkWriteOffPost() {
   if (!need('mv.add')) return;
@@ -4167,13 +4441,19 @@ async function bulkWriteOffPost() {
     for (const [code, q] of BW.sel) {
       if (!(q > 0)) continue;
       const it = DB.itemBy.get(code) || {};
+      const lot = DB.layerActive ? BW.lots.get(code) : null;
       // p = təyinat anbarı — addLine()-dakı yerdəyişmə qaydası ilə eyni.
       const line = { kind: 'mv', d: dt, t: 'Yerdəyişmə', w: BW.wh, w2: BW.dst,
                      c: code, name: it.name || code, unit: it.unit || '',
                      q, pr: it.price || 0, p: BW.dst, ch: '', ct: '', iv: ivMv, note: noteMv,
                      // Tiplərə görə bölgü sətirlə birlikdə gedir; yoxdursa
                      // bütün miqdar «normal»dır (aşağıda postOpDocument-ə bax).
-                     cond: BW.split.get(code) || null };
+                     cond: BW.split.get(code) || null,
+                     layerRevision: lot ? lot.revision : '',
+                     allocations: lot ? lot.allocations : null,
+                     sourceAmount: lot ? lot.sourceAmount : null,
+                     knownAmount: lot ? lot.knownAmount : null,
+                     unknownQty: lot ? lot.unknownQty : null };
       // addLine() ilə eyni yeganə validasiya mənbəyi — qalıq/marşrut/hüquq.
       const v = validateOpLine(line);
       if (!v.ok) {
@@ -4193,7 +4473,8 @@ async function bulkWriteOffPost() {
       OP.lines.push(line);
     }
     const added = OP.lines.length - base;
-    BW.sel = new Map(); BW.split = new Map(); BW.icareOk = false;
+    if (added) invalidateOpRequestKey();
+    BW.sel = new Map(); BW.split = new Map(); BW.lots = new Map(); BW.values = new Map(); BW.icareOk = false;
     closeModal();
     renderLines();
     toast(added + ' sətir qaralamaya əlavə edildi — yazmaq üçün «Sənədi qeyd et»');
@@ -4228,11 +4509,25 @@ async function bulkWriteOffPost() {
     if (!(q > 0)) continue;
     const r = byCode.get(code);
     const it = DB.itemBy.get(code) || {};
+    const lot = DB.layerActive ? BW.lots.get(code) : null;
+    const ov = DB.layerActive ? (BW.values.get(code) || { finalAmount: '', reason: '' }) : null;
+    const shownAmount = lot
+      ? (ov.finalAmount !== '' && ov.finalAmount != null ? +ov.finalAmount : lot.sourceAmount)
+      : null;
     const line = { kind: 'out', d: dt, t: 'Silinmə', w: BW.wh, w2: '',
                    c: code, name: it.name || code, unit: it.unit || '',
-                   q, pr: (r && r.price) || it.price || 0, p: pt,
+                   q, pr: DB.layerActive
+                     ? (shownAmount == null ? 0 : +(shownAmount / q).toFixed(4))
+                     : ((r && r.price) || it.price || 0), p: pt,
                    ch: '', ct: '', iv, note,
-                   cond: BW.split.get(code) || null };
+                   cond: BW.split.get(code) || null,
+                   layerRevision: lot ? lot.revision : '',
+                   allocations: lot ? lot.allocations : null,
+                   sourceAmount: lot ? lot.sourceAmount : null,
+                   knownAmount: lot ? lot.knownAmount : null,
+                   unknownQty: lot ? lot.unknownQty : null,
+                   finalAmount: ov ? ov.finalAmount : '',
+                   overrideReason: ov ? ov.reason : '' };
     const v = validateOpLine(line);
     if (!v.ok) {
       OP.lines.length = base;      // yarımçıq seçimi geri al
@@ -4248,7 +4543,8 @@ async function bulkWriteOffPost() {
     OP.lines.push(line);
   }
   const added = OP.lines.length - base;
-  BW.sel = new Map(); BW.split = new Map(); BW.icareOk = false;
+  if (added) invalidateOpRequestKey();
+  BW.sel = new Map(); BW.split = new Map(); BW.lots = new Map(); BW.values = new Map(); BW.icareOk = false;
   closeModal();
   renderLines();
   toast(added + ' sətir qaralamaya əlavə edildi — yazmaq üçün «Sənədi qeyd et»');
@@ -4264,7 +4560,7 @@ $('#op-clear').onclick = () => {
   modal('Sətirlər təmizlənsin?',
     `<div class="hint">${nf(n)} sətir qaralamadan silinəcək. Bu geri qaytarılmır — heç nə Supabase-ə yazılmayıb, sadəcə hələ qeyd edilməmiş sətirlər itəcək.</div>`,
     `<div style="flex:1"></div><button class="btn" data-close>İmtina</button><button class="btn dgr" id="oc-go">Təmizlə</button>`);
-  $('#oc-go').onclick = () => { closeModal(); OP.lines = []; OP.restoredAt = 0; clearDraft(); renderLines(); };
+  $('#oc-go').onclick = () => { closeModal(); OP.lines = []; invalidateOpRequestKey(); OP.restoredAt = 0; clearDraft(); renderLines(); };
 };
 /* İcarədə olan maldan məxaric edilirsə, təsdiq + yazılı izahat tələb olunur.
    İzahat sətirlərin qeydinə yazılır (server də faktı audit jurnalına salır),
@@ -4367,7 +4663,7 @@ function exitEditMode(confirmFirst) {
   if (!OP.editDoc) return;
   const doc = OP.editDoc.doc;
   const finish = () => {
-    OP.editDoc = null; OP.lines = []; OP.restoredAt = 0;
+    OP.editDoc = null; OP.lines = []; invalidateOpRequestKey(); OP.restoredAt = 0;
     clearDraft(); rOp(); renderLines();
     toast('Düzəlişdən imtina edildi · ' + doc + ' sənədi dəyişməyib');
   };
@@ -4379,6 +4675,10 @@ function exitEditMode(confirmFirst) {
   $('#ee-go').onclick = () => { closeModal(); finish(); };
 }
 async function postOpDocument(editReason) {
+  if (DB.layerActive && OP.editDoc) {
+    toast('Partiya uçotunda keçirilmiş sənəd birbaşa dəyişdirilmir — ləğv edib düzgün partiyalarla yenisini yaradın.', true);
+    return;
+  }
   // ---- Tarixi ilkin qalıq yalnız Admin ----
   // addLine() belə sətrin əlavə olunmasına icazə vermir; bu ikinci yoxlama rol
   // sessiya ərzində dəyişdiyi (və ya sətir başqa yolla düşdüyü) hal üçündür.
@@ -4411,6 +4711,13 @@ async function postOpDocument(editReason) {
         remain.set(k, (b ? b.q : 0) + editRestoreQty(l.w, l.c));
       }
       const avail = remain.get(k);
+      if (Array.isArray(l.allocations)) {
+        if (avail <= 0 || l.q > avail + 1e-9) {
+          toast(`${l.name} (${l.w}): qalıq dəyişib — partiyalar yenidən seçilməlidir. Qaralama saxlanıldı.`, true);
+          return;
+        }
+        remain.set(k, avail - l.q); kept.push(l); continue;
+      }
       if (avail <= 0) { msgs.push(`${l.name} (${l.w}): qalıq dəyişib, mövcud deyil — sətir çıxarıldı`); continue; }
       if (l.q > avail) { msgs.push(`${l.name} (${l.w}): qalıq dəyişib, miqdar ${nf(l.q, 2)} → ${nf(avail, 2)} endirildi`); l.q = avail; }
       remain.set(k, avail - l.q);
@@ -4463,6 +4770,10 @@ async function postOpDocument(editReason) {
 
   const mvLines = OP.lines.filter(l => l.kind === 'mv');
   const other = OP.lines.filter(l => l.kind !== 'mv');
+  if (DB.layerActive && mvLines.length && other.length) {
+    toast('Partiyalı rejimdə yerdəyişmə və digər əməliyyatlar bir sənəddə qarışdırıla bilməz.', true);
+    return;
+  }
 
   // ---- Yerdəyişmələr: atomar server RPC (mənfi qalıq serverdə bloklanır) ----
   // Köhnə emitMany yolu (ayrı-ayrı insert, atomar deyil) yerdəyişmə üçün istifadə OLUNMUR.
@@ -4472,7 +4783,8 @@ async function postOpDocument(editReason) {
       note: l.note || '', channel: l.ch || '', contract: l.ct || '', invoice: l.iv || '',
       // Tiplərə görə bölgü (sql/031): mənbədən çıxır, təyinatda EYNİ tiplə
       // yaranır. Yoxdursa bütün miqdar «normal» sayılır.
-      conditions: l.cond ? condSplitPayload(l.cond) : null
+      conditions: l.cond ? condSplitPayload(l.cond) : null,
+      revision: l.layerRevision || '', allocations: l.allocations || null
     }));
     // Server bölgünü tanımırsa naməlum açar SÜKUTLA iqnor edilər və mal
     // təyinat anbarında işarəsiz görünərdi — ona görə bloklanır, keçilmir.
@@ -4481,7 +4793,13 @@ async function postOpDocument(editReason) {
       return;
     }
     try {
-      const { data, error } = await SB.rpc('post_transfer_document', { p_lines });
+      if (DB.layerActive && mvLines.some(l => !Array.isArray(l.allocations) || !l.allocations.length)) {
+        throw new Error('Partiya seçilməyib — sətri silib yenidən əlavə edin');
+      }
+      const call = DB.layerActive
+        ? await SB.rpc('post_layer_transfer_document', { p_lines, p_request_key: opRequestKey() })
+        : await SB.rpc('post_transfer_document', { p_lines });
+      const { data, error } = call;
       if (error) throw error;
       // uğur: sətirlər server tərəfindən yazıldı
     } catch (err) {
@@ -4501,14 +4819,27 @@ async function postOpDocument(editReason) {
       partner: l.p || '', channel: l.ch || '', contract: l.ct || '', invoice: l.iv || '',
       price: l.pr || 0, note: l.note || '',
       // Mədaxil sətrində bölgü ola bilməz (server də rədd edir) — yalnız çıxış.
-      conditions: (l.kind !== 'in' && l.cond) ? condSplitPayload(l.cond) : null
+      conditions: (l.kind !== 'in' && l.cond) ? condSplitPayload(l.cond) : null,
+      revision: l.layerRevision || '', allocations: l.allocations || null,
+      final_amount: l.finalAmount === '' || l.finalAmount == null ? null : String(l.finalAmount),
+      override_reason: l.overrideReason || ''
     }));
     if (p_lines.some(x => x.conditions) && !DB.splitReady) {
       toast(SPLIT_UNSUPPORTED_MSG, true);
       return;
     }
     try {
-      const { data, error } = await SB.rpc('post_movement_document', { p_lines });
+      const isLayerOut = DB.layerActive && other.some(l => l.kind !== 'in');
+      if (isLayerOut && other.some(l => l.kind === 'in')) {
+        throw new Error('Mədaxil və məxaric partiyalı rejimdə eyni sənəddə qarışdırıla bilməz');
+      }
+      if (isLayerOut && other.some(l => !Array.isArray(l.allocations) || !l.allocations.length)) {
+        throw new Error('Partiya seçilməyib — sətiri silib «Malları seç» vasitəsilə yenidən əlavə edin');
+      }
+      const call = isLayerOut
+        ? await SB.rpc('post_layer_movement_document', { p_lines, p_request_key: opRequestKey() })
+        : await SB.rpc('post_movement_document', { p_lines });
+      const { data, error } = call;
       if (error) throw error;
     } catch (err) {
       toast('Əməliyyat qeyd edilmədi: ' + (err.message || 'server xətası'), true);
@@ -4516,7 +4847,7 @@ async function postOpDocument(editReason) {
     }
   }
 
-  const n = OP.lines.length; OP.lines = [];
+  const n = OP.lines.length; OP.lines = []; OP.requestKey = '';
   OP.restoredAt = 0; clearDraft();   // sənəd yazıldı — qaralama artıq lazım deyil
   captureOpHeader();
   if (OP.hdr) { OP.hdr.iv = ''; OP.hdr.ct = ''; }   // yeni sənəd — yeni qaimə/müqavilə nömrəsi
@@ -4677,10 +5008,11 @@ function documentCancelView(m) {
   const revDoc = docCancelledBy(doc);
   const isRev = isCancelDoc(doc);
   const inbound = rows.some(r => (r.i || 0) > 0);
+  const lotDoc = rows.some(r => DB.woVals && DB.woVals.has(r.id));
   /* Sətir üzrə mal əvəzləmə yalnız o halda təklif olunur ki, sənəd bütövlükdə
      ləğv edilməyib və həmin sətir ayrıca ləğv/əvəz edilməyib. Sənəd nömrəsi
      saxlanılır — əvəz sətri eyni sənədin içində yaranır. */
-  const canReplaceRows = isAdmin() && !isRev && !revDoc;
+  const canReplaceRows = isAdmin() && !isRev && !revDoc && !lotDoc;
   const preview = rows.map(r => {
     const ri = DB.itemBy.get(r.c) || {};
     const dir = (r.i || 0) > 0 ? 'Mədaxil: ' + r.w : 'Məxaric: ' + r.w;
@@ -4705,7 +5037,8 @@ function documentCancelView(m) {
     statusHtml = `
       <div class="hint" style="margin:4px 0 8px">Ləğv zamanı ${inbound ? 'əks məxaric' : 'əks mədaxil'} yeni sənəd kimi yazılır. Orijinal sətirlər dəyişmir.${inbound ? ' Qalıq çatmırsa, ləğv baş tutmur.' : ''}</div>
       <label class="f" style="max-width:220px"><span>Ləğv tarixi</span><input type="date" id="dc-date" value="${today()}"></label>`;
-    actionsHtml = `<button class="btn" id="dc-edit">Sənədi redaktə et</button><div style="flex:1"></div><button class="btn" data-close>İmtina</button><button class="btn dgr" id="dc-go">Əməliyyatı ləğv et</button>`;
+    if (DB.layerActive) statusHtml += `<div class="hint" style="margin-top:8px">Partiya uçotu aktiv olduqda sənəd birbaşa redaktə edilmir. Dəyişiklik üçün təhlükəsiz ləğv edin və düzgün partiyalarla yeni sənəd yaradın.</div>`;
+    actionsHtml = `${DB.layerActive ? '' : '<button class="btn" id="dc-edit">Sənədi redaktə et</button>'}<div style="flex:1"></div><button class="btn" data-close>İmtina</button><button class="btn dgr" id="dc-go">Əməliyyatı ləğv et</button>`;
   }
   modal(m.t + ' sənədi' + (doc ? ' · ' + doc : ''), `
     <div class="hint" style="margin-bottom:10px">${esc(it.name || '')} · ${nf(rows.length)} sətir · qeyd edən: ${esc(m.by || '—')}</div>
@@ -4727,7 +5060,8 @@ function documentCancelView(m) {
     const dt = $('#dc-date') ? $('#dc-date').value : '';
     (async () => {
       try {
-        const { data, error } = await SB.rpc('cancel_document',
+        const cancelRpc = DB.layerActive ? 'cancel_layer_document' : 'cancel_document';
+        const { data, error } = await SB.rpc(cancelRpc,
           dt ? { p_doc_num: doc, p_reversal_date: dt } : { p_doc_num: doc });
         if (error) throw error;
         closeModal();
@@ -4765,7 +5099,8 @@ function cancelRowDialog(m) {
     if (!why) return;
     $('#rc-go').disabled = true;
     try {
-      const { data, error } = await SB.rpc('cancel_movement_row', { p_movement_id: m.id, p_reason: why });
+      const rowRpc = DB.layerActive ? 'cancel_layer_movement_row' : 'cancel_movement_row';
+      const { data, error } = await SB.rpc(rowRpc, { p_movement_id: m.id, p_reason: why });
       if (error) throw error;
       closeModal();
       await loadFromDB(); if (typeof loadAuditTotal === 'function') loadAuditTotal();
@@ -4786,6 +5121,12 @@ const EDIT_REPLACES_MARKER = /\s*·?\s*Əvəz edir:\s*[^·]+$/;
 async function editPostedDocument(docNum) {
   if (!isAdmin()) return toast('Sənədi yalnız Rəhbər (Admin) redaktə edə bilər', true);
   if (!docNum) return toast('Bu qeydin etibarlı sənəd nömrəsi yoxdur', true);
+  if (DB.layerActive) {
+    return modal('Sənəd birbaşa redaktə edilmir · ' + docNum,
+      `<div class="hint">Partiya uçotu aktivdir. Keçirilmiş sənədin malı, miqdarı və qiymət mənbəyi artıq auditdə sabitlənib.
+       Təhlükəsiz düzəliş üçün sənədi ləğv edin, sonra düzgün məlumat və mənbə partiyaları ilə yeni sənəd yaradın.</div>`,
+      `<div style="flex:1"></div><button class="btn" data-close>Bağla</button>`);
+  }
   if (OP.editDoc && OP.editDoc.doc !== docNum) {
     return toast('Artıq başqa sənəd düzəliş rejimindədir: ' + OP.editDoc.doc, true);
   }
@@ -4897,7 +5238,8 @@ function transferDocView(m) {
     const dt = $('#rev-date') ? $('#rev-date').value : '';
     (async () => {
       try {
-        const { data, error } = await SB.rpc('cancel_transfer_document',
+        const transferCancelRpc = DB.layerActive ? 'cancel_layer_transfer_document' : 'cancel_transfer_document';
+        const { data, error } = await SB.rpc(transferCancelRpc,
           dt ? { p_original_doc_num: doc, p_reversal_date: dt } : { p_original_doc_num: doc });
         if (error) throw error;
         closeModal();
@@ -4926,7 +5268,7 @@ function legacyCancelView(m) {
   if ($('#lc-go')) $('#lc-go').onclick = async () => {
     $('#lc-go').disabled = true;
     try {
-      const { data, error } = await SB.rpc('cancel_legacy_movement', { p_movement_id: m.id, p_reversal_date: $('#lc-date').value });
+      const { data, error } = await SB.rpc(DB.layerActive ? 'cancel_layer_legacy_movement' : 'cancel_legacy_movement', { p_movement_id: m.id, p_reversal_date: $('#lc-date').value });
       if (error) throw error;
       closeModal(); await loadFromDB(); if (typeof loadAuditTotal === 'function') loadAuditTotal(); renderAll();
       toast('Köhnə əməliyyat ləğv edildi · əks sənəd: ' + (data && data.reversal_doc_num ? data.reversal_doc_num : '—'));
@@ -4947,7 +5289,7 @@ function legacyTransferCancelView(m) {
   if ($('#lt-go')) $('#lt-go').onclick = async () => {
     $('#lt-go').disabled = true;
     try {
-      const { data, error } = await SB.rpc('cancel_legacy_transfer', { p_movement_id: m.id, p_reversal_date: $('#lt-date').value });
+      const { data, error } = await SB.rpc(DB.layerActive ? 'cancel_layer_legacy_transfer' : 'cancel_legacy_transfer', { p_movement_id: m.id, p_reversal_date: $('#lt-date').value });
       if (error) throw error;
       closeModal(); await loadFromDB(); if (typeof loadAuditTotal === 'function') loadAuditTotal(); renderAll();
       toast('Köhnə yerdəyişmə ləğv edildi · əks sənəd: ' + (data && data.reversal_doc_num ? data.reversal_doc_num : '—'));
@@ -5139,7 +5481,8 @@ function batchCancelExecute(docNums) {
   const dt = $('#bc-date') ? $('#bc-date').value : '';
   (async () => {
     try {
-      const { data, error } = await SB.rpc('cancel_documents_batch',
+      const batchRpc = DB.layerActive ? 'cancel_layer_documents_batch' : 'cancel_documents_batch';
+      const { data, error } = await SB.rpc(batchRpc,
         dt ? { p_doc_nums: docNums, p_reversal_date: dt } : { p_doc_nums: docNums });
       if (error) throw error;
       closeModal();
@@ -6519,7 +6862,8 @@ function qaimeReportRows() {
     if (m.by) g.bys.add(m.by);
     if (m.note && g.notes.indexOf(m.note) < 0) g.notes.push(m.note);
     g.qty += (m.i || 0) + (m.o || 0);
-    g.val += ((m.i || 0) + (m.o || 0)) * (m.pr || 0);
+    const qv = m.t === 'Silinmə' ? movementValuation(m) : null;
+    g.val += qv ? (qv.final == null ? 0 : qv.final) : ((m.i || 0) + (m.o || 0)) * (m.pr || 0);
   }
   return Array.from(groups.values()).sort((a, b) => dsort(b.dMax, a.dMax) || a.iv.localeCompare(b.iv, 'az'));
 }
@@ -7308,6 +7652,7 @@ async function enterApp(userId, email) {
     const rawMovs = [['date','warehouse','item_code','in_qty','out_qty','type','partner','channel','contract_num','invoice_num','price','note','doc_num']];
     normalMovements().forEach(m=>rawMovs.push([m.d,m.w,m.c,m.i||0,m.o||0,m.t,m.p||'',m.ch||'',m.ct||'',m.iv||'',m.pr||0,m.note||'',m.doc||'']));
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rawMovs), '_movements');
+
 
     const rawParts = [['name','voen','contract','contract_date']];
     DB.partners.forEach(p=>rawParts.push([p.name,p.voen||'',p.contract||'',p.cdate||'']));
