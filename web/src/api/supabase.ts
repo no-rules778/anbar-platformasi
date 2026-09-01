@@ -13,7 +13,7 @@ interface AuthStorageLike {
 
 /* Session lives in localStorage when "remember me" is on, otherwise only for
    this tab (sessionStorage). Ported from index.html authStore() (~line 761). */
-function authStorage(): AuthStorageLike {
+export function authStorage(): AuthStorageLike {
   const pick = (): Storage => {
     try {
       return localStorage.getItem(REMEMBER_KEY) === '1' ? localStorage : sessionStorage
