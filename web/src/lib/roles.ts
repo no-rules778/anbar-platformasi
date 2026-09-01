@@ -50,6 +50,7 @@ export const isAnbardar = (me: Me | null): boolean => !!me && effectiveRole(me.r
    (e.g. a toast), matching the original need()'s message text exactly.
    Ported from index.html line 638. */
 export function permissionDeniedMessage(me: Me | null): string {
-  const label = me && ROLES[me.role ?? ''] ? ROLES[me.role ?? ''].name : me?.role ?? ''
+  const role = me?.role
+  const label = role && ROLES[role] ? ROLES[role].name : role
   return `Bu əməliyyat üçün icazəniz yoxdur (${label})`
 }

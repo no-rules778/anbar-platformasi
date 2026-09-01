@@ -66,7 +66,18 @@ describe('can', () => {
 })
 
 describe('permissionDeniedMessage', () => {
-  it('includes the role label', () => {
+  it('includes the role label for recognized role', () => {
     expect(permissionDeniedMessage(rehber)).toBe('Bu əməliyyat üçün icazəniz yoxdur (Rəhbər)')
+  })
+  it('includes the raw role string for unrecognized role', () => {
+    expect(permissionDeniedMessage(unknownRole)).toBe('Bu əməliyyat üçün icazəniz yoxdur (nonsense)')
+  })
+  it('includes null as literal string for null role', () => {
+    const meWithNullRole: Me = { id: '8', sbId: '8', email: 'h@x.com', name: 'H', role: null, wh: '' }
+    expect(permissionDeniedMessage(meWithNullRole)).toBe('Bu əməliyyat üçün icazəniz yoxdur (null)')
+  })
+  it('includes undefined as literal string for undefined role', () => {
+    const meWithUndefinedRole: Me = { id: '9', sbId: '9', email: 'i@x.com', name: 'I', role: undefined, wh: '' }
+    expect(permissionDeniedMessage(meWithUndefinedRole)).toBe('Bu əməliyyat üçün icazəniz yoxdur (undefined)')
   })
 })
