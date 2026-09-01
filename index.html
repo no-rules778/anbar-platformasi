@@ -3164,7 +3164,7 @@ async function refSend(kind, action, id) {
   const btns = $$('#m-foot .btn'); btns.forEach(b => b.disabled = true);
   try {
     const { data, error } = await SB.rpc('manage_reference',
-      { p_kind: kind, p_action: action, p_id: id, p_name: name || null, p_meta: meta });
+      { p_kind: kind, p_action: action, p_id: id == null ? null : String(id), p_name: name || null, p_meta: meta });
     if (error) throw error;
     closeModal();
     if ($('#rf-new-name')) $('#rf-new-name').value = '';
