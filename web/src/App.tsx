@@ -19,11 +19,13 @@ function App() {
     async function restore() {
       setStatus('loading')
       const session = await getSession()
+      if (cancelled) return
       if (!session?.user) {
-        if (!cancelled) setStatus('idle')
+        setStatus('idle')
         return
       }
       const reg = await registerSession()
+      if (cancelled) return
       if (reg.allowed === false) {
         await signOut()
         if (!cancelled) {
@@ -33,6 +35,7 @@ function App() {
         return
       }
       const { data: profile, error } = await fetchProfile(session.user.id)
+      if (cancelled) return
       if (error || !profile || !profile.active) {
         await signOut()
         if (!cancelled) setStatus('idle')

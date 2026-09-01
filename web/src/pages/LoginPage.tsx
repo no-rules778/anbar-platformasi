@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { signIn } from '../api/auth.api'
+import { signIn, signOut } from '../api/auth.api'
 import { registerSession, type RegisterSessionResult } from '../api/session.api'
 import { setRemember, savedEmail, saveEmail } from '../api/supabase'
 import { useAuthStore } from '../store/auth.store'
@@ -36,6 +36,7 @@ export function LoginPage({ onLoggedIn }: Props) {
       if (error) throw error
       const reg = await registerSession()
       if (reg.allowed === false) {
+        await signOut()
         setLimitInfo(reg)
         setBusy(false)
         return
