@@ -222,6 +222,41 @@ Note: importing pure helpers that merely live in `api/supabase.ts`
 (`rememberOn`, `setRemember`, `savedEmail`, `saveEmail`) is not a violation —
 they touch browser storage, not the Supabase client.
 
+### Interface design: keep the existing one
+
+**User decision, 2026-09-02: the platform's existing interface design stays as
+it is. A redesign is a separate, later piece of work and must not be smuggled
+into a migration phase.**
+
+A migration phase changes the technology under the screen, not how the screen
+looks. Unless the user explicitly asks for a visual change, port the existing
+appearance along with the behaviour: same layout, same visual hierarchy, same
+Azerbaijani wording and terminology, same table density, same colour meanings.
+
+The production platform's design is defined in `origin/main:index.html`'s
+`:root` block (lines 11-22) and the shell rules that follow it:
+
+| Element | Production value |
+|---|---|
+| Ink / paper | `--ink #0E141A`, `--ink-2 #3C4C5A`, `--ink-3 #71838F`, `--paper #EEF1F3`, `--panel #FFFFFF` |
+| Lines | `--line #D6DEE3`, `--line-2 #E9EEF1` |
+| Accent (steel) | `--steel #1F4E6B`, `--steel-d #143548`, `--steel-l #E7F0F5` |
+| Semantic | in `#0E7C6B`, out `#B06A11`, alarm `#A9231C`, move `#5B4B9E`, each with a light pair |
+| Type | `--sans "Segoe UI", Inter, system-ui…` at 13px/1.45; `--mono` for every number (`.num`, tabular figures, right-aligned) |
+| Shell | 46px sticky dark-steel topbar; 212px sticky left rail (`--rail`); content area below |
+| Surfaces | `.card` = white panel, 1px `--line` border, 5px radius; `.kpi` with a 3px semantic left bar |
+| Tables | sticky `th`, 10px uppercase letter-spaced headers in `--ink-3`, dense 7-9px cells |
+| Buttons | `.btn` white with a `--line` border; `.btn.pri` filled `--steel` |
+| Tags | `.tag` 10.5px, 3px radius, semantic light background |
+
+**Known open item:** Phase 1's screens do **not** yet follow this. They were
+built with neutral Tailwind primitives (white cards, slate palette, a plain
+header) and have no topbar/rail shell. This is registry deviation D-03/D-11 and
+must be resolved — either by re-skinning the Phase 1 screens to the production
+design, or by an explicit user decision to accept the interim look until the
+planned redesign. It is not licence to keep inventing new styling in later
+phases.
+
 ### Priority order when priorities conflict
 
 1. The user's latest explicit decision.

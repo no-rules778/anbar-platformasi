@@ -157,6 +157,8 @@ work — but note the UI has never been observed reacting to them (B-13).
 | D-09 | **Scoped exception to Supabase-isolation:** `App.tsx:77-78` calls `supabase.auth.getSession()` and `supabase.auth.onAuthStateChange()` directly | Needed so the unload beacon (A-16) has the access token synchronously; the subscription's lifetime is tied to the component, which is why it sits in `App`. Not yet moved because the task that surfaced it was documentation-only, and moving an auth subscription can change teardown timing | **Cleanup pending:** extract to an auth-session API wrapper. Prerequisite per principles §9: regression tests for token refresh and for beacon-after-refresh first. Tests today: `App.test` (beacon fires only while signed in), `session.api.test` (beacon contract) |
 | D-10 | **Scoped exception to Supabase-isolation:** `hooks/useRealtimeRefresh.ts:45,54` calls `supabase.channel()` / `supabase.removeChannel()` directly | The hook owns the channel's lifecycle (subscribe on mount, remove on unmount); splitting lifecycle from subscription risks leaking a channel or removing it twice | **Cleanup pending:** extract the client calls into `api/realtime.api.ts`, keeping lifecycle in the hook. Tests today: `WarehousesPage.test` (subscribes once to the three tables, burst collapses into one refresh, channel removed on unmount) |
 
+| D-11 | Phase 1 screens do not reproduce the production platform's visual design (no 46px steel topbar, no 212px rail, neutral Tailwind palette instead of the `:root` tokens, different table density) | **Not approved — open.** User ruled on 2026-09-02 that the existing interface design stays and a redesign happens separately later, which makes this a gap rather than an accepted difference | Must be resolved: re-skin the Phase 1 screens to the production design, or obtain an explicit decision to accept the interim look. Later phases must port the existing appearance, not invent styling. See principles §9 "Interface design" |
+
 Checked and **not** violations: `pages/LoginPage.tsx` and
 `components/SessionDialog.tsx` import only `rememberOn`/`setRemember`/
 `savedEmail`/`saveEmail` from `api/supabase.ts` — browser-storage helpers, not
@@ -173,6 +175,7 @@ table, RPC, auth-subscription or Realtime client calls.
 | R-05 | `manage_reference` type mismatch (`BUG_REGISTRY` C-15) was fixed live by others during Phase 1; the React code depends on the fixed contract | If that fix were reverted, warehouse mutations break |
 | R-06 | Repository-root `index.html` carries an uncommitted user edit that removes the `String(id)` conversion | Never staged by migration work; must not be swept into a React commit |
 | R-07 | Two scoped exceptions to Supabase-isolation remain open (D-09 auth subscription in `App.tsx`, D-10 Realtime client in `useRealtimeRefresh`) | Architectural debt, not behavioural. Cleanup is gated on regression tests first, per principles §9 |
+| R-08 | The React screens look nothing like the production platform (D-11), so a side-by-side live comparison will differ visually even where behaviour matches | Confuses acceptance testing and users; must be settled before the platform could ever replace the old one |
 
 ## Outstanding live verification (blocking `ACCEPTED`)
 
