@@ -249,13 +249,10 @@ The production platform's design is defined in `origin/main:index.html`'s
 | Buttons | `.btn` white with a `--line` border; `.btn.pri` filled `--steel` |
 | Tags | `.tag` 10.5px, 3px radius, semantic light background |
 
-**Known open item:** Phase 1's screens do **not** yet follow this. They were
-built with neutral Tailwind primitives (white cards, slate palette, a plain
-header) and have no topbar/rail shell. This is registry deviation D-03/D-11 and
-must be resolved — either by re-skinning the Phase 1 screens to the production
-design, or by an explicit user decision to accept the interim look until the
-planned redesign. It is not licence to keep inventing new styling in later
-phases.
+**Status:** Phase 1's screens were re-skinned to this design in `d8fbd43`
+(registry D-11, closed). `web/src/index.css` is the ported contract — extend it
+from the original when a later phase needs a class that is not there yet, and
+do not introduce a parallel styling system.
 
 ### Priority order when priorities conflict
 
