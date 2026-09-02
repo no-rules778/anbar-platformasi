@@ -21,6 +21,7 @@ import { useWarehousesStore } from '../store/warehouses.store'
 import type { Me } from '../lib/roles'
 import { supabase } from '../api/supabase'
 import { useToastStore } from '../store/toast.store'
+import { useSyncStore } from '../store/sync.store'
 
 const admin: Me = { id: '1', sbId: '1', email: 'a@x.com', name: 'Admin', role: 'admin', wh: '' }
 const rehber: Me = { id: '2', sbId: '2', email: 'r@x.com', name: 'Rehber', role: 'rehber', wh: '' }
@@ -33,6 +34,7 @@ beforeEach(() => {
   useToastStore.setState({ messages: [] })
   channel.on.mockClear()
   channel.subscribe.mockClear()
+  useSyncStore.setState({ state: 'idle' })
   vi.mocked(fetchWarehouses).mockResolvedValue([{ id: 1, name: 'Astara', type: 'anbar', active: true }])
   vi.mocked(fetchWarehouseUsage).mockResolvedValue(new Map([['Astara', { count: 2, exact: true }]]))
 })
@@ -190,5 +192,119 @@ describe('WarehousesPage — realtime', () => {
     await waitFor(() => expect(supabase.channel).toHaveBeenCalled())
     view.unmount()
     expect(supabase.removeChannel).toHaveBeenCalled()
+  })
+})
+
+/* The success notice may only appear after the refresh actually succeeded. */
+describe('WarehousesPage — realtime refresh reports truthfully', () => {
+  const fireRealtimeChange = async () => {
+    const bump = channel.on.mock.calls[0][2] as () => void
+    bump()
+    await vi.advanceTimersByTimeAsync(500)
+  }
+
+  it('announces success only after the reload resolves', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      await renderWithMany()
+      useToastStore.setState({ messages: [] })
+
+      let release!: () => void
+      vi.mocked(fetchWarehouses).mockImplementation(
+        () => new Promise((resolve) => { release = () => resolve(manyWarehouses) }),
+      )
+
+      await fireRealtimeChange()
+      // reload is in flight — nothing may be claimed yet
+      expect(useToastStore.getState().messages).toEqual([])
+
+      release()
+      await waitFor(() => expect(useToastStore.getState().messages.map((m) => m.text))
+        .toContain('Məlumatlar yeniləndi (digər istifadəçi)'))
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('shows an error notice, keeps the old rows, and exposes the error when the reload fails', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      await renderWithMany()
+      useToastStore.setState({ messages: [] })
+
+      vi.mocked(fetchWarehouses).mockRejectedValue(new Error('şəbəkə xətası'))
+
+      await fireRealtimeChange()
+
+      await waitFor(() => {
+        const texts = useToastStore.getState().messages.map((m) => m.text)
+        expect(texts.some((t) => t.startsWith('Məlumatlar yenilənmədi'))).toBe(true)
+        expect(texts).not.toContain('Məlumatlar yeniləndi (digər istifadəçi)')
+      })
+      expect(useToastStore.getState().messages.some((m) => m.isError)).toBe(true)
+      // previously loaded data survives a failed refresh
+      expect(useWarehousesStore.getState().rows).toHaveLength(manyWarehouses.length)
+      expect(useWarehousesStore.getState().error).toBe('şəbəkə xətası')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+/* Subscription state drives the sync indicator (index.html:1177-1180). */
+describe('WarehousesPage — sync state transitions', () => {
+  const statusCallback = () => channel.subscribe.mock.calls[0][0] as (s: string) => void
+
+  it('reports "connecting" until SUBSCRIBED arrives — never claims sync early', async () => {
+    await renderWithMany()
+    expect(useSyncStore.getState().state).toBe('connecting')
+
+    statusCallback()('SUBSCRIBED')
+    expect(useSyncStore.getState().state).toBe('synced')
+  })
+
+  it.each(['CHANNEL_ERROR', 'TIMED_OUT'])('reports an error on %s', async (status) => {
+    await renderWithMany()
+    statusCallback()('SUBSCRIBED')
+    statusCallback()(status)
+    expect(useSyncStore.getState().state).toBe('error')
+  })
+
+  it('returns to idle on CLOSED', async () => {
+    await renderWithMany()
+    statusCallback()('SUBSCRIBED')
+    statusCallback()('CLOSED')
+    expect(useSyncStore.getState().state).toBe('idle')
+  })
+
+  it('resets to idle when the screen unmounts', async () => {
+    vi.mocked(fetchWarehouses).mockResolvedValue(manyWarehouses)
+    vi.mocked(fetchWarehouseUsage).mockResolvedValue(new Map())
+    const view = render(<WarehousesPage me={admin} />)
+    await waitFor(() => expect(supabase.channel).toHaveBeenCalled())
+    statusCallback()('SUBSCRIBED')
+    expect(useSyncStore.getState().state).toBe('synced')
+
+    view.unmount()
+
+    expect(useSyncStore.getState().state).toBe('idle')
+  })
+
+  it('ignores late status callbacks after teardown', async () => {
+    vi.mocked(fetchWarehouses).mockResolvedValue(manyWarehouses)
+    vi.mocked(fetchWarehouseUsage).mockResolvedValue(new Map())
+    const view = render(<WarehousesPage me={admin} />)
+    await waitFor(() => expect(supabase.channel).toHaveBeenCalled())
+    const notify = statusCallback()
+    view.unmount()
+
+    notify('SUBSCRIBED')
+
+    expect(useSyncStore.getState().state).toBe('idle')
+  })
+
+  it('stays idle for a non-Admin, who never subscribes', () => {
+    render(<WarehousesPage me={rehber} />)
+    expect(useSyncStore.getState().state).toBe('idle')
   })
 })

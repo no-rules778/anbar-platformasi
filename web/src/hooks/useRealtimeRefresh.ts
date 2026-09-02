@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { supabase } from '../api/supabase'
+import { useSyncStore } from '../store/sync.store'
 
 /* Ported from index.html subscribeRealtime() (lines 1163-1181): one channel,
    `postgres_changes` on the tables the screen's data comes from, and a 400 ms
@@ -8,6 +9,9 @@ import { supabase } from '../api/supabase'
    Rules the original enforces and this keeps:
      * exactly one subscription — the original guards with `if (REALTIME_CH) return`;
      * a debounce, not a refresh per event;
+     * subscription status drives the sync indicator: SUBSCRIBED means
+       synchronised, CHANNEL_ERROR/TIMED_OUT mean not synchronised
+       (index.html:1177-1180);
      * the channel is torn down on unmount/logout, and a pending timer with it,
        so nothing refreshes a screen that is gone.
 
@@ -27,6 +31,7 @@ export function useRealtimeRefresh(
   const onChangeRef = useRef(onChange)
   useEffect(() => { onChangeRef.current = onChange }, [onChange])
 
+  const setSyncState = useSyncStore((s) => s.setState)
   const tableKey = tables.join(',')
 
   useEffect(() => {
@@ -42,16 +47,25 @@ export function useRealtimeRefresh(
       }, debounceMs)
     }
 
+    /* Not "synced" yet — only the SUBSCRIBED callback may claim that. */
+    setSyncState('connecting')
+
     const channel = supabase.channel('anbar_changes')
     for (const table of tableKey.split(',')) {
       channel.on('postgres_changes', { event: '*', schema: 'public', table }, bump)
     }
-    channel.subscribe()
+    channel.subscribe((status: string) => {
+      if (!alive) return
+      if (status === 'SUBSCRIBED') setSyncState('synced')
+      else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') setSyncState('error')
+      else if (status === 'CLOSED') setSyncState('idle')
+    })
 
     return () => {
       alive = false
       clearTimeout(timer)
       supabase.removeChannel(channel)
+      setSyncState('idle')
     }
-  }, [enabled, tableKey, debounceMs])
+  }, [enabled, tableKey, debounceMs, setSyncState])
 }

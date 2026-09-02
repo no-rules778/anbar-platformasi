@@ -49,8 +49,10 @@ export function WarehousesPage({ me }: Props) {
   /* Another Admin's change must appear here on its own — the original
      subscribes and announces it (index.html:1163-1181). */
   useRealtimeRefresh(admin, WATCHED_TABLES, () => {
-    load()
-    show('Məlumatlar yeniləndi (digər istifadəçi)')
+    void load().then(({ ok, error: loadError }) => {
+      if (ok) show('Məlumatlar yeniləndi (digər istifadəçi)')
+      else show('Məlumatlar yenilənmədi: ' + (loadError ?? 'server xətası'), true)
+    })
   })
 
   const filtered = useMemo(() => {
