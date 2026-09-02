@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { DEVICE_ID, endOtherSessions, endSession, listMySessions, type SessionDevice } from '../api/session.api'
+import { DEVICE_ID, endOtherSessions, endSession, listMySessions, type MySessionsResult, type SessionDevice } from '../api/session.api'
 import { rememberOn } from '../api/supabase'
 import { ROLES, ROLE_PERMS, effectiveRole, type Me } from '../lib/roles'
 import { deviceLabel, formatLastSeen, formatSince, isCurrentDevice, shortDeviceId } from '../lib/sessionDevices'
@@ -25,20 +25,33 @@ export function SessionDialog({ me, onLogout, onChangePassword, onClose }: Props
   const [busy, setBusy] = useState(false)
   const show = useToastStore((s) => s.show)
 
-  const loadDevices = useCallback(async () => {
-    try {
-      const info = await listMySessions()
-      setDevices(info?.devices ?? [])
-      setLimit(info?.limit ?? null)
-      setUnavailable(false)
-    } catch {
-      /* SQL 026 not applied — the original degrades to a hint, not an error. */
-      setUnavailable(true)
-      setDevices([])
-    }
+  const applyInfo = useCallback((info: MySessionsResult | null) => {
+    setDevices(info?.devices ?? [])
+    setLimit(info?.limit ?? null)
+    setUnavailable(false)
   }, [])
 
-  useEffect(() => { loadDevices() }, [loadDevices])
+  /* SQL 026 not applied — the original degrades to a hint, not an error. */
+  const applyUnavailable = useCallback(() => {
+    setUnavailable(true)
+    setDevices([])
+  }, [])
+
+  const loadDevices = useCallback(async () => {
+    try {
+      applyInfo(await listMySessions())
+    } catch {
+      applyUnavailable()
+    }
+  }, [applyInfo, applyUnavailable])
+
+  useEffect(() => {
+    let alive = true
+    void listMySessions()
+      .then((info) => { if (alive) applyInfo(info) })
+      .catch(() => { if (alive) applyUnavailable() })
+    return () => { alive = false }
+  }, [applyInfo, applyUnavailable])
 
   async function closeOthers() {
     setBusy(true)
