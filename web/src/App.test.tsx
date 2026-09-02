@@ -30,8 +30,8 @@ vi.mock('./api/supabase', () => ({
     },
   },
 }))
-vi.mock('./pages/WarehousesPage', () => ({
-  WarehousesPage: ({ me }: { me: { name: string } }) => <div>Anbarlar ekranı: {me.name}</div>,
+vi.mock('./pages/ReferenceDirectoryPage', () => ({
+  ReferenceDirectoryPage: ({ me }: { me: { name: string } }) => <div>Soraqçalar ekranı: {me.name}</div>,
 }))
 
 import { getSession, fetchProfile, signOut } from './api/auth.api'
@@ -78,7 +78,7 @@ describe('App — session restore never flashes the login form', () => {
     render(<App />)
 
     expect(screen.queryByRole('button', { name: 'Daxil ol' })).toBeNull()
-    await waitFor(() => expect(screen.getByText('Anbarlar ekranı: Admin')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Soraqçalar ekranı: Admin')).toBeTruthy())
     expect(screen.queryByRole('button', { name: 'Daxil ol' })).toBeNull()
   })
 
@@ -102,7 +102,7 @@ async function renderSignedIn() {
   } as never)
   vi.mocked(listMySessions).mockResolvedValue({ limit: 3, devices: [] })
   render(<App />)
-  await waitFor(() => expect(screen.getByText('Anbarlar ekranı: Admin User')).toBeTruthy())
+  await waitFor(() => expect(screen.getByText('Soraqçalar ekranı: Admin User')).toBeTruthy())
 }
 
 /* F1: without this the user cannot sign out, free a device or change a
@@ -204,7 +204,7 @@ describe('App — logout releases the device exactly once', () => {
     } as never)
     vi.mocked(listMySessions).mockResolvedValue({ limit: 3, devices: [] })
     const view = render(<App />)
-    await waitFor(() => expect(screen.getByText('Anbarlar ekranı: Admin User')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Soraqçalar ekranı: Admin User')).toBeTruthy())
 
     await user.click(screen.getByRole('button', { name: /Admin · Admin/ }))
     await user.click(screen.getByRole('button', { name: 'Çıxış' }))
@@ -224,7 +224,7 @@ describe('App — logout releases the device exactly once', () => {
     vi.mocked(listMySessions).mockResolvedValue({ limit: 3, devices: [] })
 
     const view = render(<App />)
-    await waitFor(() => expect(screen.getByText('Anbarlar ekranı: Admin User')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Soraqçalar ekranı: Admin User')).toBeTruthy())
     expect(unregisterSession).not.toHaveBeenCalled()
 
     view.unmount()

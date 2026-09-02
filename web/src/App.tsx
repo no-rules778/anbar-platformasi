@@ -12,7 +12,7 @@ import { SessionDialog } from './components/SessionDialog'
 import { PasswordChangeDialog } from './components/PasswordChangeDialog'
 import { ToastHost } from './components/ui/Toast'
 import { SyncIndicator } from './components/SyncIndicator'
-import { WarehousesPage } from './pages/WarehousesPage'
+import { ReferenceDirectoryPage } from './pages/ReferenceDirectoryPage'
 import { ROLES, isAdmin, type Me } from './lib/roles'
 
 function App() {
@@ -152,7 +152,7 @@ function App() {
             </nav>
 
             <main className="main">
-              <WarehousesPage me={me} />
+              <ReferenceDirectoryPage me={me} />
             </main>
           </div>
           {sessionOpen && (
