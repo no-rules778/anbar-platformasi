@@ -3,10 +3,15 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 vi.mock('../../api/referenceDirectory.api', () => ({ manageReference: vi.fn() }))
+vi.mock('../../lib/mutationGuard', async (orig) => ({
+  ...(await orig<typeof import('../../lib/mutationGuard')>()),
+  blockedReason: vi.fn(() => null),
+}))
 
 import { manageReference } from '../../api/referenceDirectory.api'
 import { ReferenceDirectoryFormDialog } from './ReferenceDirectoryFormDialog'
 import { useToastStore } from '../../store/toast.store'
+import { blockedReason } from '../../lib/mutationGuard'
 import type { ReferenceEntity } from '../../types/referenceDirectory'
 
 const unusedWarehouse: ReferenceEntity = {
@@ -29,6 +34,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   useToastStore.setState({ messages: [] })
   vi.mocked(manageReference).mockResolvedValue(ok as never)
+  vi.mocked(blockedReason).mockReturnValue(null)
 })
 
 const exact = (count: number) => ({ count, exact: true })
@@ -281,5 +287,57 @@ describe('ReferenceDirectoryFormDialog — legacy contract date', () => {
 
     render(<ReferenceDirectoryFormDialog entity={{ ...partner, contractDate: '' }} kind="partner" usage={exact(0)} onDone={vi.fn()} onClose={vi.fn()} />)
     expect(screen.queryByText(/köhnə formatdadır/)).toBeNull()
+  })
+})
+
+/* Localhost shares the production database, so destructive actions are
+   blocked there unless the developer opts in (VITE_ALLOW_DESTRUCTIVE=true).
+   The dialog must refuse before any RPC leaves the browser. */
+describe('ReferenceDirectoryFormDialog — localhost mutation guard', () => {
+  const REFUSAL = 'Bu əməliyyat lokal rejimdə bloklanıb: localhost CANLI Supabase bazasına qoşulub.'
+
+  it.each(['Gizlət', 'Tamamilə sil'])('refuses %s and sends nothing when blocked', async (button) => {
+    vi.mocked(blockedReason).mockImplementation((action) =>
+      action === 'deactivate' || action === 'delete' ? REFUSAL : null)
+    const user = userEvent.setup()
+    render(<ReferenceDirectoryFormDialog entity={partner} kind="partner" usage={exact(0)} onDone={vi.fn()} onClose={vi.fn()} />)
+
+    if (button === 'Tamamilə sil') await user.click(screen.getByRole('button', { name: 'Tamamilə sil' }))
+    await user.click(screen.getByRole('button', { name: button }))
+
+    expect(manageReference).not.toHaveBeenCalled()
+    expect(toasts()).toContain(REFUSAL)
+  })
+
+  it('refuses «Aktiv et» for a hidden value', async () => {
+    vi.mocked(blockedReason).mockImplementation((action) => (action === 'activate' ? REFUSAL : null))
+    const user = userEvent.setup()
+    render(<ReferenceDirectoryFormDialog entity={{ ...partner, active: false }} kind="partner" usage={exact(0)} onDone={vi.fn()} onClose={vi.fn()} />)
+
+    await user.click(screen.getByRole('button', { name: 'Aktiv et' }))
+
+    expect(manageReference).not.toHaveBeenCalled()
+    expect(toasts()).toContain(REFUSAL)
+  })
+
+  it('still allows create and update while destructive actions are blocked', async () => {
+    vi.mocked(blockedReason).mockImplementation((action) =>
+      action === 'create' || action === 'update' ? null : REFUSAL)
+    const user = userEvent.setup()
+    render(<ReferenceDirectoryFormDialog entity={partner} kind="partner" usage={exact(0)} onDone={vi.fn()} onClose={vi.fn()} />)
+
+    await user.click(screen.getByRole('button', { name: 'Yadda saxla' }))
+
+    await waitFor(() => expect(manageReference).toHaveBeenCalledWith('partner', 'update', partner.id, 'Bakcell MMC', expect.anything()))
+  })
+
+  it('lets destructive actions through once the guard allows them', async () => {
+    vi.mocked(blockedReason).mockReturnValue(null)
+    const user = userEvent.setup()
+    render(<ReferenceDirectoryFormDialog entity={partner} kind="partner" usage={exact(2)} onDone={vi.fn()} onClose={vi.fn()} />)
+
+    await user.click(screen.getByRole('button', { name: 'Gizlət' }))
+
+    await waitFor(() => expect(manageReference).toHaveBeenCalledWith('partner', 'deactivate', partner.id, expect.anything(), expect.anything()))
   })
 })

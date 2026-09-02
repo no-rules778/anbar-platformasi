@@ -9,6 +9,7 @@ import { Button } from '../components/ui/Button'
 import { ReferenceDirectoryFormDialog } from '../components/reference-directory/ReferenceDirectoryFormDialog'
 import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh'
 import { useToastStore } from '../store/toast.store'
+import { isLocalhost, destructiveAllowed, LOCALHOST_WARNING } from '../lib/mutationGuard'
 
 interface Props {
   me: Me
@@ -90,6 +91,19 @@ export function ReferenceDirectoryPage({ me }: Props) {
         </div>
         <div className="sp" />
       </div>
+
+      {isLocalhost() && (
+        <div className="card" style={{ marginBottom: 12, borderColor: 'var(--alarm)' }}>
+          <div className="pad">
+            <p className="err" style={{ marginTop: 0 }}>{LOCALHOST_WARNING}</p>
+            <p className="hint" style={{ marginTop: 4 }}>
+              {destructiveAllowed()
+                ? 'Silmə / gizlətmə / aktivləşdirmə bu rejimdə AÇIQDIR (VITE_ALLOW_DESTRUCTIVE=true).'
+                : 'Silmə, gizlətmə və aktivləşdirmə bloklanıb. Açmaq üçün web/.env → VITE_ALLOW_DESTRUCTIVE=true.'}
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="card">
         <div className="pad">

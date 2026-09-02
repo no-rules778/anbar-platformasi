@@ -6,6 +6,7 @@ import { Dialog } from '../ui/Dialog'
 import { Button } from '../ui/Button'
 import { Input } from '../ui/Input'
 import { useToastStore } from '../../store/toast.store'
+import { blockedReason } from '../../lib/mutationGuard'
 
 interface Props {
   /** null = create a new value of `kind` */
@@ -54,6 +55,13 @@ export function ReferenceDirectoryFormDialog({ entity, kind, usage, presetName, 
   const unshowableDate = kind === 'partner' && storedDate !== '' && !ISO_DATE.test(storedDate)
 
   async function send(action: ReferenceAction) {
+    /* Localhost shares the production database, so destructive actions need an
+       explicit opt-in there. Off localhost this is always null. */
+    const blocked = blockedReason(action)
+    if (blocked) {
+      show(blocked, true)
+      return
+    }
     if ((action === 'create' || action === 'update') && name.trim().length < 2) {
       show('Ad ən azı 2 simvol olmalıdır', true)
       return
