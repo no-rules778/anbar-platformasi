@@ -81,64 +81,65 @@ export function SessionDialog({ me, onLogout, onChangePassword, onClose }: Props
       footer={
         <>
           <Button variant="secondary" onClick={onChangePassword}>Şifrəni dəyiş</Button>
-          <div className="flex-1" />
+          <div className="sp" style={{ flex: 1 }} />
           <Button variant="secondary" disabled={busy} onClick={onLogout}>Çıxış</Button>
           <Button onClick={onClose}>Bağla</Button>
         </>
       }
     >
-      <p className="text-sm">
+      <p>
         <b>{me.name}</b> · {roleLabel} · {me.wh || 'bütün anbarlar'}
       </p>
-      <p className="text-xs text-slate-500">{me.email}</p>
-      <p className="mt-1 text-xs text-slate-500">
+      <p className="hint">{me.email}</p>
+      <p className="hint">
         Səlahiyyətləriniz: {perms.length ? perms.join(', ') : 'yalnız baxış'}.
       </p>
-      <p className="text-xs text-slate-500">
+      <p className="hint">
         Bu cihazda yadda saxlanılıb: <b>{rememberOn() ? 'bəli' : 'xeyr'}</b>.
       </p>
 
-      <div className="mt-4 rounded-md border border-slate-200">
-        <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
-          <h3 className="text-sm font-medium">Aktiv cihazlar</h3>
+      <div className="card" style={{ marginTop: 12 }}>
+        <header>
+          <h3>Aktiv cihazlar</h3>
+          <div className="sp" />
           {limit !== null && devices && (
-            <span className="text-xs text-slate-500">{devices.length} / {limit} cihaz</span>
+            <span className="hint">{devices.length} / {limit} cihaz</span>
           )}
-        </div>
+        </header>
 
         {unavailable ? (
-          <p className="px-3 py-2 text-xs text-slate-500">
+          <p className="pad hint">
             Cihaz siyahısı əlçatmazdır. (SQL 026 tətbiq edilməyibsə bu normaldır.)
           </p>
         ) : devices === null ? (
-          <p className="px-3 py-2 text-xs text-slate-500">Yüklənir…</p>
+          <p className="pad hint">Yüklənir…</p>
         ) : devices.length === 0 ? (
-          <p className="px-3 py-2 text-xs text-slate-500">Aktiv cihaz yoxdur.</p>
+          <p className="pad hint">Aktiv cihaz yoxdur.</p>
         ) : (
-          <ul className="divide-y divide-slate-100">
+          <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
             {devices.map((d) => (
-              <li key={d.device_id} className="flex items-center justify-between gap-2 px-3 py-2">
+              <li key={d.device_id} className="pad" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, borderTop: '1px solid var(--line-2)' }}>
                 <div className="min-w-0">
-                  <div className="truncate text-sm">
+                  <div>
                     {deviceLabel(d)}
                     {isCurrentDevice(d, DEVICE_ID) && (
-                      <span className="ml-2 rounded bg-emerald-50 px-1.5 py-0.5 text-xs text-emerald-700">bu cihaz</span>
+                      <span className="tag t-in" style={{ marginLeft: 8 }}>bu cihaz</span>
                     )}
                   </div>
-                  <div className="text-xs text-slate-500">
-                    <span className="font-mono">{shortDeviceId(d.device_id)}</span>
+                  <div className="hint">
+                    <span className="code">{shortDeviceId(d.device_id)}</span>
                     {' · '}{formatSince(d.since)}{' · '}{formatLastSeen(d.last_seen)}
                   </div>
                 </div>
                 {!isCurrentDevice(d, DEVICE_ID) && (
-                  <Button variant="danger" disabled={busy} onClick={() => closeOne(d.device_id)}>Bağla</Button>
+                  <Button variant="danger" size="sm" disabled={busy} onClick={() => closeOne(d.device_id)}>Bağla</Button>
                 )}
               </li>
             ))}
           </ul>
         )}
 
-        <div className="border-t border-slate-100 px-3 py-2">
+        <div className="pad" style={{ borderTop: '1px solid var(--line-2)' }}>
           <Button
             variant="danger"
             disabled={busy || unavailable || !devices || devices.length < 2}
@@ -146,7 +147,7 @@ export function SessionDialog({ me, onLogout, onChangePassword, onClose }: Props
           >
             Digər cihazları bağla
           </Button>
-          <span className="ml-2 text-xs text-slate-500">
+          <span className="hint" style={{ marginLeft: 8 }}>
             Tanımadığınız cihaz görürsünüzsə, onu bağlayın və şifrəni dəyişin.
           </span>
         </div>

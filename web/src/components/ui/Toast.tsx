@@ -2,6 +2,9 @@ import { useEffect } from 'react'
 import { useToastStore } from '../../store/toast.store'
 import { cn } from '../../lib/utils'
 
+/* `.toast` / `.toast.bad` are the platform's notification styles
+   (index.html:139-141). The original showed one at a time; the stack keeps
+   that look while allowing a burst not to swallow earlier messages. */
 export function ToastHost() {
   const { messages, dismiss } = useToastStore()
 
@@ -13,17 +16,9 @@ export function ToastHost() {
   if (messages.length === 0) return null
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2">
+    <div className="toast-stack">
       {messages.map((m) => (
-        <div
-          key={m.id}
-          className={cn(
-            'rounded-md px-4 py-2 text-sm text-white shadow-lg',
-            m.isError ? 'bg-red-600' : 'bg-slate-900',
-          )}
-        >
-          {m.text}
-        </div>
+        <div key={m.id} className={cn('toast', m.isError && 'bad')}>{m.text}</div>
       ))}
     </div>
   )

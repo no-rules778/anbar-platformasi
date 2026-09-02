@@ -5,7 +5,6 @@ import { useWarehousesStore } from '../store/warehouses.store'
 import type { WarehouseRow, WarehouseUsage } from '../api/warehouses.api'
 import { Table, Thead, Th, Td } from '../components/ui/Table'
 import { Button } from '../components/ui/Button'
-import { Input } from '../components/ui/Input'
 import { WarehouseFormDialog } from '../components/warehouses/WarehouseFormDialog'
 import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh'
 import { useToastStore } from '../store/toast.store'
@@ -75,55 +74,56 @@ export function WarehousesPage({ me }: Props) {
 
   if (!admin) {
     return (
-      <div className="p-8">
-        <h1 className="mb-2 text-xl font-semibold">Anbarlar</h1>
-        <p className="text-sm text-red-600">Soraqçalar yalnız Admin üçündür.</p>
-      </div>
+      <>
+        <div className="phead"><div><h2>Anbarlar</h2></div></div>
+        <div className="card"><div className="pad"><p className="err">Soraqçalar yalnız Admin üçündür.</p></div></div>
+      </>
     )
   }
 
   return (
-    <div className="p-8">
-      <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Anbarlar</h1>
+    <>
+      <div className="phead">
+        <div>
+          <h2>Anbarlar</h2>
+          <p>Soraqçalar — anbar siyahısı, istifadə sayı və status.</p>
+        </div>
+        <div className="sp" />
         <Button onClick={() => setEditing('new')}>Əlavə et +</Button>
       </div>
 
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <label className="text-sm">
-          <span className="sr-only">Status</span>
-          <select
-            aria-label="Status"
-            className="rounded-md border border-slate-300 px-2 py-2 text-sm"
-            value={status}
-            onChange={(e) => resetPage(setStatus)(e.target.value as '' | 'active' | 'off')}
-          >
-            <option value="">Bütün statuslar</option>
-            <option value="active">Aktiv</option>
-            <option value="off">Gizli</option>
-          </select>
-        </label>
-        <Input
+      <div className="filters">
+        <select
+          aria-label="Status"
+          value={status}
+          onChange={(e) => resetPage(setStatus)(e.target.value as '' | 'active' | 'off')}
+        >
+          <option value="">Bütün statuslar</option>
+          <option value="active">Aktiv</option>
+          <option value="off">Gizli</option>
+        </select>
+        <input
+          type="search"
           aria-label="Ada görə axtarış"
           placeholder="Ada görə axtarış"
-          className="max-w-xs"
           value={query}
           onChange={(e) => resetPage(setQuery)(e.target.value)}
         />
       </div>
 
       {loading ? (
-        <p className="text-slate-500">Yüklənir...</p>
+        <div className="card"><div className="pad hint">Yüklənir...</div></div>
       ) : error ? (
-        <p className="text-red-600">Anbarlar yüklənmədi: {error}</p>
+        <div className="card"><div className="pad"><p className="err">Anbarlar yüklənmədi: {error}</p></div></div>
       ) : (
-        <>
+        <div className="card">
+          <header><h3>Anbarlar</h3><div className="sp" /></header>
           <Table>
             <Thead>
               <tr>
-                <Th>No</Th>
-                <Th>Ad</Th>
-                <Th>İstifadə</Th>
+                <Th right>No</Th>
+                <Th>Anbarın adı</Th>
+                <Th right>İstifadə</Th>
                 <Th>Status</Th>
                 <Th>Əməliyyatlar</Th>
               </tr>
@@ -131,39 +131,42 @@ export function WarehousesPage({ me }: Props) {
             <tbody>
               {pageRows.map((r, i) => (
                 <tr key={r.id}>
-                  <Td>{from + i + 1}</Td>
+                  <Td className="num">{from + i + 1}</Td>
                   <Td><b>{r.name}</b></Td>
-                  <Td>{usageLabel(usage.get(r.name))}</Td>
-                  <Td>{r.active !== false ? <span className="text-emerald-600">Aktiv</span> : <span className="text-slate-400">Gizli</span>}</Td>
+                  <Td className="num">{usageLabel(usage.get(r.name))}</Td>
                   <Td>
-                    <Button variant="secondary" onClick={() => setEditing(r)}>Redaktə et</Button>
+                    {r.active !== false
+                      ? <span className="tag t-in">Aktiv</span>
+                      : <span className="tag t-mut">Gizli</span>}
+                  </Td>
+                  <Td>
+                    <Button variant="secondary" size="sm" onClick={() => setEditing(r)}>Redaktə et</Button>
                   </Td>
                 </tr>
               ))}
               {pageRows.length === 0 && (
-                <tr><Td className="text-center text-slate-400">Bu filtrlərə uyğun anbar tapılmadı.</Td></tr>
+                <tr><Td className="empty">Bu filtrlərə uyğun anbar tapılmadı.</Td></tr>
               )}
             </tbody>
           </Table>
-
-          <div className="mt-3 flex flex-wrap items-center justify-end gap-3 text-sm">
-            <span className="text-slate-500">Hər səhifədə</span>
+          <div className="pad" style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            <span className="hint">Hər səhifədə</span>
             <select
               aria-label="Hər səhifədə"
-              className="rounded-md border border-slate-300 px-2 py-1"
+              style={{ width: 'auto' }}
               value={pageSize}
               onChange={(e) => resetPage(setPageSize)(Number(e.target.value))}
             >
               {PAGE_SIZES.map((n) => <option key={n} value={n}>{n}</option>)}
             </select>
-            <span className="text-slate-500">
+            <span className="hint">
               {filtered.length ? `${from + 1}–${to}` : '0'}, cəmi {filtered.length}
             </span>
-            <Button variant="secondary" disabled={safePage === 0} onClick={() => setPage(safePage - 1)}>‹</Button>
-            <span className="text-slate-500">Səhifə {safePage + 1} / {pages}</span>
-            <Button variant="secondary" disabled={safePage >= pages - 1} onClick={() => setPage(safePage + 1)}>›</Button>
+            <Button variant="secondary" size="sm" disabled={safePage === 0} onClick={() => setPage(safePage - 1)}>&lsaquo;</Button>
+            <span className="hint">Səhifə {safePage + 1} / {pages}</span>
+            <Button variant="secondary" size="sm" disabled={safePage >= pages - 1} onClick={() => setPage(safePage + 1)}>&rsaquo;</Button>
           </div>
-        </>
+        </div>
       )}
 
       {editing && (
@@ -174,6 +177,6 @@ export function WarehousesPage({ me }: Props) {
           onDone={() => { setEditing(null); load() }}
         />
       )}
-    </div>
+    </>
   )
 }

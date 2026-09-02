@@ -69,22 +69,27 @@ export function LoginPage({ onLoggedIn }: Props) {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50">
-      <form onSubmit={handleSubmit} className="w-full max-w-sm rounded-lg bg-white p-8 shadow">
-        <h1 className="mb-6 text-xl font-semibold">ANBAR</h1>
-        <label className="mb-3 block text-sm">
-          <span className="mb-1 block text-slate-600">E-poçt ünvanı</span>
+    <div id="gate">
+      {/* The production login gate: a white card on the dark steel gradient
+          (index.html:144-149). */}
+      <form className="box" onSubmit={handleSubmit}>
+        <h1>Anbar</h1>
+        <p className="sub">Uçot və Təchizat Platforması</p>
+
+        <label className="f">
+          <span>E-poçt ünvanı</span>
           <Input type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} />
         </label>
-        <label className="mb-3 block text-sm">
-          <span className="mb-1 block text-slate-600">Şifrə</span>
+        <label className="f">
+          <span>Şifrə</span>
           <Input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
         </label>
-        <label className="mb-4 flex items-center gap-2 text-sm text-slate-600">
-          <input type="checkbox" checked={remember} onChange={(e) => setRememberState(e.target.checked)} />
-          Məni bu cihazda yadda saxla
+        <label style={{ display: 'flex', gap: 8, alignItems: 'center', margin: '2px 0 14px' }}>
+          <input type="checkbox" style={{ width: 'auto' }} checked={remember} onChange={(e) => setRememberState(e.target.checked)} />
+          <span className="hint">Məni bu cihazda yadda saxla</span>
         </label>
-        <Button type="submit" disabled={busy} className="w-full">
+
+        <Button type="submit" disabled={busy} style={{ width: '100%', justifyContent: 'center' }}>
           {busy ? 'Yüklənir...' : 'Daxil ol'}
         </Button>
       </form>

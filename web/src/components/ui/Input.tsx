@@ -1,16 +1,9 @@
 import { type InputHTMLAttributes, forwardRef } from 'react'
-import { cn } from '../../lib/utils'
 
+/* Inputs are styled globally by the platform stylesheet (index.html:98-99),
+   so this only forwards props and keeps a single place to add field
+   behaviour later. */
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(
-  ({ className, ...props }, ref) => (
-    <input
-      ref={ref}
-      className={cn(
-        'w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400',
-        className,
-      )}
-      {...props}
-    />
-  ),
+  (props, ref) => <input ref={ref} {...props} />,
 )
 Input.displayName = 'Input'

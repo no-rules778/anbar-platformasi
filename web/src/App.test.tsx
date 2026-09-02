@@ -140,7 +140,7 @@ describe('App — session window and logout', () => {
     await user.click(screen.getByRole('button', { name: /Admin · Admin/ }))
     await user.click(screen.getByRole('button', { name: 'Şifrəni dəyiş' }))
 
-    expect(screen.getByText('Şifrəni dəyiş', { selector: 'h2' })).toBeTruthy()
+    expect(screen.getByText('Şifrəni dəyiş', { selector: 'h3' })).toBeTruthy()
     expect(screen.getByLabelText('Cari şifrə')).toBeTruthy()
   })
 })

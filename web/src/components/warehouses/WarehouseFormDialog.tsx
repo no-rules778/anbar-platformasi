@@ -73,8 +73,8 @@ export function WarehouseFormDialog({ warehouse, usage, onDone, onClose }: Props
           </>
         }
       >
-        <p className="mb-2 text-sm">Anbar: <b>{warehouse.name}</b></p>
-        <p className="text-sm text-slate-500">
+        <p>Anbar: <b>{warehouse.name}</b></p>
+        <p className="hint">
           Bu dəyər heç bir qeyddə istifadə olunmayıb, ona görə tamamilə silinə bilər.
           Alternativ olaraq onu yalnız siyahılardan gizlədə bilərsiniz.
         </p>
@@ -89,6 +89,7 @@ export function WarehouseFormDialog({ warehouse, usage, onDone, onClose }: Props
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>İmtina</Button>
+          <div className="sp" style={{ flex: 1 }} />
           {warehouse && warehouse.active !== false && (
             <Button variant="secondary" disabled={busy} onClick={() => send('deactivate')}>Gizlət</Button>
           )}
@@ -104,25 +105,25 @@ export function WarehouseFormDialog({ warehouse, usage, onDone, onClose }: Props
         </>
       }
     >
-      <label className="mb-2 block text-sm">
-        <span className="mb-1 block text-slate-600">Ad</span>
-        <Input value={name} onChange={(e) => setName(e.target.value)} readOnly={nameLocked} />
+      <label className="f">
+        <span>Ad</span>
+        <Input type="text" value={name} onChange={(e) => setName(e.target.value)} readOnly={nameLocked} />
       </label>
       {usageUnknown && (
-        <p className="mb-2 text-sm text-red-600">
+        <p className="err">
           İstifadə məlumatı yüklənmədi — bu anbarın neçə qeyddə işlədildiyi dəqiq bilinmir.
           Dəyər ehtiyatlı olaraq «istifadədə» sayılır: adı dəyişdirilmir və silinmir.
         </p>
       )}
       {warehouse && nameLocked && !usageUnknown && (
-        <p className="rounded bg-slate-50 p-3 text-sm text-slate-600">
+        <p className="hint" style={{ padding: 9, background: 'var(--out-l)', borderRadius: 4 }}>
           Bu anbar <b>{usedCount}</b> qeyddə istifadə olunub. Adı uçot və giriş hüquqlarının açarıdır, ona görə
           dəyişdirilmir. Siyahılardan çıxarmaq üçün <b>Gizlət</b> seçin — keçmiş əməliyyatlar və hesabatlar
           olduğu kimi qalır.
         </p>
       )}
       {warehouse && !nameLocked && usedCount === 0 && (
-        <p className="text-sm text-slate-500">Bu dəyər heç bir qeyddə istifadə olunmayıb — adı dəyişdirilə və ya tamamilə silinə bilər.</p>
+        <p className="hint">Bu dəyər heç bir qeyddə istifadə olunmayıb — adı dəyişdirilə və ya tamamilə silinə bilər.</p>
       )}
     </Dialog>
   )

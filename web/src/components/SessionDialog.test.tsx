@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 vi.mock('../api/session.api', () => ({
@@ -99,10 +99,11 @@ describe('SessionDialog — device rows', () => {
     render(<SessionDialog {...props()} />)
     await waitFor(() => expect(screen.getByText('Safari · iOS')).toBeTruthy())
 
-    const closeButtons = screen.getAllByRole('button', { name: 'Bağla' })
-    // one per other device — the current device has none (the footer's «Bağla» is the dialog close)
-    expect(closeButtons.length).toBe(2) // 1 device row + footer close
-    await userEvent.click(closeButtons[0])
+    const otherRow = screen.getByText('Safari · iOS').closest('li')!
+    const currentRow = screen.getByText('Chrome · Windows').closest('li')!
+    expect(within(currentRow).queryByRole('button', { name: 'Bağla' })).toBeNull()
+
+    await userEvent.click(within(otherRow).getByRole('button', { name: 'Bağla' }))
     expect(endSession).toHaveBeenCalledWith('dev_other_phone')
     expect(endSession).not.toHaveBeenCalledWith('dev_this_device')
   })
@@ -112,7 +113,8 @@ describe('SessionDialog — device rows', () => {
     await waitFor(() => expect(screen.getByText('Safari · iOS')).toBeTruthy())
     vi.mocked(listMySessions).mockClear()
 
-    await userEvent.click(screen.getAllByRole('button', { name: 'Bağla' })[0])
+    const row = screen.getByText('Safari · iOS').closest('li')!
+    await userEvent.click(within(row).getByRole('button', { name: 'Bağla' }))
 
     await waitFor(() => expect(listMySessions).toHaveBeenCalledTimes(1))
     expect(useToastStore.getState().messages.map((m) => m.text)).toContain('Sessiya bağlandı')
@@ -151,7 +153,8 @@ describe('SessionDialog — busy state', () => {
     await waitFor(() => expect(screen.getByText('Safari · iOS')).toBeTruthy())
 
     const closeOthers = () => screen.getByRole('button', { name: 'Digər cihazları bağla' }) as HTMLButtonElement
-    const closeOne = () => screen.getAllByRole('button', { name: 'Bağla' })[0] as HTMLButtonElement
+    const closeOne = () =>
+      within(screen.getByText('Safari · iOS').closest('li')!).getByRole('button', { name: 'Bağla' }) as HTMLButtonElement
 
     await userEvent.click(closeOthers())
 
@@ -169,7 +172,8 @@ describe('SessionDialog — errors and degraded mode', () => {
     render(<SessionDialog {...props()} />)
     await waitFor(() => expect(screen.getByText('Safari · iOS')).toBeTruthy())
 
-    await userEvent.click(screen.getAllByRole('button', { name: 'Bağla' })[0])
+    const row = screen.getByText('Safari · iOS').closest('li')!
+    await userEvent.click(within(row).getByRole('button', { name: 'Bağla' }))
 
     await waitFor(() => {
       const texts = useToastStore.getState().messages.map((m) => m.text)

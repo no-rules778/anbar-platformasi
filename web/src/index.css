@@ -1,3 +1,116 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ===========================================================================
+   ANBAR platform design contract.
+
+   Ported from the production platform (origin/main:index.html, the <style>
+   block at lines 11-211) so the React screens look like the platform they
+   replace, not like a new product. Same tokens, same class names, same sizes —
+   a reviewer can diff this against the original.
+
+   Only the parts Phase 1 actually renders are carried over (shell, cards,
+   tables, controls, overlays, login gate). Charts, drawers, the Azpetrol
+   palette and the print rules are left for the phases that need them.
+   =========================================================================== */
+
+:root{
+  --ink:#0E141A; --ink-2:#3C4C5A; --ink-3:#71838F;
+  --paper:#EEF1F3; --panel:#FFFFFF; --line:#D6DEE3; --line-2:#E9EEF1;
+  --steel:#1F4E6B; --steel-d:#143548; --steel-l:#E7F0F5;
+  --in:#0E7C6B; --in-l:#E2F2EF;
+  --out:#B06A11; --out-l:#FBEFDD;
+  --alarm:#A9231C; --alarm-l:#FBE9E7;
+  --move:#5B4B9E; --move-l:#EDEAF7;
+  --mono:ui-monospace,"SF Mono","Cascadia Mono","Roboto Mono",Consolas,monospace;
+  --sans:"Segoe UI",Inter,system-ui,-apple-system,"Helvetica Neue",Arial,sans-serif;
+  --rail:212px;
+}
+
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:13px;line-height:1.45;-webkit-font-smoothing:antialiased}
+button,input,select,textarea{font-family:inherit;font-size:13px;color:inherit}
+h1,h2,h3,h4{margin:0;font-weight:650;letter-spacing:-.01em}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.code{font-family:var(--mono);font-size:12px;color:var(--ink-2)}
+
+/* ---------- shell ---------- */
+.topbar{position:sticky;top:0;z-index:60;height:46px;background:var(--steel-d);color:#fff;display:flex;align-items:center;gap:14px;padding:0 14px}
+.topbar .brand{font-weight:700;letter-spacing:.16em;font-size:12px;text-transform:uppercase}
+.topbar .brand span{opacity:.55;letter-spacing:.05em;font-weight:500;text-transform:none;margin-left:8px;font-size:11px}
+.topbar .sp{flex:1}
+.sync{font-size:11px;opacity:.7;display:flex;align-items:center;gap:6px}
+.dot{width:7px;height:7px;border-radius:50%;background:#5FD3A8;box-shadow:0 0 0 0 rgba(95,211,168,.7);animation:pulse 2.6s infinite}
+.dot.off{background:#E0A03C;animation:none}
+.dot.wait{background:#9FB3C0;animation:none}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(95,211,168,.6)}70%{box-shadow:0 0 0 7px rgba(95,211,168,0)}100%{box-shadow:0 0 0 0 rgba(95,211,168,0)}}
+.layout{display:flex;align-items:flex-start}
+.rail{width:var(--rail);flex:0 0 var(--rail);position:sticky;top:46px;height:calc(100vh - 46px);background:var(--panel);border-right:1px solid var(--line);padding:10px 0;overflow-y:auto}
+.rail .grp{padding:12px 16px 5px;font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--ink-3);font-weight:700}
+.rail a{display:flex;align-items:center;gap:9px;padding:8px 16px;color:var(--ink-2);text-decoration:none;cursor:pointer;border-left:3px solid transparent;font-weight:500}
+.rail a:hover{background:var(--line-2);color:var(--ink)}
+.rail a.on{background:var(--steel-l);color:var(--steel-d);border-left-color:var(--steel);font-weight:650}
+.main{flex:1;min-width:0;padding:18px 20px 60px}
+.phead{display:flex;align-items:flex-end;gap:14px;margin-bottom:14px;flex-wrap:wrap}
+.phead h2{font-size:19px}
+.phead p{margin:2px 0 0;color:var(--ink-3);font-size:12px}
+.phead .sp{flex:1}
+
+/* ---------- cards / tables ---------- */
+.card{background:var(--panel);border:1px solid var(--line);border-radius:5px}
+.card>header{padding:10px 13px;border-bottom:1px solid var(--line-2);display:flex;align-items:center;gap:10px}
+.card>header h3{font-size:13px}
+.card>header .sp{flex:1}
+.pad{padding:13px}
+.tw{overflow:auto}
+table{width:100%;border-collapse:collapse}
+th{position:sticky;top:0;background:#F7F9FA;box-shadow:0 1px 0 var(--line);text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-3);font-weight:700;padding:8px 9px;border-bottom:1px solid var(--line);z-index:2;white-space:nowrap}
+th.r,td.r{text-align:right}
+td{padding:7px 9px;border-bottom:1px solid var(--line-2);vertical-align:top}
+tbody tr:hover{background:#F8FAFB}
+.tag{display:inline-block;padding:1px 7px;border-radius:3px;font-size:10.5px;font-weight:650;white-space:nowrap;border:1px solid transparent}
+.t-in{background:var(--in-l);color:var(--in)}
+.t-rm{background:var(--alarm-l);color:var(--alarm)}
+.t-mut{background:var(--line-2);color:var(--ink-3)}
+
+/* ---------- controls ---------- */
+.btn{display:inline-flex;align-items:center;gap:6px;background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:6px 11px;cursor:pointer;font-weight:600;color:var(--ink-2)}
+.btn:hover{border-color:var(--ink-3);color:var(--ink)}
+.btn.pri{background:var(--steel);border-color:var(--steel);color:#fff}
+.btn.pri:hover{background:var(--steel-d)}
+.btn.dgr{color:var(--alarm);border-color:#E9C7C4}
+.btn.dgr:hover{background:var(--alarm-l)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.sm{padding:3px 8px;font-size:11.5px}
+input[type=text],input[type=number],input[type=date],input[type=search],input[type=email],input[type=password],select,textarea{background:#fff;border:1px solid var(--line);border-radius:4px;padding:6px 8px;width:100%;outline:none}
+input:focus,select:focus,textarea:focus{border-color:var(--steel);box-shadow:0 0 0 3px rgba(31,78,107,.12)}
+label.f{display:block;margin-bottom:9px}
+label.f>span{display:block;font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-3);font-weight:700;margin-bottom:3px}
+.filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.filters input,.filters select{width:auto;min-width:130px}
+.filters input[type=search]{min-width:230px}
+.hint{font-size:11.5px;color:var(--ink-3)}
+.err{color:var(--alarm);font-size:11.5px;margin-top:4px;display:block}
+
+/* ---------- overlays ---------- */
+.mask{position:fixed;inset:0;background:rgba(14,20,26,.45);z-index:100}
+.modal{position:fixed;z-index:120;top:50%;left:50%;transform:translate(-50%,-50%);width:min(760px,94vw);max-height:88vh;overflow:auto;background:var(--panel);border-radius:6px;box-shadow:0 24px 60px rgba(14,20,26,.3)}
+.modal>header{position:sticky;top:0;background:var(--panel);padding:14px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px;z-index:2}
+.modal>header .sp{flex:1}
+.modal .body{padding:16px}
+.modal footer{position:sticky;bottom:0;background:#FAFCFD;border-top:1px solid var(--line);padding:11px 16px;display:flex;gap:8px;justify-content:flex-end}
+.x{border:0;background:transparent;font-size:19px;line-height:1;cursor:pointer;color:var(--ink-3);padding:2px 6px}
+.x:hover{color:var(--ink)}
+.toast{background:var(--ink);color:#fff;padding:9px 16px;border-radius:5px;font-weight:600;max-width:90vw}
+.toast.bad{background:var(--alarm)}
+.toast-stack{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:200;display:flex;flex-direction:column;gap:8px;align-items:center}
+
+/* ---------- login ---------- */
+#gate{min-height:100vh;display:grid;place-items:center;padding:20px;background:linear-gradient(180deg,#0E141A,#1F3D51)}
+#gate .box{width:min(430px,94vw);background:var(--panel);border-radius:8px;padding:26px;box-shadow:0 30px 70px rgba(0,0,0,.35)}
+#gate h1{font-size:16px;letter-spacing:.18em;text-transform:uppercase}
+#gate p.sub{color:var(--ink-3);margin:6px 0 20px;font-size:12px}
+
+.empty{padding:34px 14px;text-align:center;color:var(--ink-3)}

@@ -41,23 +41,24 @@ export function PasswordChangeDialog({ email, onClose }: Props) {
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>İmtina</Button>
+          <div className="sp" style={{ flex: 1 }} />
           <Button disabled={busy} onClick={submit}>{busy ? 'Yoxlanılır...' : 'Dəyiş'}</Button>
         </>
       }
     >
-      <label className="mb-3 block text-sm">
-        <span className="mb-1 block text-slate-600">Cari şifrə</span>
+      <label className="f">
+        <span>Cari şifrə</span>
         <Input type="password" autoComplete="current-password" value={oldPass} onChange={(e) => setOldPass(e.target.value)} />
       </label>
-      <label className="mb-3 block text-sm">
-        <span className="mb-1 block text-slate-600">Yeni şifrə</span>
+      <label className="f">
+        <span>Yeni şifrə</span>
         <Input type="password" autoComplete="new-password" placeholder="ən azı 8 simvol" value={newPass} onChange={(e) => setNewPass(e.target.value)} />
       </label>
-      <label className="mb-3 block text-sm">
-        <span className="mb-1 block text-slate-600">Yeni şifrə (təkrar)</span>
+      <label className="f">
+        <span>Yeni şifrə (təkrar)</span>
         <Input type="password" autoComplete="new-password" value={repeat} onChange={(e) => setRepeat(e.target.value)} />
       </label>
-      <p className="text-xs text-slate-500">Şifrəni unutsanız, rəhbər Supabase panelindən sıfırlaya bilər.</p>
+      <p className="hint">Şifrəni unutsanız, rəhbər Supabase panelindən sıfırlaya bilər.</p>
     </Dialog>
   )
 }

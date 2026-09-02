@@ -15,38 +15,39 @@ interface Props {
 export function SessionLimitDialog({ info, onClose }: Props) {
   const devices = info.devices ?? []
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="w-full max-w-lg rounded-lg bg-white p-6 shadow-xl">
-        <h2 className="mb-3 text-lg font-semibold">Cihaz limiti doludur</h2>
-        <p className="mb-4 text-sm text-slate-600">
+    <>
+      <div className="mask" onClick={onClose} />
+      <div className="modal" role="dialog" aria-label="Cihaz limiti doludur">
+        <header><h3>Cihaz limiti doludur</h3><div className="sp" /></header>
+        <div className="body">
+                <p>
           Bu hesab üçün eyni vaxtda <b>{info.limit ?? 1}</b> cihaza icazə verilir və hazırda hamısı doludur.
           Aşağıdakı cihazlardan birində «Çıxış» edin və ya 3 dəqiqə gözləyin — fəaliyyəti dayanmış sessiya avtomatik boşalır.
         </p>
-        <ul className="mb-4 space-y-2 text-sm">
+        <ul style={{ listStyle: 'none', margin: '12px 0', padding: 0 }}>
           {devices.map((d) => (
-            <li key={d.device_id} className="rounded border border-slate-200 px-3 py-2">
-              <div className="font-medium">
+            <li key={d.device_id} className="card pad" style={{ marginBottom: 6 }}>
+              <div>
                 {deviceLabel(d)}
                 {isCurrentDevice(d, DEVICE_ID) && (
-                  <span className="ml-2 rounded bg-emerald-50 px-1.5 py-0.5 text-xs text-emerald-700">bu cihaz</span>
+                  <span className="tag t-in" style={{ marginLeft: 8 }}>bu cihaz</span>
                 )}
               </div>
-              <div className="text-xs text-slate-500">
-                <span className="font-mono">{shortDeviceId(d.device_id)}</span>
+              <div className="hint">
+                <span className="code">{shortDeviceId(d.device_id)}</span>
                 {' · başlanğıc: '}{formatSince(d.since)}
                 {' · son fəaliyyət: '}{formatLastSeen(d.last_seen)}
               </div>
             </li>
           ))}
-          {devices.length === 0 && <li className="text-slate-400">Məlumat yoxdur.</li>}
+          {devices.length === 0 && <li className="hint">Məlumat yoxdur.</li>}
         </ul>
-        <p className="mb-4 text-xs text-slate-500">
+        <p className="hint">
           Bu cihazları tanımırsınızsa, şifrənizi dəyişdirin və rəhbərə bildirin.
         </p>
-        <div className="flex justify-end">
-          <Button onClick={onClose}>Bağla</Button>
         </div>
+        <footer><Button onClick={onClose}>Bağla</Button></footer>
       </div>
-    </div>
+    </>
   )
 }

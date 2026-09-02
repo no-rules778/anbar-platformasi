@@ -10,11 +10,10 @@ import { LoginPage } from './pages/LoginPage'
 import { SessionLimitDialog } from './components/SessionLimitDialog'
 import { SessionDialog } from './components/SessionDialog'
 import { PasswordChangeDialog } from './components/PasswordChangeDialog'
-import { Button } from './components/ui/Button'
 import { ToastHost } from './components/ui/Toast'
 import { SyncIndicator } from './components/SyncIndicator'
 import { WarehousesPage } from './pages/WarehousesPage'
-import { ROLES, type Me } from './lib/roles'
+import { ROLES, isAdmin, type Me } from './lib/roles'
 
 function App() {
   const { me, status, setMe, setStatus, reset } = useAuthStore()
@@ -124,17 +123,38 @@ function App() {
     <>
       <ToastHost />
       {status === 'ready' && me ? (
-        <div className="min-h-screen bg-slate-50">
-          <header className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-3">
-            <span className="text-sm font-semibold tracking-wide">ANBAR</span>
-            <div className="flex items-center gap-4">
-              <SyncIndicator />
-              <Button variant="secondary" onClick={() => setSessionOpen(true)}>
-                {me.name.split(' ')[0]} · {ROLES[me.role ?? ''] ? ROLES[me.role ?? ''].name : me.role}
-              </Button>
-            </div>
-          </header>
-          <WarehousesPage me={me} />
+        <div>
+          {/* Topbar and rail reproduce the production shell (index.html
+              topbar 34-44, rail 46-53). Only the migrated entry is listed —
+              «Soraqçalar», Admin-only exactly as the original hides it
+              (index.html:7505). */}
+          <div className="topbar">
+            <div className="brand">Anbar <span>Uçot və Təchizat Platforması</span></div>
+            <div className="sp" />
+            <SyncIndicator />
+            <button
+              className="btn sm"
+              style={{ background: 'rgba(255,255,255,.14)', borderColor: 'transparent', color: '#fff' }}
+              onClick={() => setSessionOpen(true)}
+            >
+              {me.name.split(' ')[0]} · {ROLES[me.role ?? ''] ? ROLES[me.role ?? ''].name : me.role}
+            </button>
+          </div>
+
+          <div className="layout">
+            <nav className="rail">
+              <div className="grp">Bazalar</div>
+              {isAdmin(me) && <a className="on">Soraqçalar</a>}
+              <div className="grp">Miqrasiya</div>
+              <span className="hint" style={{ display: 'block', padding: '4px 16px' }}>
+                Digər bölmələr köhnə platformadadır.
+              </span>
+            </nav>
+
+            <main className="main">
+              <WarehousesPage me={me} />
+            </main>
+          </div>
           {sessionOpen && (
             <SessionDialog
               me={me}
@@ -149,8 +169,11 @@ function App() {
         /* While an existing session is being restored the original disables the
            gate and shows «Sessiya bərpa olunur...» (index.html:7589) — the login
            form must not accept a second, competing sign-in during that window. */
-        <div className="flex min-h-screen items-center justify-center bg-slate-50">
-          <p className="text-sm text-slate-500">Sessiya bərpa olunur...</p>
+        <div id="gate">
+          <div className="box">
+            <h1>Anbar</h1>
+            <p className="sub">Sessiya bərpa olunur...</p>
+          </div>
         </div>
       ) : (
         <LoginPage onLoggedIn={(loggedInMe) => { setMe(loggedInMe); setStatus('ready') }} />
