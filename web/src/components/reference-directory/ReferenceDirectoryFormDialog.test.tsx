@@ -341,3 +341,40 @@ describe('ReferenceDirectoryFormDialog — localhost mutation guard', () => {
     await waitFor(() => expect(manageReference).toHaveBeenCalledWith('partner', 'deactivate', partner.id, expect.anything(), expect.anything()))
   })
 })
+
+/* Reproduces the reported symptom end to end: type a date into the field on a
+   NEW partner (as the CRUD smoke test did) and assert it reaches the RPC.
+   The audit log shows contract_date arriving as NULL while voen and contract
+   arrived fine, so this pins the client half of that path. */
+describe('ReferenceDirectoryFormDialog — typed contract date reaches the RPC', () => {
+  it('carries a date typed on a new partner', async () => {
+    const user = userEvent.setup()
+    render(<ReferenceDirectoryFormDialog entity={null} kind="partner" presetName="TEST MMC" usage={exact(0)} onDone={vi.fn()} onClose={vi.fn()} />)
+
+    const date = screen.getByLabelText('Müqavilə tarixi') as HTMLInputElement
+    await user.type(date, '2026-06-17')
+    await user.type(screen.getByLabelText('VÖEN'), '1234567890')
+    await user.type(screen.getByLabelText('Müqavilə №'), 'TEST-CRUD-01')
+    await user.click(screen.getByRole('button', { name: 'Yadda saxla' }))
+
+    await waitFor(() => expect(manageReference).toHaveBeenCalledWith(
+      'partner', 'create', null, 'TEST MMC',
+      { voen: '1234567890', contract: 'TEST-CRUD-01', contract_date: '2026-06-17' },
+    ))
+  })
+
+  it('carries a date changed on an existing partner', async () => {
+    const user = userEvent.setup()
+    render(<ReferenceDirectoryFormDialog entity={partner} kind="partner" usage={exact(0)} onDone={vi.fn()} onClose={vi.fn()} />)
+
+    const date = screen.getByLabelText('Müqavilə tarixi') as HTMLInputElement
+    await user.clear(date)
+    await user.type(date, '2026-12-31')
+    await user.click(screen.getByRole('button', { name: 'Yadda saxla' }))
+
+    await waitFor(() => expect(manageReference).toHaveBeenCalledWith(
+      'partner', 'update', partner.id, 'Bakcell MMC',
+      expect.objectContaining({ contract_date: '2026-12-31' }),
+    ))
+  })
+})
