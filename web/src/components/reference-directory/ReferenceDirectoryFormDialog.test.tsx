@@ -243,6 +243,37 @@ describe('ReferenceDirectoryFormDialog — legacy contract date', () => {
     expect(screen.getByText(/17\.06\.2026/)).toBeTruthy()
   })
 
+  /* APPROVED DEVIATION D-13, user decision 2026-09-02: option (a) — keep the
+     original's behaviour and warn. Saving a partner whose stored date is in
+     the legacy format therefore still clears it, exactly as the production
+     platform does. This test pins that decision: if someone later makes the
+     dialog preserve or normalise the value, they must revisit D-13 first. */
+  it('still sends an empty contract_date when the legacy value cannot be shown', async () => {
+    const user = userEvent.setup()
+    render(<ReferenceDirectoryFormDialog entity={{ ...partner, contractDate: '17.06.2026' }} kind="partner" usage={exact(0)} onDone={vi.fn()} onClose={vi.fn()} />)
+
+    await user.click(screen.getByRole('button', { name: 'Yadda saxla' }))
+
+    await waitFor(() => expect(manageReference).toHaveBeenCalledWith(
+      'partner', 'update', partner.id, 'Bakcell MMC',
+      expect.objectContaining({ contract_date: '' }),
+    ))
+  })
+
+  it('keeps an ISO date intact when saving an unrelated field', async () => {
+    const user = userEvent.setup()
+    render(<ReferenceDirectoryFormDialog entity={partner} kind="partner" usage={exact(0)} onDone={vi.fn()} onClose={vi.fn()} />)
+
+    await user.clear(screen.getByLabelText('Müqavilə №'))
+    await user.type(screen.getByLabelText('Müqavilə №'), 'MQ-20')
+    await user.click(screen.getByRole('button', { name: 'Yadda saxla' }))
+
+    await waitFor(() => expect(manageReference).toHaveBeenCalledWith(
+      'partner', 'update', partner.id, 'Bakcell MMC',
+      expect.objectContaining({ contract_date: '2026-06-05', contract: 'MQ-20' }),
+    ))
+  })
+
   it('does not warn for an ISO date or an empty one', () => {
     const { unmount } = render(<ReferenceDirectoryFormDialog entity={partner} kind="partner" usage={exact(0)} onDone={vi.fn()} onClose={vi.fn()} />)
     expect(screen.queryByText(/köhnə formatdadır/)).toBeNull()
