@@ -1,15 +1,26 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 
 vi.mock('../api/warehouses.api', () => ({
   fetchWarehouses: vi.fn(),
   fetchWarehouseUsage: vi.fn(),
+}))
+const channel = { on: vi.fn(), subscribe: vi.fn() }
+channel.on.mockReturnValue(channel)
+vi.mock('../api/supabase', () => ({
+  supabase: {
+    channel: vi.fn(() => channel),
+    removeChannel: vi.fn(),
+  },
 }))
 
 import { fetchWarehouses, fetchWarehouseUsage } from '../api/warehouses.api'
 import { WarehousesPage } from './WarehousesPage'
 import { useWarehousesStore } from '../store/warehouses.store'
 import type { Me } from '../lib/roles'
+import { supabase } from '../api/supabase'
+import { useToastStore } from '../store/toast.store'
 
 const admin: Me = { id: '1', sbId: '1', email: 'a@x.com', name: 'Admin', role: 'admin', wh: '' }
 const rehber: Me = { id: '2', sbId: '2', email: 'r@x.com', name: 'Rehber', role: 'rehber', wh: '' }
@@ -19,6 +30,9 @@ const legacyRole: Me = { id: '4', sbId: '4', email: 't@x.com', name: 'Techizat',
 beforeEach(() => {
   vi.clearAllMocks()
   useWarehousesStore.setState({ rows: [], usage: new Map(), loading: false, error: null })
+  useToastStore.setState({ messages: [] })
+  channel.on.mockClear()
+  channel.subscribe.mockClear()
   vi.mocked(fetchWarehouses).mockResolvedValue([{ id: 1, name: 'Astara', type: 'anbar', active: true }])
   vi.mocked(fetchWarehouseUsage).mockResolvedValue(new Map([['Astara', { count: 2, exact: true }]]))
 })
@@ -64,5 +78,117 @@ describe('WarehousesPage — usage column', () => {
     vi.mocked(fetchWarehouseUsage).mockResolvedValue(new Map([['Astara', { count: 1, exact: false }]]))
     render(<WarehousesPage me={admin} />)
     await waitFor(() => expect(screen.getByText('?')).toBeTruthy())
+  })
+})
+
+const manyWarehouses = Array.from({ length: 12 }, (_, i) => ({
+  id: i + 1,
+  name: `Anbar ${String(i + 1).padStart(2, '0')}`,
+  type: 'anbar',
+  active: i % 2 === 0,
+}))
+
+async function renderWithMany() {
+  vi.mocked(fetchWarehouses).mockResolvedValue(manyWarehouses)
+  vi.mocked(fetchWarehouseUsage).mockResolvedValue(new Map(manyWarehouses.map((w) => [w.name, { count: 0, exact: true }])))
+  render(<WarehousesPage me={admin} />)
+  await waitFor(() => expect(screen.getByText('Anbar 01')).toBeTruthy())
+}
+
+/* F12: the original list has search, an active/hidden filter, page size,
+   pagination and row numbers (index.html:3036-3057). */
+describe('WarehousesPage — list controls', () => {
+  it('numbers the rows and paginates with 10 per page by default', async () => {
+    await renderWithMany()
+
+    expect(screen.getByText('Səhifə 1 / 2')).toBeTruthy()
+    expect(screen.getByText('1–10, cəmi 12')).toBeTruthy()
+    expect(screen.queryByText('Anbar 11')).toBeNull()
+
+    await userEvent.click(screen.getByRole('button', { name: '›' }))
+
+    expect(screen.getByText('Anbar 11')).toBeTruthy()
+    expect(screen.getByText('11–12, cəmi 12')).toBeTruthy()
+    expect(screen.getByText('Səhifə 2 / 2')).toBeTruthy()
+  })
+
+  it('filters by name and resets to the first page', async () => {
+    await renderWithMany()
+    await userEvent.click(screen.getByRole('button', { name: '›' }))
+
+    await userEvent.type(screen.getByLabelText('Ada görə axtarış'), 'Anbar 1')
+
+    expect(screen.getByText('Səhifə 1 / 1')).toBeTruthy()
+    // names are zero-padded, so only Anbar 10, 11 and 12 match
+    expect(screen.getByText('1–3, cəmi 3')).toBeTruthy()
+  })
+
+  it('search is case-insensitive', async () => {
+    await renderWithMany()
+    await userEvent.type(screen.getByLabelText('Ada görə axtarış'), 'ANBAR 05')
+    expect(screen.getByText('Anbar 05')).toBeTruthy()
+    expect(screen.getByText('1–1, cəmi 1')).toBeTruthy()
+  })
+
+  it('filters by status', async () => {
+    await renderWithMany()
+
+    await userEvent.selectOptions(screen.getByLabelText('Status'), 'off')
+    expect(screen.getByText('1–6, cəmi 6')).toBeTruthy()
+    expect(screen.queryByText('Anbar 01')).toBeNull()
+
+    await userEvent.selectOptions(screen.getByLabelText('Status'), 'active')
+    expect(screen.getByText('Anbar 01')).toBeTruthy()
+  })
+
+  it('changes the page size', async () => {
+    await renderWithMany()
+    await userEvent.selectOptions(screen.getByLabelText('Hər səhifədə'), '25')
+    expect(screen.getByText('1–12, cəmi 12')).toBeTruthy()
+    expect(screen.getByText('Səhifə 1 / 1')).toBeTruthy()
+  })
+
+  it('tells the user when nothing matches', async () => {
+    await renderWithMany()
+    await userEvent.type(screen.getByLabelText('Ada görə axtarış'), 'yoxdur')
+    expect(screen.getByText('Bu filtrlərə uyğun anbar tapılmadı.')).toBeTruthy()
+  })
+})
+
+/* F7: a change made by another Admin must appear without a manual reload
+   (index.html:1163-1181). */
+describe('WarehousesPage — realtime', () => {
+  it('subscribes once to the tables this screen reads, and refreshes on a change', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      await renderWithMany()
+
+      expect(supabase.channel).toHaveBeenCalledWith('anbar_changes')
+      const watched = channel.on.mock.calls.map((c) => (c[1] as { table: string }).table)
+      expect(watched).toEqual(['warehouses', 'movements', 'users'])
+
+      vi.mocked(fetchWarehouses).mockClear()
+      const bump = channel.on.mock.calls[0][2] as () => void
+      bump(); bump(); bump() // a burst must collapse into one refresh
+      await vi.advanceTimersByTimeAsync(500)
+
+      expect(fetchWarehouses).toHaveBeenCalledTimes(1)
+      expect(useToastStore.getState().messages.map((m) => m.text))
+        .toContain('Məlumatlar yeniləndi (digər istifadəçi)')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not subscribe for a non-Admin', () => {
+    render(<WarehousesPage me={rehber} />)
+    expect(supabase.channel).not.toHaveBeenCalled()
+  })
+
+  it('removes the channel on unmount', async () => {
+    const view = render(<WarehousesPage me={admin} />)
+    await waitFor(() => expect(supabase.channel).toHaveBeenCalled())
+    view.unmount()
+    expect(supabase.removeChannel).toHaveBeenCalled()
   })
 })
