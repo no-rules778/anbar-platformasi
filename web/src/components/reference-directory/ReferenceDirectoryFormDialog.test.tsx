@@ -290,9 +290,9 @@ describe('ReferenceDirectoryFormDialog — legacy contract date', () => {
   })
 })
 
-/* Localhost shares the production database, so destructive actions are
-   blocked there unless the developer opts in (VITE_ALLOW_DESTRUCTIVE=true).
-   The dialog must refuse before any RPC leaves the browser. */
+/* Localhost shares the production database, so EVERY write is blocked there
+   unless the developer opts in (VITE_ALLOW_LOCAL_WRITES=true). The dialog must
+   refuse before any RPC leaves the browser. */
 describe('ReferenceDirectoryFormDialog — localhost mutation guard', () => {
   const REFUSAL = 'Bu əməliyyat lokal rejimdə bloklanıb: localhost CANLI Supabase bazasına qoşulub.'
 
@@ -320,18 +320,41 @@ describe('ReferenceDirectoryFormDialog — localhost mutation guard', () => {
     expect(toasts()).toContain(REFUSAL)
   })
 
-  it('still allows create and update while destructive actions are blocked', async () => {
-    vi.mocked(blockedReason).mockImplementation((action) =>
-      action === 'create' || action === 'update' ? null : REFUSAL)
+  it('refuses «Yadda saxla» on an existing value — update is a live write too', async () => {
+    vi.mocked(blockedReason).mockReturnValue(REFUSAL)
     const user = userEvent.setup()
     render(<ReferenceDirectoryFormDialog entity={partner} kind="partner" usage={exact(0)} onDone={vi.fn()} onClose={vi.fn()} />)
 
     await user.click(screen.getByRole('button', { name: 'Yadda saxla' }))
 
-    await waitFor(() => expect(manageReference).toHaveBeenCalledWith('partner', 'update', partner.id, 'Bakcell MMC', expect.anything()))
+    expect(manageReference).not.toHaveBeenCalled()
+    expect(toasts()).toContain(REFUSAL)
   })
 
-  it('lets destructive actions through once the guard allows them', async () => {
+  it('refuses «Yadda saxla» on a new value — create leaves a real row behind', async () => {
+    vi.mocked(blockedReason).mockReturnValue(REFUSAL)
+    const user = userEvent.setup()
+    render(<ReferenceDirectoryFormDialog entity={null} kind="partner" presetName="TEST MMC" usage={exact(0)} onDone={vi.fn()} onClose={vi.fn()} />)
+
+    await user.click(screen.getByRole('button', { name: 'Yadda saxla' }))
+
+    expect(manageReference).not.toHaveBeenCalled()
+    expect(toasts()).toContain(REFUSAL)
+  })
+
+  it('refuses before the name and VÖEN checks, so nothing about the value can leak', async () => {
+    vi.mocked(blockedReason).mockReturnValue(REFUSAL)
+    const user = userEvent.setup()
+    render(<ReferenceDirectoryFormDialog entity={null} kind="partner" presetName="A" usage={exact(0)} onDone={vi.fn()} onClose={vi.fn()} />)
+
+    await user.click(screen.getByRole('button', { name: 'Yadda saxla' }))
+
+    expect(manageReference).not.toHaveBeenCalled()
+    expect(toasts()).toContain(REFUSAL)
+    expect(toasts()).not.toContain('Ad ən azı 2 simvol olmalıdır')
+  })
+
+  it('lets writes through once the guard allows them', async () => {
     vi.mocked(blockedReason).mockReturnValue(null)
     const user = userEvent.setup()
     render(<ReferenceDirectoryFormDialog entity={partner} kind="partner" usage={exact(2)} onDone={vi.fn()} onClose={vi.fn()} />)

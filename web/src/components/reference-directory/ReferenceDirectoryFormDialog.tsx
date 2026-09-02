@@ -55,8 +55,9 @@ export function ReferenceDirectoryFormDialog({ entity, kind, usage, presetName, 
   const unshowableDate = kind === 'partner' && storedDate !== '' && !ISO_DATE.test(storedDate)
 
   async function send(action: ReferenceAction) {
-    /* Localhost shares the production database, so destructive actions need an
-       explicit opt-in there. Off localhost this is always null. */
+    /* Localhost shares the production database, so every write — create and
+       update included — needs an explicit opt-in there. Off localhost this is
+       always null. */
     const blocked = blockedReason(action)
     if (blocked) {
       show(blocked, true)

@@ -76,6 +76,18 @@ describe('ReferenceDirectoryPage — Admin gate', () => {
   })
 })
 
+/* jsdom serves the page from localhost, which is exactly the situation the
+   banner exists for: the local session is wired to the live database. */
+describe('ReferenceDirectoryPage — localhost banner', () => {
+  it('warns that the local session writes to the live database, and that writes are shut', async () => {
+    await renderPage()
+
+    expect(screen.getByText(/CANLI Supabase bazasına qoşulub/)).toBeTruthy()
+    expect(screen.getByText(/Bütün yazma əməliyyatları bloklanıb/)).toBeTruthy()
+    expect(screen.getByText(/VITE_ALLOW_LOCAL_WRITES/)).toBeTruthy()
+  })
+})
+
 describe('ReferenceDirectoryPage — unified table', () => {
   it('lists both kinds with their kind label, usage and status', async () => {
     await renderPage()

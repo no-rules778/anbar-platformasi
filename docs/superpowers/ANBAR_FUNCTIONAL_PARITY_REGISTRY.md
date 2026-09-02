@@ -7,8 +7,9 @@ Phase 1 outcome and the manual acceptance checklist: [`PHASE1_FINAL_REPORT.md`](
 - **Behavioural reference:** `origin/main:index.html` (the deployed production
   platform). Line numbers below refer to that file.
 - **React implementation:** `web/` on branch `react-migration`.
-- **Last updated:** 2026-09-02, at commit `8bd917e` (Phase 2).
-- **Automated test suite at that commit:** 192 passing in 19 files;
+- **Last updated:** 2026-09-02, after the Phase 2 audit follow-up (localhost
+  write guard widened to every write; registry ID clash fixed).
+- **Automated test suite at that point:** 222 passing in 20 files;
   `typecheck`, `lint` (oxlint) and `build` clean.
 
 ## Statuses
@@ -181,9 +182,31 @@ Live shape at implementation time: 32 partners (all active), 1915 movements.
 | C-16 | Realtime refresh over all four source tables | 1163-1181 | `hooks/useRealtimeRefresh.ts` + page | admin | `ReferenceDirectoryPage.test` (2) | `CODE VERIFIED` |
 | C-17 | Server-side partner rules never exercised from React: name collision against `warehouses`, delete blocked when used in movements | `manage_reference` body | — (server) | admin | — | `NOT STARTED` |
 
-**Phase 2 live verification: not started.** Nothing in Module C has been run in
-a real browser against live data. No row may become `LIVE VERIFIED` or
-`ACCEPTED` until that happens; a production write test needs separate approval.
+### Phase 2 live-verification status (corrected 2026-09-02)
+
+The earlier line "live verification: not started" was wrong. A live localhost
+pass **was** performed against production Supabase before the write guard
+existed, and it covered part of Module C:
+
+| Checked live | Outcome | Rows it touches |
+|---|---|---|
+| Partner creation (`TEST_REACT_MIGRATION_PHASE2`) | Passed | C-02, C-08 |
+| Partner name / contract editing | Passed | C-08, C-10 |
+| Partner hiding (`deactivate`) | Passed | C-13 |
+
+Not covered, and therefore still unproven live: C-01, C-03…C-07, C-09, C-11,
+C-12, C-14, C-15, C-16, C-17 — the unified listing itself, usage counting
+against the old platform's numbers, VÖEN refusal, the cascade notice, the
+two-step delete, server refusals, list controls and Realtime.
+
+Physical deletion of the temporary test partner was deliberately **not**
+performed and must not be performed without the user's explicit confirmation.
+
+No Module C row is promoted to `LIVE VERIFIED` on the strength of that pass:
+it ran on code that has since changed (`cc0e8ba`, and the wider write guard
+below), and principles §6 does not carry a live pass across a rewrite of the
+same function. `ACCEPTED` additionally needs the untouched items above, which
+now require the local opt-in flag (D-14) or a deployed preview.
 
 ## Explicitly approved deviations
 
@@ -205,6 +228,8 @@ a real browser against live data. No row may become `LIVE VERIFIED` or
 | D-12 | Only `warehouse` and `partner` appear in the kind selector; the original lists eight kinds | Phase 2 non-goal, stated in its approved design | The other six (`location`, `channel`, `unit`, `category`, `project`, `serfiyyat_channel`) need only a row in `WIRED_KINDS` plus an entity fetcher — no structural change |
 | D-13 | A partner whose stored `contract_date` is not ISO cannot be displayed by the `type=date` field. Live data (verified 2026-09-02): 15 non-empty values — **8 ISO, 7 legacy** (six `dd.MM.yyyy`, one bare `2026`). Saving such a partner clears the date, exactly as the production platform does; this build additionally **warns** the user, showing the stored value | **APPROVED — user decision 2026-09-02, option (a):** keep the original's behaviour, add the warning. Nothing changes in data or logic; the date still disappears if the admin saves, but they are told first | Pinned by regression tests in `ReferenceDirectoryFormDialog.test.tsx` (a legacy value still saves as `''`; an ISO value survives an unrelated edit; the warning appears only for unshowable values). Changing this behaviour later means revisiting D-13. **Returning the stored value unchanged is NOT viable:** the RPC casts with `::date` under `DateStyle = ISO, MDY`, so 5 rows raise `date/time field value out of range`, `2026` raises `invalid input syntax`, and `08.06.2026` silently becomes 6 August instead of 8 June — all verified by direct read-only queries. Option (c), a one-off normalisation of the 7 rows, remains available as a separate, separately-approved data task |
 
+| D-14 | **Development-only:** when the page is served from localhost, every reference write (`create`, `update`, `delete`, `deactivate`, `activate`) is refused before the RPC leaves the browser unless `VITE_ALLOW_LOCAL_WRITES=true` is set in `web/.env`; the screen carries a red banner saying the local session is wired to the live database and whether writes are open | **Approved — user instruction 2026-09-02** ("block all localhost reference writes by default, allow only with an explicit opt-in flag"). Widens `cc0e8ba`, which covered only `delete`/`deactivate`/`activate` | **No production effect by construction:** the guard fires only for hostname `localhost`/`127.0.0.1`/`::1`, asserted in `mutationGuard.test.ts` for every action with and without the flag. Consequence for verification: live checks from localhost now need the flag deliberately set, which is the point — see R-14 for what the guard cannot do |
+
 Checked and **not** violations: `pages/LoginPage.tsx` and
 `components/SessionDialog.tsx` import only `rememberOn`/`setRemember`/
 `savedEmail`/`saveEmail` from `api/supabase.ts` — browser-storage helpers, not
@@ -222,11 +247,12 @@ table, RPC, auth-subscription or Realtime client calls.
 | R-06 | Repository-root `index.html` carries an uncommitted user edit that removes the `String(id)` conversion | Never staged by migration work; must not be swept into a React commit |
 | R-07 | Two scoped exceptions to Supabase-isolation remain open (D-09 auth subscription in `App.tsx`, D-10 Realtime client in `useRealtimeRefresh`) | Architectural debt, not behavioural. Cleanup is gated on regression tests first, per principles §9 |
 | R-08 | ~~React screens look nothing like the production platform~~ — **closed** by `d8fbd43`. Residual: only the classes Phase 1 renders were ported; later phases must extend `index.css` from the original rather than invent styling | Low. Side-by-side acceptance comparison is now meaningful |
-| R-12 | Final visual-parity pass is deferred until all migration phases are complete. Current known visual differences: thousands separators in `İstifadə` (`1221` vs `1,221`; `1034` vs `1,034`) and a text `Redaktə et` action instead of the old separate `✎` / `✕` row buttons | Non-functional only. Governed by Principles §12; must be reviewed before the final platform cutover |
 | R-09 | **Accepted risk** (D-13, user decision option (a)): 7 of 15 non-empty `partners.contract_date` values are legacy non-ISO, and editing such a partner and saving still clears the date. The warning makes it visible, not impossible | Data loss on an unrelated edit; 7 rows, disclosed, warned about in the UI, and pinned by tests. Removable only by option (c) — a separate data task |
 | R-10 | Module C's server-side partner rules (C-17) — the name collision against `warehouses` and the delete-when-used refusal — have never been triggered from React | The UI's handling of those exact refusals is unproven |
 | R-11 | Usage now reads `movements` once per refresh for the whole table rather than per name — cheaper than Phase 1, but still a full-table read that grows with the table (see R-01) | Performance only |
-| R-12 | An `<input type="date">` reports an empty value until the date is complete, so a partly typed date is silently not saved — in this build and in the production platform alike. Not a migration defect; noted because it was mistaken for one | Low; user-visible only as "my date did not save". Would need a UI change (and a decision) to address |
+| R-12 | Final visual-parity pass is deferred until all migration phases are complete. Current known visual differences: thousands separators in `İstifadə` (`1221` vs `1,221`; `1034` vs `1,034`) and a text `Redaktə et` action instead of the old separate `✎` / `✕` row buttons | Non-functional only. Governed by Principles §12; must be reviewed before the final platform cutover |
+| R-13 | An `<input type="date">` reports an empty value until the date is complete, so a partly typed date is silently not saved — in this build and in the production platform alike. Not a migration defect; noted because it was mistaken for one | Low; user-visible only as "my date did not save". Would need a UI change (and a decision) to address |
+| R-14 | The localhost write guard (D-14) is a client-side convenience only. It cannot stop a write issued from the console, from a build served on a non-localhost dev host (e.g. `--host` on the LAN address), or by any other client — the server's only real control remains `manage_reference`'s admin check | Low, and by design: the guard protects against accidental clicks, not against a determined or misconfigured client |
 
 ## Historical live-verification checklist (completed)
 

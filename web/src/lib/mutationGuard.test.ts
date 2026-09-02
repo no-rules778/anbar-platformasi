@@ -1,15 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { blockedReason, isDestructive, isLocalhost, DESTRUCTIVE_ACTIONS } from './mutationGuard'
+import { blockedReason, isWrite, isLocalhost, localWriteStatusText, WRITE_ACTIONS } from './mutationGuard'
 
-describe('mutationGuard — which actions count as destructive', () => {
-  it.each(['delete', 'deactivate', 'activate'] as const)('treats %s as destructive', (a) => {
-    expect(isDestructive(a)).toBe(true)
+describe('mutationGuard — which actions the guard covers', () => {
+  it.each(['create', 'update', 'delete', 'deactivate', 'activate'] as const)('treats %s as a write', (a) => {
+    expect(isWrite(a)).toBe(true)
   })
-  it.each(['create', 'update'] as const)('leaves %s alone', (a) => {
-    expect(isDestructive(a)).toBe(false)
-  })
-  it('lists exactly the three actions the guard covers', () => {
-    expect([...DESTRUCTIVE_ACTIONS]).toEqual(['delete', 'deactivate', 'activate'])
+  it('covers every reference action — none of them is read-only', () => {
+    expect([...WRITE_ACTIONS]).toEqual(['create', 'update', 'delete', 'deactivate', 'activate'])
   })
 })
 
@@ -23,26 +20,35 @@ describe('mutationGuard — host detection', () => {
 })
 
 describe('mutationGuard — blocking policy', () => {
-  it('blocks destructive actions on localhost by default', () => {
-    for (const a of DESTRUCTIVE_ACTIONS) {
-      expect(blockedReason(a, { local: true, allowed: false })).toMatch(/VITE_ALLOW_DESTRUCTIVE/)
+  it('blocks every write on localhost by default, create and update included', () => {
+    for (const a of WRITE_ACTIONS) {
+      expect(blockedReason(a, { local: true, allowed: false })).toMatch(/VITE_ALLOW_LOCAL_WRITES/)
     }
   })
 
-  it('never blocks create or update', () => {
-    expect(blockedReason('create', { local: true, allowed: false })).toBeNull()
-    expect(blockedReason('update', { local: true, allowed: false })).toBeNull()
-  })
-
-  it('allows destructive actions once the developer opts in', () => {
-    expect(blockedReason('delete', { local: true, allowed: true })).toBeNull()
+  it('allows every write once the developer opts in', () => {
+    for (const a of WRITE_ACTIONS) {
+      expect(blockedReason(a, { local: true, allowed: true })).toBeNull()
+    }
   })
 
   /* Production must behave exactly as before — the guard is localhost-only. */
   it('never blocks anything off localhost, opt-in or not', () => {
-    for (const a of DESTRUCTIVE_ACTIONS) {
+    for (const a of WRITE_ACTIONS) {
       expect(blockedReason(a, { local: false, allowed: false })).toBeNull()
       expect(blockedReason(a, { local: false, allowed: true })).toBeNull()
     }
+  })
+})
+
+describe('mutationGuard — banner wording', () => {
+  it('names the flag and lists the blocked actions when writes are shut', () => {
+    const text = localWriteStatusText(false)
+    expect(text).toMatch(/VITE_ALLOW_LOCAL_WRITES/)
+    expect(text).toMatch(/bloklanıb/)
+  })
+
+  it('says writes are open when the developer opted in', () => {
+    expect(localWriteStatusText(true)).toMatch(/AÇIQDIR/)
   })
 })
