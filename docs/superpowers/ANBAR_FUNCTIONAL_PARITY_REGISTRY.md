@@ -7,8 +7,8 @@ Phase 1 outcome and the manual acceptance checklist: [`PHASE1_FINAL_REPORT.md`](
 - **Behavioural reference:** `origin/main:index.html` (the deployed production
   platform). Line numbers below refer to that file.
 - **React implementation:** `web/` on branch `react-migration`.
-- **Last updated:** 2026-09-02, at commit `d8fbd43`.
-- **Automated test suite at that commit:** 188 passing in 19 files;
+- **Last updated:** 2026-09-02, at commit `8bd917e` (Phase 2).
+- **Automated test suite at that commit:** 192 passing in 19 files;
   `typecheck`, `lint` (oxlint) and `build` clean.
 
 ## Statuses
@@ -149,6 +149,42 @@ work — but note the UI has never been observed reacting to them (B-13).
 - Rename refused entirely once the warehouse is used anywhere.
 - Delete refused once used; audit row written for every mutation.
 
+
+## Module C — Reference directories: unified «Soraqçalar» + Partners (Phase 2)
+
+Tables/RPCs: `warehouses`, `partners`, `movements`, `users`;
+`manage_reference(p_kind,p_action,p_id,p_name,p_meta)`.
+RLS (verified live 2026-09-02): `partners` has exactly one policy,
+`partners_select` = `current_user_role() IS NOT NULL` — readable by any
+recognised role, **no write policy**; every mutation goes through
+`manage_reference` (SECURITY DEFINER, Admin-only). `partners.id` is a `uuid`,
+so no C-15-style type concern.
+Live shape at implementation time: 32 partners (all active), 1915 movements.
+
+| # | Function | Old ref | React ref | Roles | Tests | Status |
+|---|---|---|---|---|---|---|
+| C-01 | One table for all kinds, with a kind filter | 3008-3074, 2934-2944 | `pages/ReferenceDirectoryPage.tsx`, `types/referenceDirectory.ts` | admin only | `ReferenceDirectoryPage.test` (kind filter, mixed listing) | `CODE VERIFIED` |
+| C-02 | Create row: kind selector + name + «Əlavə et +» | 3021-3031, 3064-3065 | `pages/ReferenceDirectoryPage.tsx` | admin | `ReferenceDirectoryPage.test` (2) | `CODE VERIFIED` |
+| C-03 | Partner list source (all partners, active and hidden) | 2958, 869-874, 880-883 | `api/partners.api.ts`, `store/referenceDirectory.store.ts` | admin | `ReferenceDirectoryPage.test` | `CODE VERIFIED` |
+| C-04 | Warehouse rows keep the `type='anbar'` filter; `layihə` belongs to the `location` kind | 2962 | `store/referenceDirectory.store.ts` | admin | `ReferenceDirectoryPage.test` | `CODE VERIFIED` |
+| C-05 | Usage per kind: warehouse = movements(warehouse OR partner) + users; partner = movements(partner) only | 2977-2988, 2973-2976 | `api/referenceUsage.api.ts` | admin | `referenceUsage.api.test` (10) | `CODE VERIFIED` |
+| C-06 | Usage excludes cancelled movements for every kind | 1249-1270 | `api/referenceUsage.api.ts` + `lib/operationalMovements.ts` | admin | `referenceUsage.api.test` | `CODE VERIFIED` |
+| C-07 | Usage fail-safe; a failed `users` read makes warehouses inexact but leaves partners exact | 2971-2976, 3096-3100 | `api/referenceUsage.api.ts` | admin | `referenceUsage.api.test` (2) | `CODE VERIFIED` |
+| C-08 | Partner create/update with VÖEN, Müqavilə tarixi, Müqavilə № | 3086-3089, 3156-3159 | `components/reference-directory/ReferenceDirectoryFormDialog.tsx` | admin | `ReferenceDirectoryFormDialog.test` (4) | `CODE VERIFIED` |
+| C-09 | VÖEN must be 10 digits; field capped at 10 chars | 3163, 3087 | same | admin | `ReferenceDirectoryFormDialog.test` (5) | `CODE VERIFIED` |
+| C-10 | Name lock applies to warehouse/location only — a used partner stays renameable | 3085 | same | admin | `ReferenceDirectoryFormDialog.test` (2) | `CODE VERIFIED` |
+| C-11 | Rename cascade notice (`cascaded_rows`) | 3172-3177 | same | admin | `ReferenceDirectoryFormDialog.test` | `CODE VERIFIED` |
+| C-12 | Two-step delete, offered only for an unused value | 3125-3150 | same | admin | `ReferenceDirectoryFormDialog.test` (3) | `CODE VERIFIED` |
+| C-13 | Hide / reactivate | 3115-3120 | same | admin | `ReferenceDirectoryFormDialog.test` | `CODE VERIFIED` |
+| C-14 | Server refusals surfaced verbatim, incl. partner/warehouse name collision and duplicate name | 3178-3182 | same | admin | `ReferenceDirectoryFormDialog.test` (2) | `CODE VERIFIED` |
+| C-15 | List controls (numbering, search, status, page size, paging) across kinds | 3036-3057 | `pages/ReferenceDirectoryPage.tsx` | admin | `ReferenceDirectoryPage.test` (6) | `CODE VERIFIED` |
+| C-16 | Realtime refresh over all four source tables | 1163-1181 | `hooks/useRealtimeRefresh.ts` + page | admin | `ReferenceDirectoryPage.test` (2) | `CODE VERIFIED` |
+| C-17 | Server-side partner rules never exercised from React: name collision against `warehouses`, delete blocked when used in movements | `manage_reference` body | — (server) | admin | — | `NOT STARTED` |
+
+**Phase 2 live verification: not started.** Nothing in Module C has been run in
+a real browser against live data. No row may become `LIVE VERIFIED` or
+`ACCEPTED` until that happens; a production write test needs separate approval.
+
 ## Explicitly approved deviations
 
 | ID | Deviation | Approval | Registry effect |
@@ -165,6 +201,9 @@ work — but note the UI has never been observed reacting to them (B-13).
 | D-10 | **Scoped exception to Supabase-isolation:** `hooks/useRealtimeRefresh.ts:45,54` calls `supabase.channel()` / `supabase.removeChannel()` directly | The hook owns the channel's lifecycle (subscribe on mount, remove on unmount); splitting lifecycle from subscription risks leaking a channel or removing it twice | **Cleanup pending:** extract the client calls into `api/realtime.api.ts`, keeping lifecycle in the hook. Tests today: `WarehousesPage.test` (subscribes once to the three tables, burst collapses into one refresh, channel removed on unmount) |
 
 | D-11 | Phase 1 screens did not reproduce the production platform's visual design | **Resolved** by `d8fbd43` (user chose to re-skin rather than accept the interim look) | Closed: `web/src/index.css` now carries the production design contract ported from `origin/main:index.html` (11-211) — same `:root` tokens, topbar, rail, cards, dense tables, tags, buttons, form fields, modal, toast and login gate. Behaviour untouched |
+
+| D-12 | Only `warehouse` and `partner` appear in the kind selector; the original lists eight kinds | Phase 2 non-goal, stated in its approved design | The other six (`location`, `channel`, `unit`, `category`, `project`, `serfiyyat_channel`) need only a row in `WIRED_KINDS` plus an entity fetcher — no structural change |
+| D-13 | A partner whose stored `contract_date` is not ISO (live data holds `17.06.2026`, `08.06.2026`, `2026`, …) cannot be displayed by the `type=date` field. The original silently discarded such a value on any save; this build **warns** the user instead and still discards it only if they save | **Not yet decided — open.** Reported rather than silently copied or silently fixed, per principles §7 | Needs a user decision: (a) keep the warning and the original's behaviour, (b) preserve the stored value when the field is untouched, or (c) normalise the legacy values in the data. Option (c) is a data change and would need its own approval |
 
 Checked and **not** violations: `pages/LoginPage.tsx` and
 `components/SessionDialog.tsx` import only `rememberOn`/`setRemember`/
