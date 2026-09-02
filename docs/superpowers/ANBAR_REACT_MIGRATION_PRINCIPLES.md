@@ -108,6 +108,9 @@ against `partners`), none of which were visible in the UI code.
 
 One project-wide registry is maintained at
 [`ANBAR_FUNCTIONAL_PARITY_REGISTRY.md`](ANBAR_FUNCTIONAL_PARITY_REGISTRY.md).
+Each completed phase also gets a final report — Phase 1's is
+[`PHASE1_FINAL_REPORT.md`](PHASE1_FINAL_REPORT.md), which carries its manual
+acceptance checklist.
 
 For every old-platform function it records: module and function; confirmed old
 behaviour; location of the old implementation; tables, fields, RPCs and

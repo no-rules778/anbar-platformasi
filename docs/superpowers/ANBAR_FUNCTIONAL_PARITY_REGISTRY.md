@@ -2,13 +2,14 @@
 
 Project-wide registry of every old-platform function and its React counterpart.
 Governed by [`ANBAR_REACT_MIGRATION_PRINCIPLES.md`](ANBAR_REACT_MIGRATION_PRINCIPLES.md).
+Phase 1 outcome and the manual acceptance checklist: [`PHASE1_FINAL_REPORT.md`](PHASE1_FINAL_REPORT.md).
 
 - **Behavioural reference:** `origin/main:index.html` (the deployed production
   platform). Line numbers below refer to that file.
 - **React implementation:** `web/` on branch `react-migration`.
-- **Last updated:** 2026-09-02, at commit `958db31`.
-- **Automated test suite at that commit:** 143 passing, `typecheck`, `lint`
-  (oxlint) and `build` clean.
+- **Last updated:** 2026-09-02, at commit `bc09b18`.
+- **Automated test suite at that commit:** 188 passing in 19 files;
+  `typecheck`, `lint` (oxlint) and `build` clean.
 
 ## Statuses
 
@@ -39,6 +40,40 @@ present code is `CODE VERIFIED`.
 
 ---
 
+
+## Audit findings F1–F12 — true status
+
+Each finding from the comparative audit, its fix commit, and where it is
+verified. **Every one is `CODE VERIFIED` only** — see the live-verification
+warning above.
+
+| F | Finding | Fixed in | React location | Tests | Status |
+|---|---|---|---|---|---|
+| F1 | No session window: no logout, device management or password change existed | `68b69fe` | `components/SessionDialog.tsx`, `components/PasswordChangeDialog.tsx`, header in `App.tsx` | `SessionDialog.test` (15), `PasswordChangeDialog.test` (10), `App.test` | `CODE VERIFIED` |
+| F2 | Tab close did not free this device's slot | `68b69fe`, hardened in `03f38e1` | `hooks/useReleaseDeviceOnUnload.ts`, `api/session.api.ts` `releaseDeviceBeacon` | `session.api.test` (6), `App.test` (2) | `CODE VERIFIED` |
+| F3 | `register_session().devices` typed from assumption; device name rendered blank | `4073ea1` | `api/session.api.ts` `SessionDevice`, `components/SessionLimitDialog.tsx` | `sessionDevices.test` (13), `SessionDialog.test` | `CODE VERIFIED` — shape re-read from the live RPC |
+| F4 | Warehouse screen rendered for every signed-in user | `4073ea1` | `pages/WarehousesPage.tsx` | `WarehousesPage.test` (3 roles + no-subscribe) | `CODE VERIFIED` |
+| F5 | Usage query errors became `0`, so a used warehouse could look free | `4073ea1` | `api/warehouses.api.ts` `WarehouseUsage`, `WarehouseFormDialog.tsx` | `warehouses.api.test` (3), `WarehouseFormDialog.test` | `CODE VERIFIED` |
+| F6 | Usage counted cancelled movements | `4073ea1`, matching fixed in `3d7a0cd` | `lib/operationalMovements.ts`, `lib/refEq.ts`, `api/warehouses.api.ts` | `operationalMovements.test` (11), `refEq.test` (16), `warehouses.api.test` | `CODE VERIFIED` — no SQL change was needed |
+| F7 | No Realtime subscription | `390fabe`, corrected in `609f4ca` | `hooks/useRealtimeRefresh.ts`, `store/sync.store.ts`, `components/SyncIndicator.tsx` | `WarehousesPage.test` (realtime + sync transitions), `SyncIndicator.test` (6) | `CODE VERIFIED` |
+| F8 | Login form shown while restoring a session | `4073ea1`, completed in `3d7a0cd` | `App.tsx`, `store/auth.store.ts` (boots `loading`) | `App.test` (3), `auth.store.test` | `CODE VERIFIED` |
+| F9 | Remember-me checkbox not restored | `4073ea1` | `pages/LoginPage.tsx` | `LoginPage.test` (3) | `CODE VERIFIED` |
+| F10 | E-mail not trimmed | `4073ea1` | `pages/LoginPage.tsx` | `LoginPage.test` (3) | `CODE VERIFIED` |
+| F11 | Warehouse deleted without confirmation | `4073ea1` | `components/warehouses/WarehouseFormDialog.tsx` | `WarehouseFormDialog.test` (5) | `CODE VERIFIED` |
+| F12 | List had no search, filter, paging or numbering | `390fabe` | `pages/WarehousesPage.tsx` | `WarehousesPage.test` (6) | `CODE VERIFIED` |
+
+### Follow-up review corrections (after F1–F12)
+
+| # | Issue | Fixed in | Tests | Status |
+|---|---|---|---|---|
+| P-01 | Logout sent `end_session` twice (status-dependent cleanup + explicit call) | `03f38e1` | `App.test` (4) | `CODE VERIFIED` |
+| P-02 | Beacon's rejected fetch promise was unconsumed | `03f38e1` | `session.api.test` (2) | `CODE VERIFIED` |
+| P-03 | Realtime announced success before the refresh finished | `609f4ca` | `WarehousesPage.test` (2) | `CODE VERIFIED` |
+| P-04 | Subscription status ignored; no sync indicator | `609f4ca` | `WarehousesPage.test` (6), `SyncIndicator.test` (6) | `CODE VERIFIED` |
+| P-05 | `SessionDialog`/`PasswordChangeDialog` had no direct tests | `bc09b18` | 25 new tests | `CODE VERIFIED` |
+
+---
+
 ## Module A — Authentication & Session
 
 Tables/RPCs: `users`, `sessions`; `register_session`, `touch_session`,
@@ -63,13 +98,13 @@ policy — all writes go through the SECURITY DEFINER RPCs.
 | A-12 | Device registration on sign-in and on restore | 7320-7335, 7569, 7587 | `api/session.api.ts`, `App.tsx`, `LoginPage.tsx` | all | `session.api.test`, `App.test` | `CODE VERIFIED` |
 | A-13 | Degrade to "allowed" if SQL 026 absent | 7329-7334 | `api/session.api.ts` `registerSession` catch | all | `session.api.test` | `CODE VERIFIED` |
 | A-14 | Device-limit rejection → sign out + dialog (F3 contract) | 7481-7492, 7570-7574 | `components/SessionLimitDialog.tsx` | all | `sessionDevices.test` | `CODE VERIFIED` — RPC shape re-read from live DB |
-| A-15 | Heartbeat every 60 s; forced sign-out when closed elsewhere | 7343-7359 | `hooks/useHeartbeat.ts` | all | `session.api.test` (`touchSession`) | `CODE VERIFIED` — **hook itself has no test** |
+| A-15 | Heartbeat every 60 s; forced sign-out when closed elsewhere | 7343-7359 | `hooks/useHeartbeat.ts` | all | `session.api.test` (`touchSession`) | `CODE VERIFIED` — **hook itself still has no test** (R-02) |
 | A-16 | Release this device on tab close (F2) | 7380-7393 | `hooks/useReleaseDeviceOnUnload.ts`, `api/session.api.ts` `releaseDeviceBeacon` | all | `session.api.test` (4 cases), `App.test` (2) | `CODE VERIFIED` |
 | A-17 | «Sessiya» window: identity, role, warehouse, permissions, remember state (F1) | 7422-7440 | `components/SessionDialog.tsx` | all | `App.test` | `CODE VERIFIED` |
-| A-18 | Active-device list (`list_my_sessions`) | 7452-7478 | `components/SessionDialog.tsx` | all | — | `CODE VERIFIED` — contract read from live DB; **no dedicated test** |
-| A-19 | Close one other device / close all others | 7441-7448, 7468-7476 | `components/SessionDialog.tsx` | all | — | `CODE VERIFIED` — **no test** |
-| A-20 | Change password with all validations (F1) | 7398-7420 | `components/PasswordChangeDialog.tsx` | all | `auth.api.test` (server path), `App.test` (dialog opens) | `CODE VERIFIED` — **validation branches untested** |
-| A-21 | Logout: free device → forget remember → sign out (F1) | 7444 | `App.tsx` `logout()` | all | `App.test` | `CODE VERIFIED` |
+| A-18 | Active-device list (`list_my_sessions`) | 7452-7478 | `components/SessionDialog.tsx` | all | `SessionDialog.test` (rows, current-device marker, missing label, degraded mode) | `CODE VERIFIED` — contract read from the live DB |
+| A-19 | Close one other device / close all others | 7441-7448, 7468-7476 | `components/SessionDialog.tsx` | all | `SessionDialog.test` (close one, close others, reload, errors, busy, current device excluded) | `CODE VERIFIED` |
+| A-20 | Change password with all validations (F1) | 7398-7420 | `components/PasswordChangeDialog.tsx` | all | `PasswordChangeDialog.test` (10: every validation, server rejection, success-only close, busy label) | `CODE VERIFIED` |
+| A-21 | Logout: free device → forget remember → sign out, exactly one release (F1, P-01) | 7444 | `App.tsx` `logout()` | all | `App.test` (order, exactly-once, no double release on later unmount) | `CODE VERIFIED` |
 
 ## Module B — Warehouses directory (Soraqçalar, `kind='warehouse'`)
 
@@ -91,7 +126,8 @@ no write policy — all mutations via `manage_reference` (Admin-only, SECURITY D
 | B-09 | Server error surfacing incl. duplicate-name wording | 3178-3182 | `WarehouseFormDialog.tsx` | admin | `referenceDirectory.api.test` | `CODE VERIFIED` |
 | B-10 | Cascade notice after rename (`cascaded_rows`) | 3172-3177 | `WarehouseFormDialog.tsx` | admin | — | `CODE VERIFIED` — **no test** |
 | B-11 | List controls: numbering, search, status filter, page size, paging (F12) | 3036-3057 | `pages/WarehousesPage.tsx` | admin | `WarehousesPage.test` (6) | `CODE VERIFIED` |
-| B-12 | Realtime refresh + «Məlumatlar yeniləndi» notice (F7) | 1163-1181 | `hooks/useRealtimeRefresh.ts` | admin | `WarehousesPage.test` (3) | `CODE VERIFIED` |
+| B-12 | Realtime refresh + «Məlumatlar yeniləndi» notice, announced only after a successful reload (F7, P-03) | 1163-1181 | `hooks/useRealtimeRefresh.ts`, `store/warehouses.store.ts` `LoadResult` | admin | `WarehousesPage.test` (5) | `CODE VERIFIED` |
+| B-14 | Sync indicator driven by subscription status (P-04) | 1177-1180, 1184-1188 | `store/sync.store.ts`, `components/SyncIndicator.tsx` | admin | `WarehousesPage.test` (6), `SyncIndicator.test` (6) | `CODE VERIFIED` |
 | B-13 | Server-side rules relied upon but never exercised: zero-balance check before deactivate, active-anbardar check, partner/warehouse name collision | `manage_reference` body | — (server) | admin | — | `NOT STARTED` — behaviour never triggered from React |
 
 ## Server-side rules inherited, not reimplemented
@@ -131,7 +167,7 @@ table, RPC, auth-subscription or Realtime client calls.
 | ID | Risk / deferred item | Impact |
 |---|---|---|
 | R-01 | Usage counting reads all `movements` rows (1915 today). Cost grows with the table | Performance only; revisit if the table grows by an order of magnitude |
-| R-02 | `useHeartbeat`, device close actions (A-19), password validation branches (A-20), deactivate/activate (B-07) and the cascade notice (B-10) have no automated tests | Regressions in these would not be caught |
+| R-02 | `useHeartbeat`, deactivate/activate (B-07) and the cascade notice (B-10) still have no automated tests. A-19 and A-20 were closed by `bc09b18` | Regressions in the remaining three would not be caught |
 | R-03 | Server-side refusals (B-13) never exercised from React | The UI's handling of those exact server errors is unproven |
 | R-04 | `ANBAR_SHARED/docs/DB_SCHEMA.md` and `RLS_POLICIES.md` remain stale and contradict the live database | Any future phase trusting them will be misled — principles §3 |
 | R-05 | `manage_reference` type mismatch (`BUG_REGISTRY` C-15) was fixed live by others during Phase 1; the React code depends on the fixed contract | If that fix were reverted, warehouse mutations break |
