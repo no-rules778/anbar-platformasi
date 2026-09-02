@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { getSession } from './api/auth.api'
 import { registerSession, unregisterSession, setAccessToken, type RegisterSessionResult } from './api/session.api'
 import { supabase, setRemember } from './api/supabase'
@@ -81,9 +81,26 @@ function App() {
     return () => sub.subscription.unsubscribe()
   }, [])
 
+  /* This device's session row must be released exactly once. Two paths can
+     want to do it — an explicit logout and a genuine unmount while signed in —
+     so a single latch decides which one actually sends the RPC.
+
+     The unmount effect deliberately has no `status` dependency: with one, a
+     normal ready → idle logout re-ran the effect and fired its cleanup, so the
+     RPC went out twice (once from the cleanup, once from logout()). `statusRef`
+     lets the unmount cleanup still know whether anyone was signed in. */
+  const statusRef = useRef(status)
+  useEffect(() => { statusRef.current = status }, [status])
+  const deviceReleasedRef = useRef(false)
+
   useEffect(() => {
-    return () => { if (status === 'ready') unregisterSession() }
-  }, [status])
+    return () => {
+      if (statusRef.current === 'ready' && !deviceReleasedRef.current) {
+        deviceReleasedRef.current = true
+        void unregisterSession()
+      }
+    }
+  }, [])
 
   /* Ported from index.html sessionDialog()'s «Çıxış» (7444): stop the
      heartbeat, free this device's slot, forget the "remember me" choice, then
@@ -91,7 +108,10 @@ function App() {
      in the same state without discarding the tab. */
   async function logout() {
     setStatus('idle')
-    await unregisterSession()
+    if (!deviceReleasedRef.current) {
+      deviceReleasedRef.current = true
+      await unregisterSession()
+    }
     setRemember(false)
     await signOut()
     setAccessToken(null)

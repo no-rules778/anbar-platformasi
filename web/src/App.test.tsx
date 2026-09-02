@@ -166,3 +166,69 @@ describe('App — device release on tab close', () => {
     expect(releaseDeviceBeacon).not.toHaveBeenCalled()
   })
 })
+
+/* One logout must close this device exactly once. The old shape — an effect
+   whose cleanup ran on every ready → idle transition, plus an explicit call in
+   logout() — sent the RPC twice. */
+describe('App — logout releases the device exactly once', () => {
+  it('calls unregisterSession once per logout action', async () => {
+    const user = userEvent.setup()
+    await renderSignedIn()
+
+    await user.click(screen.getByRole('button', { name: /Admin · Admin/ }))
+    await user.click(screen.getByRole('button', { name: 'Çıxış' }))
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Daxil ol' })).toBeTruthy())
+    expect(unregisterSession).toHaveBeenCalledTimes(1)
+  })
+
+  it('releases the device before signing out of Supabase', async () => {
+    const order: string[] = []
+    vi.mocked(unregisterSession).mockImplementation(async () => { order.push('unregister') })
+    vi.mocked(signOut).mockImplementation(async () => { order.push('signOut') })
+
+    const user = userEvent.setup()
+    await renderSignedIn()
+    await user.click(screen.getByRole('button', { name: /Admin · Admin/ }))
+    await user.click(screen.getByRole('button', { name: 'Çıxış' }))
+
+    await waitFor(() => expect(order).toEqual(['unregister', 'signOut']))
+  })
+
+  it('does not release again when the app unmounts after a logout', async () => {
+    const user = userEvent.setup()
+    vi.mocked(getSession).mockResolvedValue({ user: { id: 'u1', email: 'a@b.com' } } as never)
+    vi.mocked(fetchProfile).mockResolvedValue({
+      data: { id: 'u1', email: 'a@b.com', name: 'Admin User', role: 'admin', warehouse: '', active: true },
+      error: null,
+    } as never)
+    vi.mocked(listMySessions).mockResolvedValue({ limit: 3, devices: [] })
+    const view = render(<App />)
+    await waitFor(() => expect(screen.getByText('Anbarlar ekranı: Admin User')).toBeTruthy())
+
+    await user.click(screen.getByRole('button', { name: /Admin · Admin/ }))
+    await user.click(screen.getByRole('button', { name: 'Çıxış' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Daxil ol' })).toBeTruthy())
+
+    view.unmount()
+
+    expect(unregisterSession).toHaveBeenCalledTimes(1)
+  })
+
+  it('still performs one best-effort release when the app unmounts while signed in', async () => {
+    vi.mocked(getSession).mockResolvedValue({ user: { id: 'u1', email: 'a@b.com' } } as never)
+    vi.mocked(fetchProfile).mockResolvedValue({
+      data: { id: 'u1', email: 'a@b.com', name: 'Admin User', role: 'admin', warehouse: '', active: true },
+      error: null,
+    } as never)
+    vi.mocked(listMySessions).mockResolvedValue({ limit: 3, devices: [] })
+
+    const view = render(<App />)
+    await waitFor(() => expect(screen.getByText('Anbarlar ekranı: Admin User')).toBeTruthy())
+    expect(unregisterSession).not.toHaveBeenCalled()
+
+    view.unmount()
+
+    expect(unregisterSession).toHaveBeenCalledTimes(1)
+  })
+})

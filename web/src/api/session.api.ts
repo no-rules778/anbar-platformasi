@@ -132,6 +132,9 @@ export function getAccessToken(): string | null {
 export function releaseDeviceBeacon(): void {
   if (!accessToken) return
   try {
+    /* Fire-and-forget, but the rejection must still be absorbed: an unload
+       usually aborts the request, and an unconsumed rejected promise would
+       surface as an unhandled rejection. */
     void fetch(`${SB_URL}/rest/v1/rpc/end_session`, {
       method: 'POST',
       keepalive: true,
@@ -141,7 +144,7 @@ export function releaseDeviceBeacon(): void {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ p_device_id: DEVICE_ID }),
-    })
+    })?.catch(() => {})
   } catch {
     /* the tab is going away; nothing useful to do here — the 3-minute
        stale-session cutoff on the server is the backstop */

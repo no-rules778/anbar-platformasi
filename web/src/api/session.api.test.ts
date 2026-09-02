@@ -93,4 +93,30 @@ describe('releaseDeviceBeacon', () => {
     fetchMock.mockImplementation(() => { throw new Error('tab is going away') })
     expect(() => releaseDeviceBeacon()).not.toThrow()
   })
+
+  it('absorbs a rejected fetch promise instead of leaving it unhandled', async () => {
+    setAccessToken('real-token')
+    const unhandled: unknown[] = []
+    const onUnhandled = (e: PromiseRejectionEvent) => { e.preventDefault(); unhandled.push(e.reason) }
+    window.addEventListener('unhandledrejection', onUnhandled)
+    try {
+      fetchMock.mockRejectedValue(new Error('navigation aborted the request'))
+
+      expect(() => releaseDeviceBeacon()).not.toThrow()
+
+      // let the microtask queue drain so an unconsumed rejection would surface
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      await new Promise((resolve) => setTimeout(resolve, 0))
+
+      expect(unhandled).toEqual([])
+    } finally {
+      window.removeEventListener('unhandledrejection', onUnhandled)
+    }
+  })
+
+  it('tolerates a fetch implementation that returns nothing at all', () => {
+    setAccessToken('real-token')
+    fetchMock.mockReturnValue(undefined as never)
+    expect(() => releaseDeviceBeacon()).not.toThrow()
+  })
 })
