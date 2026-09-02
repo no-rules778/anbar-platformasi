@@ -1,5 +1,11 @@
 # ANBAR React Migration — Phase 2 (Partners) Design
 
+> **Read first, every phase:** [`docs/superpowers/ANBAR_REACT_MIGRATION_PRINCIPLES.md`](../ANBAR_REACT_MIGRATION_PRINCIPLES.md)
+> and [`docs/superpowers/ANBAR_FUNCTIONAL_PARITY_REGISTRY.md`](../ANBAR_FUNCTIONAL_PARITY_REGISTRY.md).
+> They are permanent project rules: behavioural parity with the production
+> platform, the verification levels a feature must pass, and the deployment
+> boundary. A phase adds its registry rows during research, before writing code.
+
 Date: 2026-09-02
 Branch: `react-migration` (continues Phase 1, not a new branch)
 Status: awaiting user review

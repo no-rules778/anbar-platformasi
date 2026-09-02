@@ -1,5 +1,11 @@
 # ANBAR React Migration — Phase 1 Implementation Plan
 
+> **Read first, every phase:** [`docs/superpowers/ANBAR_REACT_MIGRATION_PRINCIPLES.md`](../ANBAR_REACT_MIGRATION_PRINCIPLES.md)
+> and [`docs/superpowers/ANBAR_FUNCTIONAL_PARITY_REGISTRY.md`](../ANBAR_FUNCTIONAL_PARITY_REGISTRY.md).
+> They are permanent project rules: behavioural parity with the production
+> platform, the verification levels a feature must pass, and the deployment
+> boundary. A phase adds its registry rows during research, before writing code.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Stand up a Vite + React + TypeScript + Zustand + Tailwind (shadcn/ui-style) skeleton inside the existing repo, and port login/auth (including the device/session-limit mechanism) and warehouse management (create/edit/deactivate/reactivate/delete) from `platform/index.html` with exact behavioral parity, verified locally against the live Supabase project.
