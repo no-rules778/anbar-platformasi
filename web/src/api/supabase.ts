@@ -59,8 +59,8 @@ export function saveEmail(v: string): void {
   } catch { /* ignore */ }
 }
 
-const SB_URL = import.meta.env.VITE_SUPABASE_URL as string
-const SB_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string
+export const SB_URL = import.meta.env.VITE_SUPABASE_URL as string
+export const SB_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string
 
 if (!SB_URL || !SB_KEY) {
   throw new Error('VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY are not set — copy web/.env.example to web/.env and fill them in.')

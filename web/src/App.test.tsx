@@ -12,19 +12,32 @@ vi.mock('./api/session.api', () => ({
   registerSession: vi.fn(),
   unregisterSession: vi.fn(),
   touchSession: vi.fn(),
+  setAccessToken: vi.fn(),
+  releaseDeviceBeacon: vi.fn(),
+  listMySessions: vi.fn(),
+  endOtherSessions: vi.fn(),
+  endSession: vi.fn(),
 }))
 vi.mock('./api/supabase', () => ({
   setRemember: vi.fn(),
   rememberOn: vi.fn(() => false),
   savedEmail: vi.fn(() => ''),
   saveEmail: vi.fn(),
+  supabase: {
+    auth: {
+      getSession: vi.fn(async () => ({ data: { session: { access_token: 'tok' } } })),
+      onAuthStateChange: vi.fn(() => ({ data: { subscription: { unsubscribe: vi.fn() } } })),
+    },
+  },
 }))
 vi.mock('./pages/WarehousesPage', () => ({
   WarehousesPage: ({ me }: { me: { name: string } }) => <div>Anbarlar ekranı: {me.name}</div>,
 }))
 
-import { getSession, fetchProfile } from './api/auth.api'
-import { registerSession } from './api/session.api'
+import { getSession, fetchProfile, signOut } from './api/auth.api'
+import { registerSession, unregisterSession, releaseDeviceBeacon, listMySessions } from './api/session.api'
+import { setRemember } from './api/supabase'
+import userEvent from '@testing-library/user-event'
 import App from './App'
 import { useAuthStore } from './store/auth.store'
 
@@ -78,5 +91,78 @@ describe('App — session restore never flashes the login form', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Daxil ol' })).toBeTruthy())
     expect(screen.queryByText('Sessiya bərpa olunur...')).toBeNull()
     expect(registerSession).not.toHaveBeenCalled()
+  })
+})
+
+async function renderSignedIn() {
+  vi.mocked(getSession).mockResolvedValue({ user: { id: 'u1', email: 'a@b.com' } } as never)
+  vi.mocked(fetchProfile).mockResolvedValue({
+    data: { id: 'u1', email: 'a@b.com', name: 'Admin User', role: 'admin', warehouse: '', active: true },
+    error: null,
+  } as never)
+  vi.mocked(listMySessions).mockResolvedValue({ limit: 3, devices: [] })
+  render(<App />)
+  await waitFor(() => expect(screen.getByText('Anbarlar ekranı: Admin User')).toBeTruthy())
+}
+
+/* F1: without this the user cannot sign out, free a device or change a
+   password at all — the original offers all three (index.html:7422-7449). */
+describe('App — session window and logout', () => {
+  it('exposes a user chip that opens the session window', async () => {
+    const user = userEvent.setup()
+    await renderSignedIn()
+
+    await user.click(screen.getByRole('button', { name: /Admin · Admin/ }))
+
+    expect(screen.getByText('Sessiya')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Çıxış' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Şifrəni dəyiş' })).toBeTruthy()
+    expect(screen.getByText('Aktiv cihazlar')).toBeTruthy()
+  })
+
+  it('logout frees this device, forgets remember-me, signs out and returns to the login form', async () => {
+    const user = userEvent.setup()
+    await renderSignedIn()
+
+    await user.click(screen.getByRole('button', { name: /Admin · Admin/ }))
+    await user.click(screen.getByRole('button', { name: 'Çıxış' }))
+
+    await waitFor(() => expect(unregisterSession).toHaveBeenCalled())
+    expect(setRemember).toHaveBeenCalledWith(false)
+    expect(signOut).toHaveBeenCalled()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Daxil ol' })).toBeTruthy())
+  })
+
+  it('opens the password dialog from the session window', async () => {
+    const user = userEvent.setup()
+    await renderSignedIn()
+
+    await user.click(screen.getByRole('button', { name: /Admin · Admin/ }))
+    await user.click(screen.getByRole('button', { name: 'Şifrəni dəyiş' }))
+
+    expect(screen.getByText('Şifrəni dəyiş', { selector: 'h2' })).toBeTruthy()
+    expect(screen.getByLabelText('Cari şifrə')).toBeTruthy()
+  })
+})
+
+/* F2: closing the tab must release this device's slot, or a 1-device role is
+   locked out until the 3-minute server cutoff (index.html:7380-7393). */
+describe('App — device release on tab close', () => {
+  it('sends the beacon on pagehide while signed in', async () => {
+    await renderSignedIn()
+
+    window.dispatchEvent(new Event('pagehide'))
+
+    expect(releaseDeviceBeacon).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not send the beacon when nobody is signed in', async () => {
+    vi.mocked(getSession).mockResolvedValue(null as never)
+    render(<App />)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Daxil ol' })).toBeTruthy())
+
+    window.dispatchEvent(new Event('pagehide'))
+
+    expect(releaseDeviceBeacon).not.toHaveBeenCalled()
   })
 })

@@ -1,4 +1,4 @@
-import { supabase } from './supabase'
+import { supabase, SB_URL, SB_KEY } from './supabase'
 
 const DEVICE_ID_KEY = 'anbar_device_id'
 
@@ -104,4 +104,59 @@ export async function endOtherSessions() {
 
 export async function endSession(deviceId: string) {
   return supabase.rpc('end_session', { p_device_id: deviceId })
+}
+
+/* ---------- device release on tab close (index.html:7380-7393) ----------
+   The RPC call issued from a `pagehide` handler must survive the page going
+   away, which supabase-js cannot promise — the original therefore posts to
+   PostgREST directly with `keepalive: true`. Two rules are load-bearing and
+   ported verbatim:
+     * only THIS device's row is closed (end_session takes auth.uid() + the
+       device id), never the user's other devices;
+     * nothing is sent without a real access token. Sending `Bearer null` was
+       the old behaviour and, under weak RLS, could delete somebody else's
+       row — BUG_REGISTRY C-07, already fixed in the production platform. */
+
+let accessToken: string | null = null
+
+/** Keeps the token available synchronously, the way the original cached SB_TOKEN. */
+export function setAccessToken(token: string | null): void {
+  accessToken = token
+}
+
+export function getAccessToken(): string | null {
+  return accessToken
+}
+
+/** Fire-and-forget release of THIS device's session row. Safe to call on unload. */
+export function releaseDeviceBeacon(): void {
+  if (!accessToken) return
+  try {
+    void fetch(`${SB_URL}/rest/v1/rpc/end_session`, {
+      method: 'POST',
+      keepalive: true,
+      headers: {
+        apikey: SB_KEY,
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ p_device_id: DEVICE_ID }),
+    })
+  } catch {
+    /* the tab is going away; nothing useful to do here — the 3-minute
+       stale-session cutoff on the server is the backstop */
+  }
+}
+
+export interface MySessionsResult {
+  limit?: number
+  active?: number
+  devices?: SessionDevice[]
+}
+
+/** Device list for the «Sessiya» window (index.html loadSessionDevices, 7452+). */
+export async function listMySessions(): Promise<MySessionsResult | null> {
+  const { data, error } = await supabase.rpc('list_my_sessions')
+  if (error) throw error
+  return (data as unknown as MySessionsResult) ?? null
 }
