@@ -21,7 +21,15 @@ Phase 1 outcome and the manual acceptance checklist: [`PHASE1_FINAL_REPORT.md`](
 | `LIVE VERIFIED` | Verified in a real browser against the live environment, on the current code. |
 | `ACCEPTED` | Both levels passed, no blocking issues. |
 
-## ⚠️ Live-verification state of Phase 1 — read this first
+## ✅ Live-verification state of Phase 1 — accepted by user
+
+On 2026-09-02 the user confirmed that the complete live/manual Phase 1
+checklist in `PHASE1_FINAL_REPORT.md` passed. Phase 1 is therefore **ACCEPTED**.
+The per-function rows below retain `CODE VERIFIED` as their evidence level;
+the acceptance decision is the phase-level result based on the completed live
+checklist.
+
+## ⚠️ Historical live-verification note
 
 The user did perform a live browser test (admin login, the warehouse list with
 real data, and warehouse create/edit/hide/delete — reported as "anbarla pass").
@@ -33,10 +41,9 @@ two-step delete, remember-me restoration, e-mail trimming, the restore-state
 screen, the session window, logout, password change, the unload beacon,
 realtime refresh and every list control.
 
-Per §6 of the principles, a live pass does not carry forward across a rewrite
-of the same feature. **Therefore no Phase 1 function is currently
-`LIVE VERIFIED`, and none is `ACCEPTED`.** The highest honest status for the
-present code is `CODE VERIFIED`.
+Per §6 of the principles, that earlier live pass did not carry forward across
+the rewrite. The user subsequently completed the current checklist, so the
+phase-level result is now **ACCEPTED**.
 
 ---
 
@@ -177,7 +184,7 @@ table, RPC, auth-subscription or Realtime client calls.
 | R-07 | Two scoped exceptions to Supabase-isolation remain open (D-09 auth subscription in `App.tsx`, D-10 Realtime client in `useRealtimeRefresh`) | Architectural debt, not behavioural. Cleanup is gated on regression tests first, per principles §9 |
 | R-08 | ~~React screens look nothing like the production platform~~ — **closed** by `d8fbd43`. Residual: only the classes Phase 1 renders were ported; later phases must extend `index.css` from the original rather than invent styling | Low. Side-by-side acceptance comparison is now meaningful |
 
-## Outstanding live verification (blocking `ACCEPTED`)
+## Historical live-verification checklist (completed)
 
 | # | Item | Why it needs a live check |
 |---|---|---|

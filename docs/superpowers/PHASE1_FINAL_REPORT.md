@@ -1,6 +1,6 @@
 # ANBAR React Migration — Phase 1 Final Report
 
-Date: 2026-09-02 · Branch: `react-migration` · Head at report time: `bc09b18`
+Date: 2026-09-02 · Branch: `react-migration` · Head at report time: `eafb298`
 
 Governed by [`ANBAR_REACT_MIGRATION_PRINCIPLES.md`](ANBAR_REACT_MIGRATION_PRINCIPLES.md).
 Per-function detail lives in [`ANBAR_FUNCTIONAL_PARITY_REGISTRY.md`](ANBAR_FUNCTIONAL_PARITY_REGISTRY.md).
@@ -135,31 +135,31 @@ isolation exceptions above.
 
 ## 7. Live / manual acceptance checklist
 
-**Status: not started.** Nothing below has been performed against the current
-code. No result here may be filled in from mocks, and screenshots must be real.
+**Status: completed by user confirmation on 2026-09-02.** The user confirmed
+that all listed live/manual checks passed without errors. The three checks
+performed by Codex are also included in that confirmation.
 
 Run the app locally (`cd web && npm run dev -- --port 5174`), against the live
 Supabase project, with real accounts.
 
 | # | Check | Expected | Result |
 |---|---|---|---|
-| 1 | Sign in with remember-me **off**, then again with it **on** | Off: session ends with the tab. On: the box is pre-checked next time and the session survives a browser restart | ☐ |
-| 2 | Reload the page with a stored session | «Sessiya bərpa olunur...» appears; the login form never flashes; the app opens signed in | ☐ |
-| 3 | Occupy the device limit (second browser/device; use a 1-device role such as `rehber`/`anbardar`) | Sign-in is refused, the dialog lists the occupying devices with real names, start and last-activity times | ☐ |
-| 4 | In «Sessiya», close **one** other device | That row disappears after the list reloads; the current device is unaffected and offers no close action | ☐ |
-| 5 | In «Sessiya», use «Digər cihazları bağla» | All other devices disappear; this one stays signed in | ☐ |
-| 6 | Explicit logout | Returns to the login form; the device row is released immediately (verify in the session list from another device) | ☐ |
-| 7 | Close the tab while signed in | The slot is released without waiting for the 3-minute cutoff (verify from another device) | ☐ |
-| 8 | Change the password, then sign in again with the new one | Wrong current password is refused with «Cari şifrə yanlışdır»; a valid change closes the dialog and the new password works | ☐ |
-| 9 | Sign in as **Admin** | «Anbarlar» opens with the real warehouses; usage numbers match the old platform on the same data | ☐ |
-| 10 | Sign in as **`rehber`** and as **`anbardar`** | Both see the refusal message; no warehouse rows and no usage counters are fetched (check the network tab) | ☐ |
-| 11 | Use search, the status filter, page size and paging; check row numbers | Behaves as the old «Soraqçalar» list; filters reset to page 1 | ☐ |
-| 12 | Open two Admin sessions in different browsers; change a warehouse in one | The other refreshes on its own and shows «Məlumatlar yeniləndi (digər istifadəçi)»; the header indicator reads «sinxron» | ☐ |
-| 13 | **Blocked — needs separate approval.** Create/edit/hide/reactivate/delete a throwaway warehouse | Two-step delete; name locked once in use; server refusals surfaced verbatim | ⛔ pending explicit user approval for a production write test |
+| 1 | Sign in with remember-me **off**, then again with it **on** | Off: session ends with the tab. On: the box is pre-checked next time and the session survives a browser restart | ✅ PASS (user) |
+| 2 | Reload the page with a stored session | «Sessiya bərpa olunur...» appears; the login form never flashes; the app opens signed in | ✅ PASS (Codex + user) |
+| 3 | Occupy the device limit (second browser/device; use a 1-device role such as `rehber`/`anbardar`) | Sign-in is refused, the dialog lists the occupying devices with real names, start and last-activity times | ✅ PASS (user) |
+| 4 | In «Sessiya», close **one** other device | That row disappears after the list reloads; the current device is unaffected and offers no close action | ✅ PASS (user) |
+| 5 | In «Sessiya», use «Digər cihazları bağla» | All other devices disappear; this one stays signed in | ✅ PASS (user) |
+| 6 | Explicit logout | Returns to the login form; the device row is released immediately (verify in the session list from another device) | ✅ PASS (user) |
+| 7 | Close the tab while signed in | The slot is released without waiting for the 3-minute cutoff (verify from another device) | ✅ PASS (user) |
+| 8 | Change the password, then sign in again with the new one | Wrong current password is refused with «Cari şifrə yanlışdır»; a valid change closes the dialog and the new password works | ✅ PASS (user) |
+| 9 | Sign in as **Admin** | «Anbarlar» opens with the real warehouses; usage numbers match the old platform on the same data | ✅ PASS (user) |
+| 10 | Sign in as **`rehber`** and as **`anbardar`** | Both see the refusal message; no warehouse rows and no usage counters are fetched (check the network tab) | ✅ PASS (user) |
+| 11 | Use search, the status filter, page size and paging; check row numbers | Behaves as the old «Soraqçalar» list; filters reset to page 1 | ✅ PASS (Codex + user) |
+| 12 | Open two Admin sessions in different browsers; change a warehouse in one | The other refreshes on its own and shows «Məlumatlar yeniləndi (digər istifadəçi)»; the header indicator reads «sinxron» | ✅ PASS (user) |
+| 13 | Create/edit/hide/reactivate/delete a throwaway warehouse | Two-step delete; name locked once in use; server refusals surfaced verbatim | ✅ PASS (user-confirmed) |
 
-Item 13 must stay pending until the user separately approves a production
-write test. Items 1-12 are read-only or affect only the caller's own session
-rows, and can be run without a further data-change approval.
+The user explicitly confirmed completion of all checks, including the
+write-path check. No additional production action was performed by Codex.
 
 ## 8. Deployment boundary
 
@@ -177,7 +177,5 @@ explicitly authorises the cutover (principles §8).
 
 ## 9. Phase 1 completion statement
 
-Phase 1 is **code-complete and code-verified**. It is **not accepted**: no
-function has passed live verification against the current code, so per the
-principles no function may be marked `LIVE VERIFIED` or `ACCEPTED` yet. The
-checklist in §7 is the remaining work for that.
+Phase 1 is **code-complete, code-verified and accepted by the user**. The
+manual acceptance checklist is complete. Phase 1 status is **ACCEPTED**.
