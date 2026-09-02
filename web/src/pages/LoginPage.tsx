@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { signIn, signOut } from '../api/auth.api'
 import { registerSession, type RegisterSessionResult } from '../api/session.api'
-import { setRemember, savedEmail, saveEmail } from '../api/supabase'
+import { setRemember, rememberOn, savedEmail, saveEmail } from '../api/supabase'
 import { useAuthStore } from '../store/auth.store'
 import { useToastStore } from '../store/toast.store'
 import { Button } from '../components/ui/Button'
@@ -17,7 +17,10 @@ interface Props {
 export function LoginPage({ onLoggedIn }: Props) {
   const [email, setEmail] = useState(savedEmail())
   const [password, setPassword] = useState('')
-  const [remember, setRememberState] = useState(false)
+  /* The original restores the saved preference into the checkbox
+     (`$('#g-rem').checked = rememberOn()`, index.html:7554) — otherwise a
+     returning user silently loses their persistent session on next sign-in. */
+  const [remember, setRememberState] = useState(rememberOn())
   const [busy, setBusy] = useState(false)
   const [limitInfo, setLimitInfo] = useState<RegisterSessionResult | null>(null)
   const setError = useAuthStore((s) => s.setError)
@@ -25,14 +28,16 @@ export function LoginPage({ onLoggedIn }: Props) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!email || !password) {
+    /* Original trims the address before every use (index.html:7558). */
+    const trimmedEmail = email.trim()
+    if (!trimmedEmail || !password) {
       show('E-poçt və şifrəni daxil edin', true)
       return
     }
     setBusy(true)
     setRemember(remember)
     try {
-      const { data, error } = await signIn(email, password)
+      const { data, error } = await signIn(trimmedEmail, password)
       if (error) throw error
       const reg = await registerSession()
       if (reg.allowed === false) {
@@ -41,7 +46,7 @@ export function LoginPage({ onLoggedIn }: Props) {
         setBusy(false)
         return
       }
-      saveEmail(remember ? email : '')
+      saveEmail(remember ? trimmedEmail : '')
       const { data: profile, error: profileErr } = await fetchProfile(data.user.id)
       if (profileErr || !profile) throw new Error('İstifadəçi profili tapılmadı. Rəhbər ilə əlaqə saxlayın.')
       if (!profile.active) throw new Error('Hesabınız deaktiv edilib.')

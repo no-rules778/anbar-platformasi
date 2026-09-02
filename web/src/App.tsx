@@ -69,6 +69,13 @@ function App() {
       <ToastHost />
       {status === 'ready' && me ? (
         <WarehousesPage me={me} />
+      ) : status === 'loading' ? (
+        /* While an existing session is being restored the original disables the
+           gate and shows «Sessiya bərpa olunur...» (index.html:7589) — the login
+           form must not accept a second, competing sign-in during that window. */
+        <div className="flex min-h-screen items-center justify-center bg-slate-50">
+          <p className="text-sm text-slate-500">Sessiya bərpa olunur...</p>
+        </div>
       ) : (
         <LoginPage onLoggedIn={(loggedInMe) => { setMe(loggedInMe); setStatus('ready') }} />
       )}

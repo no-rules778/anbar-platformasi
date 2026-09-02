@@ -43,11 +43,24 @@ function buildDeviceLabel(): string {
 export const DEVICE_ID = getDeviceId()
 export const DEVICE_LABEL = buildDeviceLabel()
 
+/* Exact contract of one entry in register_session()'s `devices` array, as
+   built by SQL 026: jsonb_build_object('device_id', device_id, 'label',
+   device_label, 'since', created_at, 'last_seen', updated_at). Verified
+   against the live function definition — the server sends `label`/`since`,
+   NOT `device_label`/`started_at`. */
+export interface SessionDevice {
+  device_id: string
+  label: string | null
+  since: string
+  last_seen: string
+}
+
 export interface RegisterSessionResult {
   allowed: boolean
   degraded?: boolean
-  devices?: { device_id: string; device_label: string; started_at: string; last_seen: string }[]
+  devices?: SessionDevice[]
   limit?: number
+  active?: number
 }
 
 /* Limit is role-based (admin: 3 devices, others: 1), enforced SERVER-SIDE by
