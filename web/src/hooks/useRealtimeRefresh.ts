@@ -22,8 +22,11 @@ export function useRealtimeRefresh(
   onChange: () => void,
   debounceMs = 400,
 ) {
+  /* Held in a ref so a caller passing an inline closure does not tear the
+     subscription down and rebuild it on every render. */
   const onChangeRef = useRef(onChange)
-  onChangeRef.current = onChange
+  useEffect(() => { onChangeRef.current = onChange }, [onChange])
+
   const tableKey = tables.join(',')
 
   useEffect(() => {
