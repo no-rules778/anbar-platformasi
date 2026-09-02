@@ -15,7 +15,13 @@ interface AuthState {
 
 export const useAuthStore = create<AuthState>((set) => ({
   me: null,
-  status: 'idle',
+  /* Boots in `loading`, not `idle`: on the very first paint we do not yet know
+     whether a stored session exists, and the original never shows an
+     interactive gate during that window (index.html:7589). Starting in `idle`
+     flashed the login form for one frame before the restore effect ran.
+     `idle` means "checked, and nobody is signed in" — reached when a restore
+     finds no session, or after logout via reset(). */
+  status: 'loading',
   error: null,
   setMe: (me) => set({ me }),
   setStatus: (status) => set({ status }),

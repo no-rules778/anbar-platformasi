@@ -24,89 +24,133 @@ describe('fetchWarehouses', () => {
   })
 })
 
-/* Test rig for fetchWarehouseUsage: it issues three queries per name —
-   movements.ilike('warehouse'), movements.ilike('partner') (both paginated
-   row fetches) and a head-count on users.ilike('warehouse'). */
+/* fetchWarehouseUsage makes one paginated pass over `movements` and one over
+   `users`, both `.select(...).order('id').range(...)`, then matches names in
+   JavaScript with REF_EQ — no SQL LIKE is involved. */
 interface UsageMocks {
-  movementsByWarehouse?: { data?: unknown[]; error?: unknown }
-  movementsByPartner?: { data?: unknown[]; error?: unknown }
-  users?: { count?: number | null; error?: unknown }
+  movements?: { data?: unknown[]; error?: unknown }
+  users?: { data?: unknown[]; error?: unknown }
 }
 
-function mockUsageQueries({ movementsByWarehouse = { data: [] }, movementsByPartner = { data: [] }, users = { count: 0 } }: UsageMocks) {
-  vi.mocked(supabase.from).mockImplementation(((table: string) => {
-    if (table === 'users') {
-      return { select: () => ({ ilike: () => Promise.resolve({ count: users.count ?? null, error: users.error ?? null }) }) }
-    }
-    // movements: select(...).ilike(column, name).range(from, to)
-    return {
-      select: () => ({
-        ilike: (column: string) => ({
-          range: () => {
-            const source = column === 'warehouse' ? movementsByWarehouse : movementsByPartner
-            return Promise.resolve({ data: source.data ?? null, error: source.error ?? null })
-          },
-        }),
-      }),
-    }
-  }) as never)
+const orderCalls: string[] = []
+
+function mockUsageQueries({ movements = { data: [] }, users = { data: [] } }: UsageMocks) {
+  orderCalls.length = 0
+  vi.mocked(supabase.from).mockImplementation(((table: string) => ({
+    select: () => ({
+      order: (column: string) => {
+        orderCalls.push(`${table}.${column}`)
+        const source = table === 'users' ? users : movements
+        return { range: () => Promise.resolve({ data: source.data ?? null, error: source.error ?? null }) }
+      },
+    }),
+  })) as never)
 }
+
+const mv = (over: Record<string, unknown>) => ({ id: 1, note: null, doc_num: null, warehouse: null, partner: null, ...over })
 
 describe('fetchWarehouseUsage — counting', () => {
-  it('counts operational movements from both columns plus assigned users, without double-counting a row matched twice', async () => {
+  it('counts operational movements matched on either column plus assigned users', async () => {
     mockUsageQueries({
-      movementsByWarehouse: { data: [{ id: 1, note: null, doc_num: 'D1' }, { id: 2, note: null, doc_num: 'D2' }] },
-      // id 2 appears again (matched on partner as well) and must not be counted twice
-      movementsByPartner: { data: [{ id: 2, note: null, doc_num: 'D2' }, { id: 3, note: null, doc_num: 'D3' }] },
-      users: { count: 1 },
-    })
-    const usage = await fetchWarehouseUsage(['Astara'])
-    expect(usage.get('Astara')).toEqual({ count: 4, exact: true }) // ids 1,2,3 + 1 user
-  })
-
-  it('excludes cancelled movements exactly like the original operationalMovements()', async () => {
-    mockUsageQueries({
-      movementsByWarehouse: {
+      movements: {
         data: [
-          { id: 1, note: null, doc_num: 'SND-1' },
-          { id: 2, note: 'Ləğv: SND-1', doc_num: 'SND-2' }, // cancels SND-1 and itself
-          { id: 3, note: null, doc_num: 'SND-3' },
+          mv({ id: 1, warehouse: 'Astara' }),
+          mv({ id: 2, partner: 'Astara' }),
+          mv({ id: 3, warehouse: 'Harmony' }),
         ],
       },
-      users: { count: 0 },
+      users: { data: [{ warehouse: 'Astara' }, { warehouse: 'Harmony' }] },
     })
     const usage = await fetchWarehouseUsage(['Astara'])
-    expect(usage.get('Astara')).toEqual({ count: 1, exact: true }) // only SND-3 survives
+    expect(usage.get('Astara')).toEqual({ count: 3, exact: true }) // 2 movements + 1 user
   })
 
-  it('reports zero usage as exact, so an unused warehouse can be renamed or deleted', async () => {
-    mockUsageQueries({ users: { count: 0 } })
-    const usage = await fetchWarehouseUsage(['Bos'])
-    expect(usage.get('Bos')).toEqual({ count: 0, exact: true })
+  it('counts a row matching on both columns only once', async () => {
+    mockUsageQueries({ movements: { data: [mv({ id: 1, warehouse: 'Astara', partner: 'Astara' })] } })
+    expect((await fetchWarehouseUsage(['Astara'])).get('Astara')).toEqual({ count: 1, exact: true })
+  })
+
+  it('excludes cancelled movements exactly like operationalMovements()', async () => {
+    mockUsageQueries({
+      movements: {
+        data: [
+          mv({ id: 1, warehouse: 'Astara', doc_num: 'SND-1' }),
+          mv({ id: 2, warehouse: 'Astara', doc_num: 'SND-2', note: 'Ləğv: SND-1' }),
+          mv({ id: 3, warehouse: 'Astara', doc_num: 'SND-3' }),
+        ],
+      },
+    })
+    expect((await fetchWarehouseUsage(['Astara'])).get('Astara')).toEqual({ count: 1, exact: true })
+  })
+
+  it('resolves several names from a single pass over the data', async () => {
+    mockUsageQueries({
+      movements: { data: [mv({ id: 1, warehouse: 'Astara' }), mv({ id: 2, warehouse: 'Harmony' })] },
+    })
+    const usage = await fetchWarehouseUsage(['Astara', 'Harmony', 'Ofis'])
+    expect(usage.get('Astara')).toEqual({ count: 1, exact: true })
+    expect(usage.get('Harmony')).toEqual({ count: 1, exact: true })
+    expect(usage.get('Ofis')).toEqual({ count: 0, exact: true })
+  })
+
+  it('orders both queries by id so pagination is stable', async () => {
+    mockUsageQueries({})
+    await fetchWarehouseUsage(['Astara'])
+    expect(orderCalls).toContain('movements.id')
+    expect(orderCalls).toContain('users.id')
+  })
+})
+
+describe('fetchWarehouseUsage — matching semantics (REF_EQ, not SQL LIKE)', () => {
+  it('matches case-insensitively', async () => {
+    mockUsageQueries({ movements: { data: [mv({ id: 1, warehouse: 'ASTARA' })] } })
+    expect((await fetchWarehouseUsage(['astara'])).get('astara')).toEqual({ count: 1, exact: true })
+  })
+
+  it('ignores surrounding whitespace on the stored value', async () => {
+    mockUsageQueries({ movements: { data: [mv({ id: 1, warehouse: '  Astara  ' })] } })
+    expect((await fetchWarehouseUsage(['Astara'])).get('Astara')).toEqual({ count: 1, exact: true })
+  })
+
+  it('ignores surrounding whitespace on the requested name', async () => {
+    mockUsageQueries({ movements: { data: [mv({ id: 1, warehouse: 'Astara' })] } })
+    expect((await fetchWarehouseUsage([' Astara '])).get(' Astara ')).toEqual({ count: 1, exact: true })
+  })
+
+  it('treats % as a literal character, never as a wildcard', async () => {
+    mockUsageQueries({ movements: { data: [mv({ id: 1, warehouse: 'Astara' }), mv({ id: 2, warehouse: 'Harmony' })] } })
+    // A LIKE-based implementation would have matched every row here.
+    expect((await fetchWarehouseUsage(['%'])).get('%')).toEqual({ count: 0, exact: true })
+  })
+
+  it('treats _ as a literal character, never as a single-char wildcard', async () => {
+    mockUsageQueries({ movements: { data: [mv({ id: 1, warehouse: 'Anbar1' }), mv({ id: 2, warehouse: 'Anbar_1' })] } })
+    expect((await fetchWarehouseUsage(['Anbar_1'])).get('Anbar_1')).toEqual({ count: 1, exact: true })
+  })
+
+  it('handles Azerbaijani casing', async () => {
+    mockUsageQueries({ movements: { data: [mv({ id: 1, warehouse: 'Ələt' })] } })
+    expect((await fetchWarehouseUsage(['ələt'])).get('ələt')).toEqual({ count: 1, exact: true })
   })
 })
 
 describe('fetchWarehouseUsage — fail-safe on query errors', () => {
-  it('marks usage inexact and never below 1 when the warehouse-column query fails', async () => {
-    mockUsageQueries({ movementsByWarehouse: { error: { message: 'network' } }, users: { count: 0 } })
-    const usage = await fetchWarehouseUsage(['Astara'])
+  it('marks every name inexact, never below 1, when the movements query fails', async () => {
+    mockUsageQueries({ movements: { error: { message: 'network' } }, users: { data: [] } })
+    const usage = await fetchWarehouseUsage(['Astara', 'Ofis'])
     expect(usage.get('Astara')).toEqual({ count: 1, exact: false })
+    expect(usage.get('Ofis')).toEqual({ count: 1, exact: false })
   })
 
-  it('marks usage inexact when the partner-column query fails', async () => {
-    mockUsageQueries({ movementsByPartner: { error: { message: 'network' } }, users: { count: 0 } })
+  it('marks usage inexact when the users query fails — mirrors USERS_ERR', async () => {
+    mockUsageQueries({ movements: { data: [] }, users: { error: { message: 'rls' } } })
     expect((await fetchWarehouseUsage(['Astara'])).get('Astara')).toEqual({ count: 1, exact: false })
   })
 
-  it('marks usage inexact when the users query fails — mirrors the original USERS_ERR fail-safe', async () => {
-    mockUsageQueries({ users: { count: null, error: { message: 'rls' } } })
-    expect((await fetchWarehouseUsage(['Astara'])).get('Astara')).toEqual({ count: 1, exact: false })
-  })
-
-  it('keeps the real count when it is already above 1 but still flags it inexact', async () => {
+  it('keeps a real count above 1 while still flagging it inexact', async () => {
     mockUsageQueries({
-      movementsByWarehouse: { data: [{ id: 1, note: null, doc_num: null }, { id: 2, note: null, doc_num: null }] },
-      users: { count: null, error: { message: 'rls' } },
+      movements: { data: [mv({ id: 1, warehouse: 'Astara' }), mv({ id: 2, warehouse: 'Astara' })] },
+      users: { error: { message: 'rls' } },
     })
     expect((await fetchWarehouseUsage(['Astara'])).get('Astara')).toEqual({ count: 2, exact: false })
   })

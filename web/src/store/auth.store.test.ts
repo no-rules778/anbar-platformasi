@@ -7,7 +7,15 @@ const sampleMe: Me = { id: '1', sbId: '1', email: 'a@b.com', name: 'A', role: 'a
 beforeEach(() => useAuthStore.getState().reset())
 
 describe('useAuthStore', () => {
-  it('starts idle with no user', () => {
+  /* The very first state the app renders from. It must NOT be `idle`, or the
+     login form appears for one frame before the session-restore effect runs. */
+  it('boots in loading with no user, so no login form is shown before the session check', () => {
+    const initial = useAuthStore.getInitialState()
+    expect(initial.me).toBeNull()
+    expect(initial.status).toBe('loading')
+    expect(initial.error).toBeNull()
+  })
+  it('after reset (logout / no session found) it is idle with no user', () => {
     const s = useAuthStore.getState()
     expect(s.me).toBeNull()
     expect(s.status).toBe('idle')
