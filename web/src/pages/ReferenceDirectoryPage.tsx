@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { Me } from '../lib/roles'
 import { isAdmin } from '../lib/roles'
-import { useReferenceDirectoryStore, usageOf } from '../store/referenceDirectory.store'
-import { WIRED_KINDS, kindLabel, type ReferenceEntity, type WiredKind } from '../types/referenceDirectory'
+import { useReferenceDirectoryStore, usageOfEntity } from '../store/referenceDirectory.store'
+import { WIRED_KINDS, kindLabel, isKindReady, type ReferenceEntity, type WiredKind } from '../types/referenceDirectory'
 import type { ReferenceUsage } from '../api/referenceUsage.api'
 import { Table, Thead, Th, Td } from '../components/ui/Table'
 import { Button } from '../components/ui/Button'
@@ -17,8 +17,17 @@ interface Props {
 
 const PAGE_SIZES = [10, 25, 50, 100]
 
-/** Tables this screen reads: the two entity tables plus the two the usage counters use. */
-const WATCHED_TABLES = ['warehouses', 'partners', 'movements', 'users'] as const
+/* Tables this screen reads: the entity tables plus the ones the usage counters
+   use. Phase 3a added `reference_values` and `items`; Phase 3b adds
+   `serfiyyat_projects` (project rows) and `serfiyyat_documents` (their usage
+   source). `serfiyyat_lines` is read for the readiness probe but holds no row
+   or count this screen shows, so a write there changes nothing here — it is
+   deliberately not watched. Registry M3-15. */
+const WATCHED_TABLES = [
+  'warehouses', 'partners', 'movements', 'users',
+  'reference_values', 'items',
+  'serfiyyat_projects', 'serfiyyat_documents',
+] as const
 
 function usageLabel(usage: ReferenceUsage): string {
   return usage.exact ? String(usage.count) : '?'
@@ -32,15 +41,15 @@ type Editing = { entity: ReferenceEntity | null; kind: WiredKind; presetName?: s
    original hides the nav entry (7505), refuses in go() (1496) and bounces in
    rRefs() itself (3009). */
 export function ReferenceDirectoryPage({ me }: Props) {
-  const { rows, usage, loading, error, load } = useReferenceDirectoryStore()
+  const { rows, usage, readiness, activeWarehouseNames, loading, error, load, controls, setControls } =
+    useReferenceDirectoryStore()
+  /* The dialog and the create-row inputs stay component-local: the original
+     does not preserve an open modal or a half-typed new name across
+     navigation either. Only the list controls persist (M4-18). */
   const [editing, setEditing] = useState<Editing | null>(null)
   const [newKind, setNewKind] = useState<WiredKind>('warehouse')
   const [newName, setNewName] = useState('')
-  const [kindFilter, setKindFilter] = useState<'' | WiredKind>('')
-  const [status, setStatus] = useState<'' | 'active' | 'off'>('')
-  const [query, setQuery] = useState('')
-  const [pageSize, setPageSize] = useState(PAGE_SIZES[0])
-  const [page, setPage] = useState(0)
+  const { kindFilter, status, query, pageSize, page } = controls
   const admin = isAdmin(me)
   const show = useToastStore((s) => s.show)
 
@@ -54,6 +63,14 @@ export function ReferenceDirectoryPage({ me }: Props) {
       else show('Məlumatlar yenilənmədi: ' + (loadError ?? 'server xətası'), true)
     })
   })
+
+  /* refServerReady per kind (index.html:2949-2953). A kind whose probe fails is
+     named in the banner (3010), greyed out in the create selector (3024) and
+     contributes no rows (2993) — the store already omits them. */
+  const notReady = useMemo(
+    () => WIRED_KINDS.filter((k) => !isKindReady(k.kind, readiness)).map((k) => k.label),
+    [readiness],
+  )
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -69,8 +86,18 @@ export function ReferenceDirectoryPage({ me }: Props) {
   const pageRows = filtered.slice(safePage * pageSize, safePage * pageSize + pageSize)
   const to = from < 0 ? 0 : from + pageRows.length
 
-  function resetPage<T>(setter: (value: T) => void) {
-    return (value: T) => { setter(value); setPage(0) }
+  /* `setControls` already returns to page 0 for any change that is not the
+     page itself, so a separate reset wrapper is no longer needed. */
+
+  /* refOpen's readiness refusal (index.html:3079). The option is already
+     disabled, but a kind can also become unavailable while the screen is open,
+     so the check is repeated at the point of action. */
+  function openEditor(next: Editing) {
+    if (!isKindReady(next.kind, readiness)) {
+      show('Əvvəlcə SQL 011/012 tətbiq edilməlidir', true)
+      return
+    }
+    setEditing(next)
   }
 
   if (!admin) {
@@ -87,7 +114,7 @@ export function ReferenceDirectoryPage({ me }: Props) {
       <div className="phead">
         <div>
           <h2>Soraqçalar</h2>
-          <p>Anbarlar və kontragentlər — ad, istifadə sayı və status.</p>
+          <p>Anbarlar, kontragentlər və digər soraqçalar — ad, istifadə sayı və status.</p>
         </div>
         <div className="sp" />
       </div>
@@ -101,6 +128,15 @@ export function ReferenceDirectoryPage({ me }: Props) {
         </div>
       )}
 
+      {notReady.length > 0 && (
+        <div
+          className="hint"
+          style={{ padding: 10, background: 'var(--out-l)', borderRadius: 4, marginBottom: 12 }}
+        >
+          Bu soraqçalar SQL <b>011</b>/<b>012</b> tətbiq ediləndən sonra aktivləşir: {notReady.join(', ')}.
+        </div>
+      )}
+
       <div className="card">
         <div className="pad">
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.4fr auto', alignItems: 'end', gap: 10 }}>
@@ -111,7 +147,11 @@ export function ReferenceDirectoryPage({ me }: Props) {
                 value={newKind}
                 onChange={(e) => setNewKind(e.target.value as WiredKind)}
               >
-                {WIRED_KINDS.map((k) => <option key={k.kind} value={k.kind}>{k.label}</option>)}
+                {WIRED_KINDS.map((k) => (
+                  <option key={k.kind} value={k.kind} disabled={!isKindReady(k.kind, readiness)}>
+                    {k.label}
+                  </option>
+                ))}
               </select>
             </label>
             <label className="f">
@@ -123,10 +163,10 @@ export function ReferenceDirectoryPage({ me }: Props) {
                 placeholder="Ad yazın"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') setEditing({ entity: null, kind: newKind, presetName: newName.trim() }) }}
+                onKeyDown={(e) => { if (e.key === 'Enter') openEditor({ entity: null, kind: newKind, presetName: newName.trim() }) }}
               />
             </label>
-            <Button onClick={() => setEditing({ entity: null, kind: newKind, presetName: newName.trim() })}>
+            <Button onClick={() => openEditor({ entity: null, kind: newKind, presetName: newName.trim() })}>
               Əlavə et +
             </Button>
           </div>
@@ -145,7 +185,7 @@ export function ReferenceDirectoryPage({ me }: Props) {
             aria-label="Soraqça növü"
             style={{ width: 'auto' }}
             value={kindFilter}
-            onChange={(e) => resetPage(setKindFilter)(e.target.value as '' | WiredKind)}
+            onChange={(e) => setControls({ kindFilter: e.target.value as '' | WiredKind })}
           >
             <option value="">Bütün növlər</option>
             {WIRED_KINDS.map((k) => <option key={k.kind} value={k.kind}>{k.label}</option>)}
@@ -154,7 +194,7 @@ export function ReferenceDirectoryPage({ me }: Props) {
             aria-label="Status"
             style={{ width: 'auto' }}
             value={status}
-            onChange={(e) => resetPage(setStatus)(e.target.value as '' | 'active' | 'off')}
+            onChange={(e) => setControls({ status: e.target.value as '' | 'active' | 'off' })}
           >
             <option value="">Bütün statuslar</option>
             <option value="active">Aktiv</option>
@@ -166,7 +206,7 @@ export function ReferenceDirectoryPage({ me }: Props) {
             placeholder="Ada görə axtarış"
             style={{ width: 'auto', minWidth: 170 }}
             value={query}
-            onChange={(e) => resetPage(setQuery)(e.target.value)}
+            onChange={(e) => setControls({ query: e.target.value })}
           />
         </header>
 
@@ -193,7 +233,7 @@ export function ReferenceDirectoryPage({ me }: Props) {
                     <Td className="num">{from + i + 1}</Td>
                     <Td>{kindLabel(r.kind)}</Td>
                     <Td><b>{r.name}</b></Td>
-                    <Td className="num">{usageLabel(usageOf(usage, r.kind, r.name))}</Td>
+                    <Td className="num">{usageLabel(usageOfEntity(usage, r))}</Td>
                     <Td>
                       {r.active
                         ? <span className="tag t-in">Aktiv</span>
@@ -203,7 +243,7 @@ export function ReferenceDirectoryPage({ me }: Props) {
                       <Button
                         variant="secondary"
                         size="sm"
-                        onClick={() => setEditing({ entity: r, kind: r.kind })}
+                        onClick={() => openEditor({ entity: r, kind: r.kind })}
                       >
                         Redaktə et
                       </Button>
@@ -222,16 +262,16 @@ export function ReferenceDirectoryPage({ me }: Props) {
                 aria-label="Hər səhifədə"
                 style={{ width: 'auto' }}
                 value={pageSize}
-                onChange={(e) => resetPage(setPageSize)(Number(e.target.value))}
+                onChange={(e) => setControls({ pageSize: Number(e.target.value) })}
               >
                 {PAGE_SIZES.map((n) => <option key={n} value={n}>{n}</option>)}
               </select>
               <span className="hint">
                 {filtered.length ? `${from + 1}–${to}` : '0'}, cəmi {filtered.length}
               </span>
-              <Button variant="secondary" size="sm" disabled={safePage === 0} onClick={() => setPage(safePage - 1)}>&lsaquo;</Button>
+              <Button variant="secondary" size="sm" disabled={safePage === 0} onClick={() => setControls({ page: safePage - 1 })}>&lsaquo;</Button>
               <span className="hint">Səhifə {safePage + 1} / {pages}</span>
-              <Button variant="secondary" size="sm" disabled={safePage >= pages - 1} onClick={() => setPage(safePage + 1)}>&rsaquo;</Button>
+              <Button variant="secondary" size="sm" disabled={safePage >= pages - 1} onClick={() => setControls({ page: safePage + 1 })}>&rsaquo;</Button>
             </div>
           </>
         )}
@@ -250,7 +290,8 @@ export function ReferenceDirectoryPage({ me }: Props) {
           entity={editing.entity}
           kind={editing.kind}
           presetName={editing.presetName}
-          usage={editing.entity ? usageOf(usage, editing.entity.kind, editing.entity.name) : { count: 0, exact: true }}
+          warehouseNames={activeWarehouseNames}
+          usage={editing.entity ? usageOfEntity(usage, editing.entity) : { count: 0, exact: true }}
           onClose={() => setEditing(null)}
           onDone={() => { setEditing(null); setNewName(''); load() }}
         />

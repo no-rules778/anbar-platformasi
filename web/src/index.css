@@ -103,6 +103,13 @@ label.f>span{display:block;font-size:10.5px;text-transform:uppercase;letter-spac
 .modal footer{position:sticky;bottom:0;background:#FAFCFD;border-top:1px solid var(--line);padding:11px 16px;display:flex;gap:8px;justify-content:flex-end}
 .x{border:0;background:transparent;font-size:19px;line-height:1;cursor:pointer;color:var(--ink-3);padding:2px 6px}
 .x:hover{color:var(--ink)}
+/* Right-side drawer — index.html:137-138. z-index 101 sits ABOVE the mask
+   (100) and BELOW the modal (120), so the item card covers the page, the
+   mask dims what is behind it, and the edit dialog still opens over the card.
+   Without these rules the aside renders `position:static` at the very bottom
+   of the document, behind the fixed mask, and the card is unreachable. */
+.drawer{position:fixed;top:0;right:0;bottom:0;width:min(620px,96vw);background:var(--panel);z-index:101;box-shadow:-14px 0 40px rgba(14,20,26,.22);transform:translateX(100%);transition:transform .22s ease;overflow:auto}
+.drawer.on{transform:none}
 .toast{background:var(--ink);color:#fff;padding:9px 16px;border-radius:5px;font-weight:600;max-width:90vw}
 .toast.bad{background:var(--alarm)}
 .toast-stack{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:200;display:flex;flex-direction:column;gap:8px;align-items:center}
@@ -114,3 +121,21 @@ label.f>span{display:block;font-size:10.5px;text-transform:uppercase;letter-spac
 #gate p.sub{color:var(--ink-3);margin:6px 0 20px;font-size:12px}
 
 .empty{padding:34px 14px;text-align:center;color:var(--ink-3)}
+
+/* Print — ported from index.html:203 and the .printonly rule (275).
+   The screen hides #printhead; print reveals it and strips the chrome so the
+   sheet carries a title, timestamp and user instead of the app shell. */
+.printonly{display:none}
+@media print{
+  .printonly{display:block;margin-bottom:10px}
+  .ph-t{font-size:16px;font-weight:700}
+  .ph-s{font-size:10px;color:#555;margin-top:2px}
+  table{font-size:10px}
+  tr{break-inside:avoid}
+  thead{display:table-header-group}
+  .rail,.topbar,.filters,.btn,.noprint{display:none!important}
+  .main{padding:0}
+  .card{border:0}
+  .tw{max-height:none!important;overflow:visible!important}
+  th{position:static}
+}

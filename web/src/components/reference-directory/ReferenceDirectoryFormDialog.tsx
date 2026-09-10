@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { manageReference, type ReferenceAction } from '../../api/referenceDirectory.api'
 import type { ReferenceUsage } from '../../api/referenceUsage.api'
-import { kindLabel, type ReferenceEntity, type WiredKind } from '../../types/referenceDirectory'
+import { kindLabel, kindRule, type ReferenceEntity, type WiredKind } from '../../types/referenceDirectory'
 import { Dialog } from '../ui/Dialog'
 import { Button } from '../ui/Button'
 import { Input } from '../ui/Input'
@@ -14,6 +14,8 @@ interface Props {
   kind: WiredKind
   usage: ReferenceUsage
   presetName?: string
+  /** Active `anbar` warehouse names — the project linked-warehouse options. */
+  warehouseNames?: readonly string[]
   onDone: () => void
   onClose: () => void
 }
@@ -33,23 +35,34 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
      * deletion is a second, explicit step;
      * partner-only fields VÖEN / Müqavilə tarixi / Müqavilə № (3086-3089),
        with the original's 10-digit VÖEN check (3163). */
-export function ReferenceDirectoryFormDialog({ entity, kind, usage, presetName, onDone, onClose }: Props) {
+export function ReferenceDirectoryFormDialog({ entity, kind, usage, presetName, warehouseNames = [], onDone, onClose }: Props) {
   const [name, setName] = useState(entity?.name ?? presetName ?? '')
   const [voen, setVoen] = useState(entity?.voen ?? '')
   const [contract, setContract] = useState(entity?.contract ?? '')
   const storedDate = entity?.contractDate ?? ''
   const [contractDate, setContractDate] = useState(ISO_DATE.test(storedDate) ? storedDate : '')
+  /* Seeded from the stored value so an edit that never touches this select
+     still resends it — see the meta note in send(). */
+  const [linkedWarehouse, setLinkedWarehouse] = useState(entity?.linkedWarehouse ?? '')
   const [busy, setBusy] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
+  /* Approved deviation M3-17: permanent project deletion needs the name typed. */
+  const [deleteConfirmName, setDeleteConfirmName] = useState('')
   const show = useToastStore((s) => s.show)
 
   const label = kindLabel(kind)
   const usedCount = usage.count
   const usageUnknown = !usage.exact
 
-  /* Name lock applies to the accounting keys only (warehouse/location). */
-  const nameLocked = !!entity && kind === 'warehouse' && (usedCount > 0 || usageUnknown)
+  /* Name lock applies to the accounting keys only (warehouse/location) —
+     index.html:3085. Every other kind cascades the rename server-side. */
+  const nameLocked = !!entity && !!kindRule(kind)?.nameLockedWhenUsed && (usedCount > 0 || usageUnknown)
   const canDelete = !!entity && usedCount === 0 && usage.exact
+  /* M3-17, approved user decision: `project` deletion is gated behind typing
+     the exact name. A client-side guard added ahead of the RPC — the server is
+     unchanged, and with serfiyyat_documents empty it would not refuse. */
+  const typedDeleteRequired = kind === 'project'
+  const deleteArmed = !typedDeleteRequired || deleteConfirmName.trim() === (entity?.name ?? '').trim()
   /* A legacy non-ISO date cannot be shown by a date input; saying so prevents
      silently dropping it on save. See the Phase 2 report. */
   const unshowableDate = kind === 'partner' && storedDate !== '' && !ISO_DATE.test(storedDate)
@@ -63,15 +76,29 @@ export function ReferenceDirectoryFormDialog({ entity, kind, usage, presetName, 
       show(blocked, true)
       return
     }
+    /* M3-17: the typed-name gate is enforced here, not only by disabling the
+       button, so the RPC cannot be reached without an exact match. */
+    if (action === 'delete' && !deleteArmed) {
+      show('Təsdiq üçün layihənin adını dəqiq yazın', true)
+      return
+    }
     if ((action === 'create' || action === 'update') && name.trim().length < 2) {
       show('Ad ən azı 2 simvol olmalıdır', true)
       return
     }
+    /* refSend's meta (index.html:3156-3162). For `project` the select's value
+       is ALWAYS sent, never omitted: manage_reference sets linked_warehouse
+       unconditionally from meta, so an absent key silently clears an existing
+       link. `linkedWarehouse` is seeded from the stored value, which means an
+       edit that only changes the name still resends what was there —
+       approved decision Q4, registry M3-11. */
     const meta =
       kind === 'partner'
         ? { voen: voen.trim(), contract: contract.trim(), contract_date: contractDate }
-        : {}
-    if (kind === 'partner' && meta.voen && !/^\d{10}$/.test(meta.voen)) {
+        : kind === 'project'
+          ? { linked_warehouse: linkedWarehouse }
+          : {}
+    if (kind === 'partner' && 'voen' in meta && meta.voen && !/^\d{10}$/.test(meta.voen)) {
       show('VÖEN 10 rəqəm olmalıdır', true)
       return
     }
@@ -107,7 +134,7 @@ export function ReferenceDirectoryFormDialog({ entity, kind, usage, presetName, 
             {entity.active && (
               <Button variant="secondary" disabled={busy} onClick={() => send('deactivate')}>Gizlət</Button>
             )}
-            <Button variant="danger" disabled={busy} onClick={() => send('delete')}>Tamamilə sil</Button>
+            <Button variant="danger" disabled={busy || !deleteArmed} onClick={() => send('delete')}>Tamamilə sil</Button>
           </>
         }
       >
@@ -116,6 +143,23 @@ export function ReferenceDirectoryFormDialog({ entity, kind, usage, presetName, 
           Bu dəyər heç bir qeyddə istifadə olunmayıb, ona görə tamamilə silinə bilər.
           Alternativ olaraq onu yalnız siyahılardan gizlədə bilərsiniz.
         </p>
+        {typedDeleteRequired && (
+          <>
+            <p className="err" style={{ marginBottom: 4 }}>
+              Sərfiyyat sənədləri hələ yoxdur, ona görə server bu silinməni dayandırmayacaq.
+              Təsdiq üçün layihənin adını dəqiq yazın.
+            </p>
+            <label className="f">
+              <span>Layihənin adı</span>
+              <Input
+                type="text"
+                autoComplete="off"
+                value={deleteConfirmName}
+                onChange={(e) => setDeleteConfirmName(e.target.value)}
+              />
+            </label>
+          </>
+        )}
       </Dialog>
     )
   }
@@ -171,10 +215,23 @@ export function ReferenceDirectoryFormDialog({ entity, kind, usage, presetName, 
         </>
       )}
 
+      {kind === 'project' && (
+        <label className="f">
+          <span>Bağlı anbar (anbardar giriş haqqı üçün)</span>
+          <select value={linkedWarehouse} onChange={(e) => setLinkedWarehouse(e.target.value)}>
+            <option value="">— bağlanmayıb —</option>
+            {warehouseNames.map((w) => <option key={w} value={w}>{w}</option>)}
+          </select>
+          <span className="hint">
+            Bu anbara təyin olunmuş anbardar yalnız bu layihədə sənəd yarada və hesabatını görə bilər.
+          </span>
+        </label>
+      )}
+
       {usageUnknown && (
         <p className="err">
           İstifadə məlumatı yüklənmədi — bu dəyərin neçə qeyddə işlədildiyi dəqiq bilinmir.
-          Ehtiyatlı olaraq «istifadədə» sayılır: silinmir{kind === 'warehouse' ? ' və adı dəyişdirilmir' : ''}.
+          Ehtiyatlı olaraq «istifadədə» sayılır: silinmir{kindRule(kind)?.nameLockedWhenUsed ? ' və adı dəyişdirilmir' : ''}.
         </p>
       )}
       {entity && nameLocked && !usageUnknown && (

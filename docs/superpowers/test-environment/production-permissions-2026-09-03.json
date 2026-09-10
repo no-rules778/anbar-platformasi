@@ -1,0 +1,87 @@
+{
+  "defaults": [
+    {
+      "acl": "{postgres=rwU/supabase_admin,anon=rwU/supabase_admin,authenticated=rwU/supabase_admin,service_role=rwU/supabase_admin}",
+      "role": "supabase_admin",
+      "type": "S",
+      "schema": "public"
+    },
+    {
+      "acl": "{postgres=arwdDxtm/supabase_admin,anon=arwdDxtm/supabase_admin,authenticated=arwdDxtm/supabase_admin,service_role=arwdDxtm/supabase_admin}",
+      "role": "supabase_admin",
+      "type": "r",
+      "schema": "public"
+    },
+    {
+      "acl": "{postgres=X/supabase_admin,anon=X/supabase_admin,authenticated=X/supabase_admin,service_role=X/supabase_admin}",
+      "role": "supabase_admin",
+      "type": "f",
+      "schema": "public"
+    },
+    {
+      "acl": "{postgres=arwdDxtm/postgres,anon=Dxtm/postgres,authenticated=Dxtm/postgres,service_role=Dxtm/postgres}",
+      "role": "postgres",
+      "type": "r",
+      "schema": "public"
+    },
+    {
+      "acl": "{postgres=rwU/postgres}",
+      "role": "postgres",
+      "type": "S",
+      "schema": "public"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "role": "postgres",
+      "type": "f",
+      "schema": "public"
+    }
+  ],
+  "sequences": [
+    {
+      "max": "2147483647",
+      "min": "1",
+      "name": "warehouses_id_seq",
+      "cache": "1",
+      "start": "1",
+      "table": "warehouses",
+      "column": "id",
+      "increment": "1",
+      "dependency": "a"
+    },
+    {
+      "max": "9223372036854775807",
+      "min": "1",
+      "name": "azp_movements_id_seq",
+      "cache": "1",
+      "start": "1",
+      "table": "azp_movements",
+      "column": "id",
+      "increment": "1",
+      "dependency": "i"
+    },
+    {
+      "max": "9223372036854775807",
+      "min": "1",
+      "name": "azp_audit_log_id_seq",
+      "cache": "1",
+      "start": "1",
+      "table": "azp_audit_log",
+      "column": "id",
+      "increment": "1",
+      "dependency": "i"
+    },
+    {
+      "max": "9223372036854775807",
+      "min": "1",
+      "name": "serfiyyat_doc_seq",
+      "cache": "1",
+      "start": "1",
+      "table": null,
+      "column": null,
+      "increment": "1",
+      "dependency": null
+    }
+  ],
+  "schema_acl": "{pg_database_owner=UC/pg_database_owner,=U/pg_database_owner,postgres=U/pg_database_owner,anon=U/pg_database_owner,authenticated=U/pg_database_owner,service_role=U/pg_database_owner}"
+}

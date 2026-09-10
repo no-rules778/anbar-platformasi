@@ -22,6 +22,11 @@ platform must be preserved **unless the user explicitly approves a change**.
 The current production platform remains the behavioural reference until the
 React platform reaches complete functional parity and passes live acceptance.
 
+The practical objective is an exact platform clone: the same records, names,
+numbers, calculations, permissions, documents, actions and user-visible
+outcomes. A modern internal architecture is allowed; an unexplained difference
+in behaviour is not.
+
 ## 2. Mandatory migration sequence
 
 ```text
@@ -268,3 +273,63 @@ do not introduce a parallel styling system.
 Any plan, spec or dispatch for a migration phase must link to this document
 and to the registry, and the phase's research step must produce registry rows
 before implementation starts — not after.
+
+## 11. Mandatory completion protocol
+
+When Claude reports `DONE` for any migration phase, Codex must immediately
+perform an independent audit before the phase can progress:
+
+1. Read the phase specification, plan/ledger, parity registry and actual git
+   diff; compare the React code to the old production implementation and the
+   live Supabase contract in read-only mode.
+2. Run the available automated checks independently: tests, type checking,
+   linting, build and git-diff hygiene.
+3. If the result is `CODE VERIFIED`, perform live browser verification at once
+   against the already-open production and localhost tabs. Compare the
+   migrated module's visible records, names, statuses, totals, permissions,
+   dialogs and filters side by side.
+4. Browser actions that would create, edit, hide, delete, send credentials or
+   otherwise change real production data still require the user's explicit
+   approval at that moment. Read-only live checks proceed immediately.
+5. Record the result honestly in the parity registry. A phase is `ACCEPTED`
+   only after both code and live verification pass.
+
+6. Codex must show every found divergence to the user with concrete old/new
+   evidence. Claude fixes every user-approved divergence. Codex does not
+   silently accept, hide or independently redefine a difference.
+
+7. An audit finding is a **hypothesis until independently verified**, regardless
+   of whether it comes from Codex, Claude, a test, a comment or an earlier
+   document. Neither agent may treat the other agent's conclusion as authority
+   by itself.
+8. Claude must not change code or documentation merely to agree with a Codex
+   finding. If stronger evidence shows that the reported behaviour is intentional,
+   required for production parity or an approved deviation, Claude must leave it
+   unchanged and explain the objection with exact evidence from the priority
+   hierarchy above. Codex must evaluate that objection by the same rule.
+9. When a finding is only partly correct, record and fix only the proven part;
+   identify the unsupported or still-unknown part explicitly. Normal behaviour
+   must not be relabelled as a bug, and a real divergence must not be excused as
+   intentional without evidence.
+10. If the evidence sources conflict or do not resolve the question, stop before
+    changing behaviour, show the conflict to the user and request the user's
+    decision. This rule applies to every phase, audit, remediation and live check.
+11. After every audit or completed correction, Codex must decide whether Claude
+    has a safe, concrete next task. If so, Codex provides the complete next Claude
+    prompt in the same response without waiting for the user to ask for it. The
+    prompt must carry the current evidence, limits and risks, avoid repeating
+    irrelevant history, and preserve all approval gates. If no Claude task is
+    appropriate, Codex states the actual next owner or blocker instead of
+    manufacturing work.
+
+## 12. Deferred visual-parity review
+
+Visible cosmetic differences found during individual phases are logged but
+normally fixed together in one final cross-phase visual-parity pass, after all
+business modules have been migrated. This includes spacing, labels, icons,
+number formatting and other non-functional presentation details.
+
+This deferral never applies to a difference that changes business behaviour,
+data, permissions, calculations, documents, Excel output, accessibility or
+the user's ability to execute an action. Such a difference remains a blocking
+issue and must be handled in the phase where it is found.

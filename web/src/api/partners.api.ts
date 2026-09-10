@@ -1,5 +1,6 @@
 import { supabase } from './supabase'
 import type { Database } from '../types/database'
+import type { ReadResult } from '../lib/opReadiness'
 
 export type PartnerRow = Database['public']['Tables']['partners']['Row']
 
@@ -26,4 +27,46 @@ export async function fetchPartners(): Promise<PartnerRow[]> {
     from += PAGE_SIZE
   }
   return out
+}
+
+/* ---------- Phase 7 core-read contract ----------
+
+   `fetchPartners()` above THROWS and, on a mid-pagination failure, loses the
+   rows already gathered. Phase 7 needs the result shape every core read uses:
+   never throw, absorb both failure shapes, and report a partial page failure as
+   a FAILURE rather than a short list (M7-S2) — otherwise a truncated partner
+   list would silently narrow the counterparty options on a write screen.
+
+   The original export is left exactly as it is: Phase 2/3 depend on it. */
+export async function readPartners(): Promise<ReadResult<PartnerRow>> {
+  const out: PartnerRow[] = []
+  try {
+    for (let page = 0; page < 200; page++) {
+      const from = page * PAGE_SIZE
+      const { data, error } = await supabase
+        .from('partners')
+        .select('*')
+        .order('name')
+        .range(from, from + PAGE_SIZE - 1)
+      if (error) {
+        return {
+          rows: out,
+          ok: false,
+          error: error.message || 'Naməlum xəta',
+          partial: out.length > 0,
+        }
+      }
+      const batch = data ?? []
+      out.push(...batch)
+      if (batch.length < PAGE_SIZE) break
+    }
+    return { rows: out, ok: true, error: null }
+  } catch (err) {
+    return {
+      rows: out,
+      ok: false,
+      error: err instanceof Error ? err.message : 'Naməlum xəta',
+      partial: out.length > 0,
+    }
+  }
 }

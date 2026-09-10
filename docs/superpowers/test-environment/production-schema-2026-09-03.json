@@ -1,0 +1,3590 @@
+{
+  "tables": [
+    {
+      "acl": "{postgres=arwdDxtm/postgres,anon=Dxtm/postgres,authenticated=rDxtm/postgres,service_role=Dxtm/postgres}",
+      "rls": true,
+      "kind": "r",
+      "name": "audit_log",
+      "view": null,
+      "owner": "postgres",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "default": "gen_random_uuid()",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "ts",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "user_id",
+          "type": "uuid",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "action",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "table_name",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "record_id",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "old_values",
+          "type": "jsonb",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "new_values",
+          "type": "jsonb",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "reason",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "options": null,
+      "force_rls": false
+    },
+    {
+      "acl": "{postgres=arwdDxtm/postgres,anon=Dxtm/postgres,authenticated=rDxtm/postgres,service_role=Dxtm/postgres}",
+      "rls": true,
+      "kind": "r",
+      "name": "azp_application_balances",
+      "view": null,
+      "owner": "postgres",
+      "columns": [
+        {
+          "name": "module",
+          "type": "text",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "current_balance",
+          "type": "numeric(14,2)",
+          "default": "0",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "updated_by",
+          "type": "uuid",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "options": null,
+      "force_rls": false
+    },
+    {
+      "acl": "{postgres=arwdDxtm/postgres,anon=Dxtm/postgres,service_role=Dxtm/postgres,authenticated=r/postgres}",
+      "rls": true,
+      "kind": "r",
+      "name": "azp_audit_log",
+      "view": null,
+      "owner": "postgres",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "default": null,
+          "notnull": true,
+          "identity": "a",
+          "generated": ""
+        },
+        {
+          "name": "module",
+          "type": "text",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "entity",
+          "type": "text",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "action",
+          "type": "text",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "entity_id",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "detail",
+          "type": "jsonb",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "actor",
+          "type": "uuid",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "at",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "options": null,
+      "force_rls": false
+    },
+    {
+      "acl": "{postgres=arwdDxtm/postgres,anon=Dxtm/postgres,service_role=Dxtm/postgres,authenticated=r/postgres}",
+      "rls": false,
+      "kind": "v",
+      "name": "azp_card_balances",
+      "view": " SELECT c.id AS card_id,\n    c.module,\n    c.card_no,\n    c.holder,\n    c.project,\n    c.active,\n    c.sort_order,\n    COALESCE(sum(m.amount) FILTER (WHERE m.kind = 'medaxil'::text), 0::numeric)::numeric(14,2) AS medaxil_total,\n    COALESCE(sum(m.amount) FILTER (WHERE m.kind = 'mexaric'::text), 0::numeric)::numeric(14,2) AS mexaric_total,\n    round(COALESCE(sum(m.amount) FILTER (WHERE m.kind = 'medaxil'::text), 0::numeric) - COALESCE(sum(m.amount) FILTER (WHERE m.kind = 'mexaric'::text), 0::numeric), 2) AS balance,\n    count(m.id) FILTER (WHERE m.id IS NOT NULL) AS mov_count\n   FROM azp_cards c\n     LEFT JOIN azp_movements m ON m.card_id = c.id AND m.cancelled = false AND m.module = c.module\n  GROUP BY c.id, c.module, c.card_no, c.holder, c.project, c.active, c.sort_order;",
+      "owner": "postgres",
+      "columns": [
+        {
+          "name": "card_id",
+          "type": "uuid",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "module",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "card_no",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "holder",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "project",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "active",
+          "type": "boolean",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "sort_order",
+          "type": "integer",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "medaxil_total",
+          "type": "numeric(14,2)",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "mexaric_total",
+          "type": "numeric(14,2)",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "balance",
+          "type": "numeric",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "mov_count",
+          "type": "bigint",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "options": [
+        "security_invoker=on"
+      ],
+      "force_rls": false
+    },
+    {
+      "acl": "{postgres=arwdDxtm/postgres,anon=Dxtm/postgres,service_role=Dxtm/postgres,authenticated=r/postgres}",
+      "rls": true,
+      "kind": "r",
+      "name": "azp_cards",
+      "view": null,
+      "owner": "postgres",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "default": "gen_random_uuid()",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "module",
+          "type": "text",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "card_no",
+          "type": "text",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "holder",
+          "type": "text",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "project",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "note",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "sort_order",
+          "type": "integer",
+          "default": "0",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "active",
+          "type": "boolean",
+          "default": "true",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "created_by",
+          "type": "uuid",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "updated_by",
+          "type": "uuid",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "options": null,
+      "force_rls": false
+    },
+    {
+      "acl": "{postgres=arwdDxtm/postgres,anon=Dxtm/postgres,service_role=Dxtm/postgres,authenticated=r/postgres}",
+      "rls": true,
+      "kind": "r",
+      "name": "azp_movements",
+      "view": null,
+      "owner": "postgres",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "default": null,
+          "notnull": true,
+          "identity": "a",
+          "generated": ""
+        },
+        {
+          "name": "module",
+          "type": "text",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "card_id",
+          "type": "uuid",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "op_date",
+          "type": "date",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "kind",
+          "type": "text",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "amount",
+          "type": "numeric(14,2)",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "doc_num",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "note",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "vat_included",
+          "type": "boolean",
+          "default": "false",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "cancelled",
+          "type": "boolean",
+          "default": "false",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "cancelled_at",
+          "type": "timestamp with time zone",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "cancelled_by",
+          "type": "uuid",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "cancel_reason",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "created_by",
+          "type": "uuid",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "app_balance_effect",
+          "type": "boolean",
+          "default": "false",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "replaces_id",
+          "type": "bigint",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "replaced_by",
+          "type": "bigint",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "options": null,
+      "force_rls": false
+    },
+    {
+      "acl": "{postgres=arwdDxtm/postgres,anon=Dxtm/postgres,authenticated=rDxtm/postgres,service_role=Dxtm/postgres}",
+      "rls": false,
+      "kind": "v",
+      "name": "balances",
+      "view": " SELECT m.warehouse,\n    m.item_code,\n    i.name AS item_name,\n    i.unit,\n    sum(m.in_qty) AS total_in,\n    sum(m.out_qty) AS total_out,\n    sum(m.in_qty) - sum(m.out_qty) AS balance_qty,\n    i.price AS unit_price,\n    (sum(m.in_qty) - sum(m.out_qty)) * i.price AS balance_value,\n    max(m.date) AS last_movement_date,\n    count(*) AS movement_count\n   FROM movements m\n     JOIN items i ON i.code = m.item_code\n  GROUP BY m.warehouse, m.item_code, i.name, i.unit, i.price;",
+      "owner": "postgres",
+      "columns": [
+        {
+          "name": "warehouse",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "item_code",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "item_name",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "unit",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "total_in",
+          "type": "numeric",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "total_out",
+          "type": "numeric",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "balance_qty",
+          "type": "numeric",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "unit_price",
+          "type": "numeric(12,4)",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "balance_value",
+          "type": "numeric",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "last_movement_date",
+          "type": "date",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "movement_count",
+          "type": "bigint",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "options": [
+        "security_invoker=on"
+      ],
+      "force_rls": false
+    },
+    {
+      "acl": "{postgres=arwdDxtm/postgres,anon=Dxtm/postgres,authenticated=rDxtm/postgres,service_role=Dxtm/postgres}",
+      "rls": true,
+      "kind": "r",
+      "name": "item_requests",
+      "view": null,
+      "owner": "postgres",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "default": "gen_random_uuid()",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "name",
+          "type": "text",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "name_norm",
+          "type": "text",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "unit",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "category",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "note",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "status",
+          "type": "text",
+          "default": "'pending'::text",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "created_by",
+          "type": "uuid",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "created_warehouse",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "decided_by",
+          "type": "uuid",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "decided_at",
+          "type": "timestamp with time zone",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "decision_reason",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "item_code",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "options": null,
+      "force_rls": false
+    },
+    {
+      "acl": "{postgres=arwdDxtm/postgres,anon=Dxtm/postgres,authenticated=arwDxtm/postgres,service_role=Dxtm/postgres}",
+      "rls": true,
+      "kind": "r",
+      "name": "items",
+      "view": null,
+      "owner": "postgres",
+      "columns": [
+        {
+          "name": "code",
+          "type": "text",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "name",
+          "type": "text",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "unit",
+          "type": "text",
+          "default": "'ədəd'::text",
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "price",
+          "type": "numeric(12,4)",
+          "default": "0",
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "price_source",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "created_by",
+          "type": "uuid",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "category",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "options": null,
+      "force_rls": false
+    },
+    {
+      "acl": "{postgres=arwdDxtm/postgres,anon=Dxtm/postgres,authenticated=arwDxtm/postgres,service_role=Dxtm/postgres}",
+      "rls": true,
+      "kind": "r",
+      "name": "movements",
+      "view": null,
+      "owner": "postgres",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "default": "gen_random_uuid()",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "date",
+          "type": "date",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "warehouse",
+          "type": "text",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "item_code",
+          "type": "text",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "in_qty",
+          "type": "numeric(12,4)",
+          "default": "0",
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "out_qty",
+          "type": "numeric(12,4)",
+          "default": "0",
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "type",
+          "type": "text",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "partner",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "contract_num",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "invoice_num",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "price",
+          "type": "numeric(12,4)",
+          "default": "0",
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "note",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "doc_num",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "created_by",
+          "type": "uuid",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "channel",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "options": null,
+      "force_rls": false
+    },
+    {
+      "acl": "{postgres=arwdDxtm/postgres,anon=Dxtm/postgres,authenticated=arwDxtm/postgres,service_role=Dxtm/postgres}",
+      "rls": true,
+      "kind": "r",
+      "name": "partners",
+      "view": null,
+      "owner": "postgres",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "default": "gen_random_uuid()",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "name",
+          "type": "text",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "voen",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "contract",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "contract_date",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "created_by",
+          "type": "uuid",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "active",
+          "type": "boolean",
+          "default": "true",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "options": null,
+      "force_rls": false
+    },
+    {
+      "acl": "{postgres=arwdDxtm/postgres,anon=Dxtm/postgres,authenticated=Dxtm/postgres,service_role=Dxtm/postgres}",
+      "rls": true,
+      "kind": "r",
+      "name": "reference_values",
+      "view": null,
+      "owner": "postgres",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "default": "gen_random_uuid()",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "kind",
+          "type": "text",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "name",
+          "type": "text",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "active",
+          "type": "boolean",
+          "default": "true",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "options": null,
+      "force_rls": false
+    },
+    {
+      "acl": "{postgres=arwdDxtm/postgres,anon=Dxtm/postgres,authenticated=rDxtm/postgres,service_role=Dxtm/postgres}",
+      "rls": true,
+      "kind": "r",
+      "name": "serfiyyat_documents",
+      "view": null,
+      "owner": "postgres",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "default": "gen_random_uuid()",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "doc_num",
+          "type": "text",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "project_id",
+          "type": "uuid",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "kontragent",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "avtomobil_nomresi",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "alinma_kanali",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "doc_date",
+          "type": "date",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "note",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "created_by",
+          "type": "uuid",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "invoice_num",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "options": null,
+      "force_rls": false
+    },
+    {
+      "acl": "{postgres=arwdDxtm/postgres,anon=Dxtm/postgres,authenticated=rDxtm/postgres,service_role=Dxtm/postgres}",
+      "rls": true,
+      "kind": "r",
+      "name": "serfiyyat_lines",
+      "view": null,
+      "owner": "postgres",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "default": "gen_random_uuid()",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "document_id",
+          "type": "uuid",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "item_code",
+          "type": "text",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "qty",
+          "type": "numeric(14,2)",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "price",
+          "type": "numeric(14,2)",
+          "default": "0",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "line_sum",
+          "type": "numeric(14,2)",
+          "default": "round((qty * price), 2)",
+          "notnull": false,
+          "identity": "",
+          "generated": "s"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "options": null,
+      "force_rls": false
+    },
+    {
+      "acl": "{postgres=arwdDxtm/postgres,anon=Dxtm/postgres,authenticated=rDxtm/postgres,service_role=Dxtm/postgres}",
+      "rls": true,
+      "kind": "r",
+      "name": "serfiyyat_projects",
+      "view": null,
+      "owner": "postgres",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "default": "gen_random_uuid()",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "name",
+          "type": "text",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "linked_warehouse",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "active",
+          "type": "boolean",
+          "default": "true",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "options": null,
+      "force_rls": false
+    },
+    {
+      "acl": "{postgres=arwdDxtm/postgres,service_role=Dxtm/postgres,authenticated=r/postgres}",
+      "rls": true,
+      "kind": "r",
+      "name": "sessions",
+      "view": null,
+      "owner": "postgres",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "default": "gen_random_uuid()",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "user_id",
+          "type": "uuid",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "device_id",
+          "type": "text",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "device_label",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "options": null,
+      "force_rls": false
+    },
+    {
+      "acl": "{postgres=arwdDxtm/postgres,anon=Dxtm/postgres,authenticated=rDxtm/postgres,service_role=Dxtm/postgres}",
+      "rls": true,
+      "kind": "r",
+      "name": "stock_conditions",
+      "view": null,
+      "owner": "postgres",
+      "columns": [
+        {
+          "name": "warehouse",
+          "type": "text",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "item_code",
+          "type": "text",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "unfit_qty",
+          "type": "numeric(14,2)",
+          "default": "0",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "repair_qty",
+          "type": "numeric(14,2)",
+          "default": "0",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "onsite_qty",
+          "type": "numeric(14,2)",
+          "default": "0",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "note",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "updated_by",
+          "type": "uuid",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "icare_qty",
+          "type": "numeric(14,2)",
+          "default": "0",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "options": null,
+      "force_rls": false
+    },
+    {
+      "acl": "{postgres=arwdDxtm/postgres,anon=Dxtm/postgres,service_role=Dxtm/postgres,authenticated=r/postgres}",
+      "rls": true,
+      "kind": "r",
+      "name": "stock_layer_allocations",
+      "view": null,
+      "owner": "postgres",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "default": "gen_random_uuid()",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "writeoff_movement_id",
+          "type": "uuid",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "layer_id",
+          "type": "uuid",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "qty",
+          "type": "numeric(18,4)",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "source_movement_id",
+          "type": "uuid",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "source_doc_num_snapshot",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "source_invoice_snapshot",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "source_date_snapshot",
+          "type": "date",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "price_status_snapshot",
+          "type": "text",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "unit_price_snapshot",
+          "type": "numeric(18,4)",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "source_amount_snapshot",
+          "type": "numeric(18,2)",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "created_by",
+          "type": "uuid",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "reversed_at",
+          "type": "timestamp with time zone",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "options": null,
+      "force_rls": false
+    },
+    {
+      "acl": "{postgres=arwdDxtm/postgres,anon=Dxtm/postgres,service_role=Dxtm/postgres}",
+      "rls": true,
+      "kind": "r",
+      "name": "stock_layer_requests",
+      "view": null,
+      "owner": "postgres",
+      "columns": [
+        {
+          "name": "request_key",
+          "type": "uuid",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "actor_id",
+          "type": "uuid",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "payload_hash",
+          "type": "text",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "payload",
+          "type": "jsonb",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "result",
+          "type": "jsonb",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "completed_at",
+          "type": "timestamp with time zone",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "options": null,
+      "force_rls": false
+    },
+    {
+      "acl": "{postgres=arwdDxtm/postgres,anon=Dxtm/postgres,service_role=Dxtm/postgres}",
+      "rls": true,
+      "kind": "r",
+      "name": "stock_layer_settings",
+      "view": null,
+      "owner": "postgres",
+      "columns": [
+        {
+          "name": "singleton",
+          "type": "boolean",
+          "default": "true",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "schema_version",
+          "type": "integer",
+          "default": "36",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "active",
+          "type": "boolean",
+          "default": "false",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "cutover_at",
+          "type": "timestamp with time zone",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "cutover_by",
+          "type": "uuid",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "cutover_movement_count",
+          "type": "bigint",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "cutover_max_created_at",
+          "type": "timestamp with time zone",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "options": null,
+      "force_rls": false
+    },
+    {
+      "acl": "{postgres=arwdDxtm/postgres,anon=Dxtm/postgres,service_role=Dxtm/postgres,authenticated=r/postgres}",
+      "rls": true,
+      "kind": "r",
+      "name": "stock_layer_transfers",
+      "view": null,
+      "owner": "postgres",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "default": "gen_random_uuid()",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "transfer_out_movement_id",
+          "type": "uuid",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "transfer_in_movement_id",
+          "type": "uuid",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "source_layer_id",
+          "type": "uuid",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "destination_layer_id",
+          "type": "uuid",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "qty",
+          "type": "numeric(18,4)",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "created_by",
+          "type": "uuid",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "reversed_at",
+          "type": "timestamp with time zone",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "options": null,
+      "force_rls": false
+    },
+    {
+      "acl": "{postgres=arwdDxtm/postgres,anon=Dxtm/postgres,service_role=Dxtm/postgres,authenticated=r/postgres}",
+      "rls": true,
+      "kind": "r",
+      "name": "stock_layers",
+      "view": null,
+      "owner": "postgres",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "default": "gen_random_uuid()",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "warehouse",
+          "type": "text",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "item_code",
+          "type": "text",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "source_type",
+          "type": "text",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "source_movement_id",
+          "type": "uuid",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "root_movement_id",
+          "type": "uuid",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "parent_layer_id",
+          "type": "uuid",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "received_date",
+          "type": "date",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "source_doc_num",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "source_invoice_num",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "price_status",
+          "type": "text",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "unit_price",
+          "type": "numeric(18,4)",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "initial_qty",
+          "type": "numeric(18,4)",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "available_qty",
+          "type": "numeric(18,4)",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "active",
+          "type": "boolean",
+          "default": "true",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "created_by",
+          "type": "uuid",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "options": null,
+      "force_rls": false
+    },
+    {
+      "acl": "{postgres=arwdDxtm/postgres,anon=Dxtm/postgres,authenticated=rDxtm/postgres,service_role=Dxtm/postgres}",
+      "rls": true,
+      "kind": "r",
+      "name": "users",
+      "view": null,
+      "owner": "postgres",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "default": "gen_random_uuid()",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "email",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "name",
+          "type": "text",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "role",
+          "type": "text",
+          "default": "'baxis'::text",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "warehouse",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "active",
+          "type": "boolean",
+          "default": "true",
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "options": null,
+      "force_rls": false
+    },
+    {
+      "acl": "{postgres=arwdDxtm/postgres,anon=Dxtm/postgres,authenticated=rDxtm/postgres,service_role=Dxtm/postgres}",
+      "rls": true,
+      "kind": "r",
+      "name": "warehouses",
+      "view": null,
+      "owner": "postgres",
+      "columns": [
+        {
+          "name": "id",
+          "type": "integer",
+          "default": "nextval('warehouses_id_seq'::regclass)",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "name",
+          "type": "text",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "type",
+          "type": "text",
+          "default": "'anbar'::text",
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "active",
+          "type": "boolean",
+          "default": "true",
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "options": null,
+      "force_rls": false
+    },
+    {
+      "acl": "{postgres=arwdDxtm/postgres,anon=Dxtm/postgres,service_role=Dxtm/postgres,authenticated=r/postgres}",
+      "rls": true,
+      "kind": "r",
+      "name": "writeoff_valuations",
+      "view": null,
+      "owner": "postgres",
+      "columns": [
+        {
+          "name": "movement_id",
+          "type": "uuid",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "source_amount",
+          "type": "numeric(18,2)",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "known_amount",
+          "type": "numeric(18,2)",
+          "default": "0",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "unknown_qty",
+          "type": "numeric(18,4)",
+          "default": "0",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "final_amount",
+          "type": "numeric(18,2)",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "valuation_method",
+          "type": "text",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "override_reason",
+          "type": "text",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "created_by",
+          "type": "uuid",
+          "default": null,
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "default": "now()",
+          "notnull": true,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "reversed_by_movement_id",
+          "type": "uuid",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "reversed_at",
+          "type": "timestamp with time zone",
+          "default": null,
+          "notnull": false,
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "options": null,
+      "force_rls": false
+    }
+  ],
+  "indexes": [
+    {
+      "name": "idx_audit_user",
+      "definition": "CREATE INDEX idx_audit_user ON public.audit_log USING btree (user_id)"
+    },
+    {
+      "name": "azp_movements_card_date_idx",
+      "definition": "CREATE INDEX azp_movements_card_date_idx ON public.azp_movements USING btree (module, card_id, op_date)"
+    },
+    {
+      "name": "idx_sessions_updated",
+      "definition": "CREATE INDEX idx_sessions_updated ON public.sessions USING btree (updated_at)"
+    },
+    {
+      "name": "reference_values_kind_name_ci_uq",
+      "definition": "CREATE UNIQUE INDEX reference_values_kind_name_ci_uq ON public.reference_values USING btree (kind, lower(name))"
+    },
+    {
+      "name": "uq_item_requests_pending_name",
+      "definition": "CREATE UNIQUE INDEX uq_item_requests_pending_name ON public.item_requests USING btree (name_norm) WHERE (status = 'pending'::text)"
+    },
+    {
+      "name": "serfiyyat_lines_document_idx",
+      "definition": "CREATE INDEX serfiyyat_lines_document_idx ON public.serfiyyat_lines USING btree (document_id)"
+    },
+    {
+      "name": "idx_item_requests_name_norm",
+      "definition": "CREATE INDEX idx_item_requests_name_norm ON public.item_requests USING btree (name_norm)"
+    },
+    {
+      "name": "idx_item_requests_created_by",
+      "definition": "CREATE INDEX idx_item_requests_created_by ON public.item_requests USING btree (created_by, created_at DESC)"
+    },
+    {
+      "name": "serfiyyat_projects_name_ci_uq",
+      "definition": "CREATE UNIQUE INDEX serfiyyat_projects_name_ci_uq ON public.serfiyyat_projects USING btree (lower(name))"
+    },
+    {
+      "name": "idx_mv_channel",
+      "definition": "CREATE INDEX idx_mv_channel ON public.movements USING btree (channel)"
+    },
+    {
+      "name": "idx_stock_conditions_warehouse",
+      "definition": "CREATE INDEX idx_stock_conditions_warehouse ON public.stock_conditions USING btree (warehouse)"
+    },
+    {
+      "name": "azp_cards_module_no_uq",
+      "definition": "CREATE UNIQUE INDEX azp_cards_module_no_uq ON public.azp_cards USING btree (module, lower(btrim(card_no)))"
+    },
+    {
+      "name": "azp_movements_module_idx",
+      "definition": "CREATE INDEX azp_movements_module_idx ON public.azp_movements USING btree (module, cancelled, op_date)"
+    },
+    {
+      "name": "azp_movements_card_idx",
+      "definition": "CREATE INDEX azp_movements_card_idx ON public.azp_movements USING btree (card_id, cancelled)"
+    },
+    {
+      "name": "idx_mv_partner",
+      "definition": "CREATE INDEX idx_mv_partner ON public.movements USING btree (partner)"
+    },
+    {
+      "name": "azp_audit_module_idx",
+      "definition": "CREATE INDEX azp_audit_module_idx ON public.azp_audit_log USING btree (module, at DESC)"
+    },
+    {
+      "name": "idx_mv_date",
+      "definition": "CREATE INDEX idx_mv_date ON public.movements USING btree (date)"
+    },
+    {
+      "name": "idx_item_requests_status",
+      "definition": "CREATE INDEX idx_item_requests_status ON public.item_requests USING btree (status, created_at DESC)"
+    },
+    {
+      "name": "stock_layers_scope_idx",
+      "definition": "CREATE INDEX stock_layers_scope_idx ON public.stock_layers USING btree (warehouse, item_code, active, received_date, id)"
+    },
+    {
+      "name": "azp_movements_replaces_uq",
+      "definition": "CREATE UNIQUE INDEX azp_movements_replaces_uq ON public.azp_movements USING btree (replaces_id) WHERE (replaces_id IS NOT NULL)"
+    },
+    {
+      "name": "serfiyyat_documents_date_idx",
+      "definition": "CREATE INDEX serfiyyat_documents_date_idx ON public.serfiyyat_documents USING btree (doc_date)"
+    },
+    {
+      "name": "idx_items_request_norm",
+      "definition": "CREATE INDEX idx_items_request_norm ON public.items USING btree (item_request_norm(name))"
+    },
+    {
+      "name": "stock_layer_allocations_layer_idx",
+      "definition": "CREATE INDEX stock_layer_allocations_layer_idx ON public.stock_layer_allocations USING btree (layer_id, reversed_at)"
+    },
+    {
+      "name": "idx_mv_wh",
+      "definition": "CREATE INDEX idx_mv_wh ON public.movements USING btree (warehouse)"
+    },
+    {
+      "name": "stock_layers_source_idx",
+      "definition": "CREATE INDEX stock_layers_source_idx ON public.stock_layers USING btree (source_movement_id)"
+    },
+    {
+      "name": "serfiyyat_documents_project_idx",
+      "definition": "CREATE INDEX serfiyyat_documents_project_idx ON public.serfiyyat_documents USING btree (project_id)"
+    },
+    {
+      "name": "idx_mv_item",
+      "definition": "CREATE INDEX idx_mv_item ON public.movements USING btree (item_code)"
+    },
+    {
+      "name": "azp_cards_module_idx",
+      "definition": "CREATE INDEX azp_cards_module_idx ON public.azp_cards USING btree (module, active, sort_order)"
+    },
+    {
+      "name": "idx_stock_conditions_item",
+      "definition": "CREATE INDEX idx_stock_conditions_item ON public.stock_conditions USING btree (item_code)"
+    },
+    {
+      "name": "idx_mv_user",
+      "definition": "CREATE INDEX idx_mv_user ON public.movements USING btree (created_by)"
+    },
+    {
+      "name": "stock_layers_root_idx",
+      "definition": "CREATE INDEX stock_layers_root_idx ON public.stock_layers USING btree (root_movement_id)"
+    },
+    {
+      "name": "idx_audit_table",
+      "definition": "CREATE INDEX idx_audit_table ON public.audit_log USING btree (table_name, ts)"
+    },
+    {
+      "name": "idx_sessions_user",
+      "definition": "CREATE INDEX idx_sessions_user ON public.sessions USING btree (user_id, updated_at DESC)"
+    }
+  ],
+  "policies": [
+    {
+      "cmd": "UPDATE",
+      "qual": "is_admin()",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "movements",
+      "permissive": "PERMISSIVE",
+      "policyname": "movements_update_admin",
+      "schemaname": "public",
+      "with_check": "is_admin()"
+    },
+    {
+      "cmd": "DELETE",
+      "qual": "is_admin()",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "movements",
+      "permissive": "PERMISSIVE",
+      "policyname": "movements_delete_admin",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "(current_user_role() IS NOT NULL)",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "items",
+      "permissive": "PERMISSIVE",
+      "policyname": "items_select",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "INSERT",
+      "qual": null,
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "items",
+      "permissive": "PERMISSIVE",
+      "policyname": "items_write_admin",
+      "schemaname": "public",
+      "with_check": "is_admin()"
+    },
+    {
+      "cmd": "UPDATE",
+      "qual": "is_admin()",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "items",
+      "permissive": "PERMISSIVE",
+      "policyname": "items_update_admin",
+      "schemaname": "public",
+      "with_check": "is_admin()"
+    },
+    {
+      "cmd": "DELETE",
+      "qual": "is_admin()",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "items",
+      "permissive": "PERMISSIVE",
+      "policyname": "items_delete_admin",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "(current_user_role() IS NOT NULL)",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "partners",
+      "permissive": "PERMISSIVE",
+      "policyname": "partners_select",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "(is_admin() OR is_rehber() OR (is_anbardar() AND (name <> 'Ofis'::text)))",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "warehouses",
+      "permissive": "PERMISSIVE",
+      "policyname": "warehouses_select",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "(is_admin() OR is_rehber() OR (is_anbardar() AND (created_by = auth.uid())))",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "item_requests",
+      "permissive": "PERMISSIVE",
+      "policyname": "item_requests_select",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "(is_admin() OR is_rehber() OR (is_anbardar() AND (warehouse = current_user_warehouse())))",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "stock_conditions",
+      "permissive": "PERMISSIVE",
+      "policyname": "stock_conditions_select",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "((user_id = auth.uid()) OR is_admin())",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "sessions",
+      "permissive": "PERMISSIVE",
+      "policyname": "sessions_select_own",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "(my_role() = 'rehber'::text)",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "audit_log",
+      "permissive": "PERMISSIVE",
+      "policyname": "p_audit_read",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "((id = auth.uid()) OR is_admin())",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "users",
+      "permissive": "PERMISSIVE",
+      "policyname": "users_select",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "INSERT",
+      "qual": null,
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "users",
+      "permissive": "PERMISSIVE",
+      "policyname": "users_insert",
+      "schemaname": "public",
+      "with_check": "is_admin()"
+    },
+    {
+      "cmd": "UPDATE",
+      "qual": "is_admin()",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "users",
+      "permissive": "PERMISSIVE",
+      "policyname": "users_update",
+      "schemaname": "public",
+      "with_check": "is_admin()"
+    },
+    {
+      "cmd": "DELETE",
+      "qual": "is_admin()",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "users",
+      "permissive": "PERMISSIVE",
+      "policyname": "users_delete",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "(is_admin() OR is_rehber() OR (is_anbardar() AND (warehouse = current_user_warehouse())))",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "movements",
+      "permissive": "PERMISSIVE",
+      "policyname": "movements_select",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "INSERT",
+      "qual": null,
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "movements",
+      "permissive": "PERMISSIVE",
+      "policyname": "movements_insert_admin",
+      "schemaname": "public",
+      "with_check": "is_admin()"
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "((active = true) OR (current_user_role() = 'admin'::text))",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "reference_values",
+      "permissive": "PERMISSIVE",
+      "policyname": "p_reference_values_read",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "azp_can_read()",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "azp_cards",
+      "permissive": "PERMISSIVE",
+      "policyname": "azp_cards_select",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "azp_can_read()",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "azp_movements",
+      "permissive": "PERMISSIVE",
+      "policyname": "azp_movements_select",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "azp_can_read()",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "azp_audit_log",
+      "permissive": "PERMISSIVE",
+      "policyname": "azp_audit_select",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "azp_can_read()",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "azp_application_balances",
+      "permissive": "PERMISSIVE",
+      "policyname": "azp_application_balance_select",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "((active = true) OR (current_user_role() = 'admin'::text))",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "serfiyyat_projects",
+      "permissive": "PERMISSIVE",
+      "policyname": "p_serfiyyat_projects_read",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "((current_user_role() = ANY (ARRAY['admin'::text, 'rehber'::text])) OR (EXISTS ( SELECT 1\n   FROM serfiyyat_projects sp\n  WHERE ((sp.id = serfiyyat_documents.project_id) AND (sp.linked_warehouse = current_user_warehouse())))))",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "serfiyyat_documents",
+      "permissive": "PERMISSIVE",
+      "policyname": "p_serfiyyat_documents_read",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "((EXISTS ( SELECT 1\n   FROM serfiyyat_documents sd\n  WHERE (sd.id = serfiyyat_lines.document_id))) AND (EXISTS ( SELECT 1\n   FROM (serfiyyat_documents sd2\n     JOIN serfiyyat_projects sp2 ON ((sp2.id = sd2.project_id)))\n  WHERE ((sd2.id = serfiyyat_lines.document_id) AND ((current_user_role() = ANY (ARRAY['admin'::text, 'rehber'::text])) OR (sp2.linked_warehouse = current_user_warehouse()))))))",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "serfiyyat_lines",
+      "permissive": "PERMISSIVE",
+      "policyname": "p_serfiyyat_lines_read",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "(is_admin() OR is_rehber() OR (is_anbardar() AND (warehouse = current_user_warehouse())))",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "stock_layers",
+      "permissive": "PERMISSIVE",
+      "policyname": "stock_layers_select",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "(EXISTS ( SELECT 1\n   FROM movements m\n  WHERE (m.id = writeoff_valuations.movement_id)))",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "writeoff_valuations",
+      "permissive": "PERMISSIVE",
+      "policyname": "writeoff_valuations_select",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "(EXISTS ( SELECT 1\n   FROM movements m\n  WHERE (m.id = stock_layer_allocations.writeoff_movement_id)))",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "stock_layer_allocations",
+      "permissive": "PERMISSIVE",
+      "policyname": "stock_layer_allocations_select",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "(EXISTS ( SELECT 1\n   FROM movements m\n  WHERE (m.id = stock_layer_transfers.transfer_out_movement_id)))",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "stock_layer_transfers",
+      "permissive": "PERMISSIVE",
+      "policyname": "stock_layer_transfers_select",
+      "schemaname": "public",
+      "with_check": null
+    }
+  ],
+  "triggers": [
+    {
+      "name": "trg_stock_layer_movement",
+      "table": "movements",
+      "schema": "public",
+      "enabled": "O",
+      "definition": "CREATE TRIGGER trg_stock_layer_movement AFTER INSERT ON movements FOR EACH ROW EXECUTE FUNCTION guard_and_capture_stock_layer_movement()"
+    },
+    {
+      "name": "movements_audit",
+      "table": "movements",
+      "schema": "public",
+      "enabled": "O",
+      "definition": "CREATE TRIGGER movements_audit AFTER INSERT OR DELETE OR UPDATE ON movements FOR EACH ROW EXECUTE FUNCTION log_changes()"
+    },
+    {
+      "name": "partners_audit",
+      "table": "partners",
+      "schema": "public",
+      "enabled": "O",
+      "definition": "CREATE TRIGGER partners_audit AFTER INSERT OR DELETE OR UPDATE ON partners FOR EACH ROW EXECUTE FUNCTION log_changes()"
+    },
+    {
+      "name": "trg_enforce_anbardar_warehouse",
+      "table": "users",
+      "schema": "public",
+      "enabled": "O",
+      "definition": "CREATE TRIGGER trg_enforce_anbardar_warehouse BEFORE INSERT OR UPDATE OF role, warehouse ON users FOR EACH ROW EXECUTE FUNCTION enforce_anbardar_warehouse()"
+    },
+    {
+      "name": "trg_guard_item_category",
+      "table": "items",
+      "schema": "public",
+      "enabled": "O",
+      "definition": "CREATE TRIGGER trg_guard_item_category BEFORE INSERT OR UPDATE OF category ON items FOR EACH ROW EXECUTE FUNCTION guard_item_category()"
+    },
+    {
+      "name": "trg_guard_item_unit",
+      "table": "items",
+      "schema": "public",
+      "enabled": "O",
+      "definition": "CREATE TRIGGER trg_guard_item_unit BEFORE INSERT OR UPDATE OF unit ON items FOR EACH ROW EXECUTE FUNCTION guard_item_unit()"
+    },
+    {
+      "name": "trg_guard_movement_labels",
+      "table": "movements",
+      "schema": "public",
+      "enabled": "O",
+      "definition": "CREATE TRIGGER trg_guard_movement_labels BEFORE INSERT ON movements FOR EACH ROW EXECUTE FUNCTION guard_movement_labels()"
+    },
+    {
+      "name": "on_auth_user_created",
+      "table": "users",
+      "schema": "auth",
+      "enabled": "O",
+      "definition": "CREATE TRIGGER on_auth_user_created AFTER INSERT ON auth.users FOR EACH ROW EXECUTE FUNCTION handle_new_auth_user()"
+    }
+  ],
+  "sequences": [
+    {
+      "acl": null,
+      "max": 2147483647,
+      "min": 1,
+      "name": "warehouses_id_seq",
+      "type": "integer",
+      "cache": 1,
+      "cycle": false,
+      "owner": "postgres",
+      "start": 1,
+      "increment": 1
+    },
+    {
+      "acl": null,
+      "max": 9223372036854776000,
+      "min": 1,
+      "name": "azp_movements_id_seq",
+      "type": "bigint",
+      "cache": 1,
+      "cycle": false,
+      "owner": "postgres",
+      "start": 1,
+      "increment": 1
+    },
+    {
+      "acl": null,
+      "max": 9223372036854776000,
+      "min": 1,
+      "name": "azp_audit_log_id_seq",
+      "type": "bigint",
+      "cache": 1,
+      "cycle": false,
+      "owner": "postgres",
+      "start": 1,
+      "increment": 1
+    },
+    {
+      "acl": null,
+      "max": 9223372036854776000,
+      "min": 1,
+      "name": "serfiyyat_doc_seq",
+      "type": "bigint",
+      "cache": 1,
+      "cycle": false,
+      "owner": "postgres",
+      "start": 1,
+      "increment": 1
+    }
+  ],
+  "extensions": [
+    {
+      "name": "plpgsql",
+      "schema": "pg_catalog"
+    },
+    {
+      "name": "pg_stat_statements",
+      "schema": "extensions"
+    },
+    {
+      "name": "uuid-ossp",
+      "schema": "extensions"
+    },
+    {
+      "name": "pgcrypto",
+      "schema": "extensions"
+    },
+    {
+      "name": "supabase_vault",
+      "schema": "vault"
+    }
+  ],
+  "constraints": [
+    {
+      "name": "serfiyyat_documents_doc_num_key",
+      "type": "u",
+      "table": "serfiyyat_documents",
+      "definition": "UNIQUE (doc_num)"
+    },
+    {
+      "name": "serfiyyat_documents_pkey",
+      "type": "p",
+      "table": "serfiyyat_documents",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "name": "serfiyyat_documents_project_id_fkey",
+      "type": "f",
+      "table": "serfiyyat_documents",
+      "definition": "FOREIGN KEY (project_id) REFERENCES serfiyyat_projects(id)"
+    },
+    {
+      "name": "serfiyyat_lines_document_id_fkey",
+      "type": "f",
+      "table": "serfiyyat_lines",
+      "definition": "FOREIGN KEY (document_id) REFERENCES serfiyyat_documents(id) ON DELETE CASCADE"
+    },
+    {
+      "name": "serfiyyat_lines_item_code_fkey",
+      "type": "f",
+      "table": "serfiyyat_lines",
+      "definition": "FOREIGN KEY (item_code) REFERENCES items(code)"
+    },
+    {
+      "name": "serfiyyat_lines_pkey",
+      "type": "p",
+      "table": "serfiyyat_lines",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "name": "serfiyyat_lines_price_check",
+      "type": "c",
+      "table": "serfiyyat_lines",
+      "definition": "CHECK (price >= 0::numeric)"
+    },
+    {
+      "name": "serfiyyat_lines_qty_check",
+      "type": "c",
+      "table": "serfiyyat_lines",
+      "definition": "CHECK (qty > 0::numeric)"
+    },
+    {
+      "name": "items_created_by_fkey",
+      "type": "f",
+      "table": "items",
+      "definition": "FOREIGN KEY (created_by) REFERENCES users(id)"
+    },
+    {
+      "name": "items_pkey",
+      "type": "p",
+      "table": "items",
+      "definition": "PRIMARY KEY (code)"
+    },
+    {
+      "name": "users_email_key",
+      "type": "u",
+      "table": "users",
+      "definition": "UNIQUE (email)"
+    },
+    {
+      "name": "users_pkey",
+      "type": "p",
+      "table": "users",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "name": "users_role_check",
+      "type": "c",
+      "table": "users",
+      "definition": "CHECK (role = ANY (ARRAY['admin'::text, 'rehber'::text, 'anbardar'::text, 'techizat'::text, 'muhasib'::text, 'baxis'::text]))"
+    },
+    {
+      "name": "partners_created_by_fkey",
+      "type": "f",
+      "table": "partners",
+      "definition": "FOREIGN KEY (created_by) REFERENCES users(id)"
+    },
+    {
+      "name": "partners_name_key",
+      "type": "u",
+      "table": "partners",
+      "definition": "UNIQUE (name)"
+    },
+    {
+      "name": "partners_pkey",
+      "type": "p",
+      "table": "partners",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "name": "warehouses_name_key",
+      "type": "u",
+      "table": "warehouses",
+      "definition": "UNIQUE (name)"
+    },
+    {
+      "name": "warehouses_pkey",
+      "type": "p",
+      "table": "warehouses",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "name": "sessions_pkey",
+      "type": "p",
+      "table": "sessions",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "name": "sessions_user_device_key",
+      "type": "u",
+      "table": "sessions",
+      "definition": "UNIQUE (user_id, device_id)"
+    },
+    {
+      "name": "sessions_user_id_fkey",
+      "type": "f",
+      "table": "sessions",
+      "definition": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE"
+    },
+    {
+      "name": "audit_log_pkey",
+      "type": "p",
+      "table": "audit_log",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "name": "audit_log_user_id_fkey",
+      "type": "f",
+      "table": "audit_log",
+      "definition": "FOREIGN KEY (user_id) REFERENCES users(id)"
+    },
+    {
+      "name": "movements_created_by_fkey",
+      "type": "f",
+      "table": "movements",
+      "definition": "FOREIGN KEY (created_by) REFERENCES users(id)"
+    },
+    {
+      "name": "movements_item_code_fkey",
+      "type": "f",
+      "table": "movements",
+      "definition": "FOREIGN KEY (item_code) REFERENCES items(code)"
+    },
+    {
+      "name": "movements_pkey",
+      "type": "p",
+      "table": "movements",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "name": "movements_warehouse_fkey",
+      "type": "f",
+      "table": "movements",
+      "definition": "FOREIGN KEY (warehouse) REFERENCES warehouses(name)"
+    },
+    {
+      "name": "azp_movements_amount_check",
+      "type": "c",
+      "table": "azp_movements",
+      "definition": "CHECK (amount > 0::numeric)"
+    },
+    {
+      "name": "azp_movements_card_id_fkey",
+      "type": "f",
+      "table": "azp_movements",
+      "definition": "FOREIGN KEY (card_id) REFERENCES azp_cards(id) ON DELETE RESTRICT"
+    },
+    {
+      "name": "azp_movements_kind_check",
+      "type": "c",
+      "table": "azp_movements",
+      "definition": "CHECK (kind = ANY (ARRAY['medaxil'::text, 'mexaric'::text]))"
+    },
+    {
+      "name": "azp_movements_module_check",
+      "type": "c",
+      "table": "azp_movements",
+      "definition": "CHECK (module = ANY (ARRAY['azpetrol'::text, 'araz'::text]))"
+    },
+    {
+      "name": "azp_movements_pkey",
+      "type": "p",
+      "table": "azp_movements",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "name": "azp_movements_replaced_by_fk",
+      "type": "f",
+      "table": "azp_movements",
+      "definition": "FOREIGN KEY (replaced_by) REFERENCES azp_movements(id) ON DELETE RESTRICT"
+    },
+    {
+      "name": "azp_movements_replaces_fk",
+      "type": "f",
+      "table": "azp_movements",
+      "definition": "FOREIGN KEY (replaces_id) REFERENCES azp_movements(id) ON DELETE RESTRICT"
+    },
+    {
+      "name": "azp_cards_card_no_check",
+      "type": "c",
+      "table": "azp_cards",
+      "definition": "CHECK (btrim(card_no) <> ''::text)"
+    },
+    {
+      "name": "azp_cards_holder_check",
+      "type": "c",
+      "table": "azp_cards",
+      "definition": "CHECK (btrim(holder) <> ''::text)"
+    },
+    {
+      "name": "azp_cards_module_check",
+      "type": "c",
+      "table": "azp_cards",
+      "definition": "CHECK (module = ANY (ARRAY['azpetrol'::text, 'araz'::text]))"
+    },
+    {
+      "name": "azp_cards_pkey",
+      "type": "p",
+      "table": "azp_cards",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "name": "azp_audit_log_module_check",
+      "type": "c",
+      "table": "azp_audit_log",
+      "definition": "CHECK (module = ANY (ARRAY['azpetrol'::text, 'araz'::text]))"
+    },
+    {
+      "name": "azp_audit_log_pkey",
+      "type": "p",
+      "table": "azp_audit_log",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "name": "azp_application_balances_current_balance_check",
+      "type": "c",
+      "table": "azp_application_balances",
+      "definition": "CHECK (current_balance >= 0::numeric)"
+    },
+    {
+      "name": "azp_application_balances_module_check",
+      "type": "c",
+      "table": "azp_application_balances",
+      "definition": "CHECK (module = ANY (ARRAY['azpetrol'::text, 'araz'::text]))"
+    },
+    {
+      "name": "azp_application_balances_pkey",
+      "type": "p",
+      "table": "azp_application_balances",
+      "definition": "PRIMARY KEY (module)"
+    },
+    {
+      "name": "item_requests_created_by_fkey",
+      "type": "f",
+      "table": "item_requests",
+      "definition": "FOREIGN KEY (created_by) REFERENCES users(id)"
+    },
+    {
+      "name": "item_requests_decided_by_fkey",
+      "type": "f",
+      "table": "item_requests",
+      "definition": "FOREIGN KEY (decided_by) REFERENCES users(id)"
+    },
+    {
+      "name": "item_requests_decision_complete",
+      "type": "c",
+      "table": "item_requests",
+      "definition": "CHECK (status = 'pending'::text AND decided_by IS NULL AND decided_at IS NULL AND item_code IS NULL OR status = 'approved'::text AND decided_by IS NOT NULL AND decided_at IS NOT NULL AND item_code IS NOT NULL OR status = 'rejected'::text AND decided_by IS NOT NULL AND decided_at IS NOT NULL AND item_code IS NULL AND length(btrim(COALESCE(decision_reason, ''::text))) > 0 OR status = 'cancelled'::text AND decided_by IS NOT NULL AND decided_at IS NOT NULL AND item_code IS NULL)"
+    },
+    {
+      "name": "item_requests_item_code_fkey",
+      "type": "f",
+      "table": "item_requests",
+      "definition": "FOREIGN KEY (item_code) REFERENCES items(code)"
+    },
+    {
+      "name": "item_requests_name_check",
+      "type": "c",
+      "table": "item_requests",
+      "definition": "CHECK (length(btrim(name)) >= 3)"
+    },
+    {
+      "name": "item_requests_name_norm_check",
+      "type": "c",
+      "table": "item_requests",
+      "definition": "CHECK (length(name_norm) > 0)"
+    },
+    {
+      "name": "item_requests_pkey",
+      "type": "p",
+      "table": "item_requests",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "name": "item_requests_status_check",
+      "type": "c",
+      "table": "item_requests",
+      "definition": "CHECK (status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text, 'cancelled'::text]))"
+    },
+    {
+      "name": "stock_layer_settings_check",
+      "type": "c",
+      "table": "stock_layer_settings",
+      "definition": "CHECK (NOT active OR cutover_at IS NOT NULL AND cutover_by IS NOT NULL)"
+    },
+    {
+      "name": "stock_layer_settings_cutover_by_fkey",
+      "type": "f",
+      "table": "stock_layer_settings",
+      "definition": "FOREIGN KEY (cutover_by) REFERENCES users(id)"
+    },
+    {
+      "name": "stock_layer_settings_pkey",
+      "type": "p",
+      "table": "stock_layer_settings",
+      "definition": "PRIMARY KEY (singleton)"
+    },
+    {
+      "name": "stock_layer_settings_schema_version_check",
+      "type": "c",
+      "table": "stock_layer_settings",
+      "definition": "CHECK (schema_version = 36)"
+    },
+    {
+      "name": "stock_layer_settings_singleton_check",
+      "type": "c",
+      "table": "stock_layer_settings",
+      "definition": "CHECK (singleton)"
+    },
+    {
+      "name": "stock_layer_requests_actor_id_fkey",
+      "type": "f",
+      "table": "stock_layer_requests",
+      "definition": "FOREIGN KEY (actor_id) REFERENCES users(id)"
+    },
+    {
+      "name": "stock_layer_requests_pkey",
+      "type": "p",
+      "table": "stock_layer_requests",
+      "definition": "PRIMARY KEY (request_key)"
+    },
+    {
+      "name": "stock_layers_available_qty_check",
+      "type": "c",
+      "table": "stock_layers",
+      "definition": "CHECK (available_qty >= 0::numeric)"
+    },
+    {
+      "name": "stock_layers_check",
+      "type": "c",
+      "table": "stock_layers",
+      "definition": "CHECK (available_qty <= initial_qty)"
+    },
+    {
+      "name": "stock_layers_check1",
+      "type": "c",
+      "table": "stock_layers",
+      "definition": "CHECK (price_status = 'known'::text AND unit_price > 0::numeric OR price_status = 'free'::text AND unit_price = 0::numeric OR price_status = 'unknown'::text AND unit_price IS NULL)"
+    },
+    {
+      "name": "stock_layers_check2",
+      "type": "c",
+      "table": "stock_layers",
+      "definition": "CHECK (source_type = 'legacy_unresolved'::text AND source_movement_id IS NULL OR source_type <> 'legacy_unresolved'::text)"
+    },
+    {
+      "name": "stock_layers_created_by_fkey",
+      "type": "f",
+      "table": "stock_layers",
+      "definition": "FOREIGN KEY (created_by) REFERENCES users(id)"
+    },
+    {
+      "name": "stock_layers_initial_qty_check",
+      "type": "c",
+      "table": "stock_layers",
+      "definition": "CHECK (initial_qty > 0::numeric)"
+    },
+    {
+      "name": "stock_layers_item_code_fkey",
+      "type": "f",
+      "table": "stock_layers",
+      "definition": "FOREIGN KEY (item_code) REFERENCES items(code)"
+    },
+    {
+      "name": "stock_layers_parent_layer_id_fkey",
+      "type": "f",
+      "table": "stock_layers",
+      "definition": "FOREIGN KEY (parent_layer_id) REFERENCES stock_layers(id)"
+    },
+    {
+      "name": "stock_layers_pkey",
+      "type": "p",
+      "table": "stock_layers",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "name": "stock_layers_price_status_check",
+      "type": "c",
+      "table": "stock_layers",
+      "definition": "CHECK (price_status = ANY (ARRAY['known'::text, 'unknown'::text, 'free'::text]))"
+    },
+    {
+      "name": "stock_layers_root_movement_id_fkey",
+      "type": "f",
+      "table": "stock_layers",
+      "definition": "FOREIGN KEY (root_movement_id) REFERENCES movements(id)"
+    },
+    {
+      "name": "stock_layers_source_movement_id_fkey",
+      "type": "f",
+      "table": "stock_layers",
+      "definition": "FOREIGN KEY (source_movement_id) REFERENCES movements(id)"
+    },
+    {
+      "name": "stock_layers_source_type_check",
+      "type": "c",
+      "table": "stock_layers",
+      "definition": "CHECK (source_type = ANY (ARRAY['legacy_unresolved'::text, 'receipt'::text, 'transfer'::text, 'legacy_adjustment'::text]))"
+    },
+    {
+      "name": "writeoff_valuations_check",
+      "type": "c",
+      "table": "writeoff_valuations",
+      "definition": "CHECK (valuation_method = 'admin_override'::text AND final_amount IS NOT NULL AND length(btrim(COALESCE(override_reason, ''::text))) > 0 OR valuation_method <> 'admin_override'::text AND override_reason IS NULL)"
+    },
+    {
+      "name": "writeoff_valuations_check1",
+      "type": "c",
+      "table": "writeoff_valuations",
+      "definition": "CHECK (unknown_qty = 0::numeric AND source_amount IS NOT NULL OR unknown_qty > 0::numeric AND source_amount IS NULL)"
+    },
+    {
+      "name": "writeoff_valuations_created_by_fkey",
+      "type": "f",
+      "table": "writeoff_valuations",
+      "definition": "FOREIGN KEY (created_by) REFERENCES users(id)"
+    },
+    {
+      "name": "writeoff_valuations_known_amount_check",
+      "type": "c",
+      "table": "writeoff_valuations",
+      "definition": "CHECK (known_amount >= 0::numeric)"
+    },
+    {
+      "name": "writeoff_valuations_movement_id_fkey",
+      "type": "f",
+      "table": "writeoff_valuations",
+      "definition": "FOREIGN KEY (movement_id) REFERENCES movements(id)"
+    },
+    {
+      "name": "writeoff_valuations_pkey",
+      "type": "p",
+      "table": "writeoff_valuations",
+      "definition": "PRIMARY KEY (movement_id)"
+    },
+    {
+      "name": "writeoff_valuations_reversed_by_movement_id_fkey",
+      "type": "f",
+      "table": "writeoff_valuations",
+      "definition": "FOREIGN KEY (reversed_by_movement_id) REFERENCES movements(id)"
+    },
+    {
+      "name": "writeoff_valuations_unknown_qty_check",
+      "type": "c",
+      "table": "writeoff_valuations",
+      "definition": "CHECK (unknown_qty >= 0::numeric)"
+    },
+    {
+      "name": "writeoff_valuations_valuation_method_check",
+      "type": "c",
+      "table": "writeoff_valuations",
+      "definition": "CHECK (valuation_method = ANY (ARRAY['source'::text, 'unknown'::text, 'admin_override'::text]))"
+    },
+    {
+      "name": "stock_layer_allocations_check",
+      "type": "c",
+      "table": "stock_layer_allocations",
+      "definition": "CHECK (price_status_snapshot = 'known'::text AND unit_price_snapshot > 0::numeric AND source_amount_snapshot IS NOT NULL OR price_status_snapshot = 'free'::text AND unit_price_snapshot = 0::numeric AND source_amount_snapshot = 0::numeric OR price_status_snapshot = 'unknown'::text AND unit_price_snapshot IS NULL AND source_amount_snapshot IS NULL)"
+    },
+    {
+      "name": "stock_layer_allocations_created_by_fkey",
+      "type": "f",
+      "table": "stock_layer_allocations",
+      "definition": "FOREIGN KEY (created_by) REFERENCES users(id)"
+    },
+    {
+      "name": "stock_layer_allocations_layer_id_fkey",
+      "type": "f",
+      "table": "stock_layer_allocations",
+      "definition": "FOREIGN KEY (layer_id) REFERENCES stock_layers(id)"
+    },
+    {
+      "name": "stock_layer_allocations_pkey",
+      "type": "p",
+      "table": "stock_layer_allocations",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "name": "stock_layer_allocations_price_status_snapshot_check",
+      "type": "c",
+      "table": "stock_layer_allocations",
+      "definition": "CHECK (price_status_snapshot = ANY (ARRAY['known'::text, 'unknown'::text, 'free'::text]))"
+    },
+    {
+      "name": "stock_layer_allocations_qty_check",
+      "type": "c",
+      "table": "stock_layer_allocations",
+      "definition": "CHECK (qty > 0::numeric)"
+    },
+    {
+      "name": "stock_layer_allocations_source_movement_id_fkey",
+      "type": "f",
+      "table": "stock_layer_allocations",
+      "definition": "FOREIGN KEY (source_movement_id) REFERENCES movements(id)"
+    },
+    {
+      "name": "stock_layer_allocations_writeoff_movement_id_fkey",
+      "type": "f",
+      "table": "stock_layer_allocations",
+      "definition": "FOREIGN KEY (writeoff_movement_id) REFERENCES movements(id)"
+    },
+    {
+      "name": "stock_layer_allocations_writeoff_movement_id_layer_id_key",
+      "type": "u",
+      "table": "stock_layer_allocations",
+      "definition": "UNIQUE (writeoff_movement_id, layer_id)"
+    },
+    {
+      "name": "stock_layer_transfers_created_by_fkey",
+      "type": "f",
+      "table": "stock_layer_transfers",
+      "definition": "FOREIGN KEY (created_by) REFERENCES users(id)"
+    },
+    {
+      "name": "stock_layer_transfers_destination_layer_id_fkey",
+      "type": "f",
+      "table": "stock_layer_transfers",
+      "definition": "FOREIGN KEY (destination_layer_id) REFERENCES stock_layers(id)"
+    },
+    {
+      "name": "stock_layer_transfers_pkey",
+      "type": "p",
+      "table": "stock_layer_transfers",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "name": "stock_layer_transfers_qty_check",
+      "type": "c",
+      "table": "stock_layer_transfers",
+      "definition": "CHECK (qty > 0::numeric)"
+    },
+    {
+      "name": "stock_layer_transfers_source_layer_id_fkey",
+      "type": "f",
+      "table": "stock_layer_transfers",
+      "definition": "FOREIGN KEY (source_layer_id) REFERENCES stock_layers(id)"
+    },
+    {
+      "name": "stock_layer_transfers_transfer_in_movement_id_fkey",
+      "type": "f",
+      "table": "stock_layer_transfers",
+      "definition": "FOREIGN KEY (transfer_in_movement_id) REFERENCES movements(id)"
+    },
+    {
+      "name": "stock_layer_transfers_transfer_in_movement_id_source_layer__key",
+      "type": "u",
+      "table": "stock_layer_transfers",
+      "definition": "UNIQUE (transfer_in_movement_id, source_layer_id)"
+    },
+    {
+      "name": "stock_layer_transfers_transfer_out_movement_id_fkey",
+      "type": "f",
+      "table": "stock_layer_transfers",
+      "definition": "FOREIGN KEY (transfer_out_movement_id) REFERENCES movements(id)"
+    },
+    {
+      "name": "stock_conditions_icare_qty_check",
+      "type": "c",
+      "table": "stock_conditions",
+      "definition": "CHECK (icare_qty >= 0::numeric)"
+    },
+    {
+      "name": "stock_conditions_item_code_fkey",
+      "type": "f",
+      "table": "stock_conditions",
+      "definition": "FOREIGN KEY (item_code) REFERENCES items(code)"
+    },
+    {
+      "name": "stock_conditions_not_empty",
+      "type": "c",
+      "table": "stock_conditions",
+      "definition": "CHECK (unfit_qty > 0::numeric OR repair_qty > 0::numeric OR onsite_qty > 0::numeric OR icare_qty > 0::numeric OR length(btrim(COALESCE(note, ''::text))) > 0)"
+    },
+    {
+      "name": "stock_conditions_onsite_qty_check",
+      "type": "c",
+      "table": "stock_conditions",
+      "definition": "CHECK (onsite_qty >= 0::numeric)"
+    },
+    {
+      "name": "stock_conditions_pkey",
+      "type": "p",
+      "table": "stock_conditions",
+      "definition": "PRIMARY KEY (warehouse, item_code)"
+    },
+    {
+      "name": "stock_conditions_repair_qty_check",
+      "type": "c",
+      "table": "stock_conditions",
+      "definition": "CHECK (repair_qty >= 0::numeric)"
+    },
+    {
+      "name": "stock_conditions_unfit_qty_check",
+      "type": "c",
+      "table": "stock_conditions",
+      "definition": "CHECK (unfit_qty >= 0::numeric)"
+    },
+    {
+      "name": "stock_conditions_updated_by_fkey",
+      "type": "f",
+      "table": "stock_conditions",
+      "definition": "FOREIGN KEY (updated_by) REFERENCES users(id)"
+    },
+    {
+      "name": "reference_values_kind_chk",
+      "type": "c",
+      "table": "reference_values",
+      "definition": "CHECK (kind = ANY (ARRAY['purchase_channel'::text, 'unit'::text, 'item_category'::text, 'serfiyyat_channel'::text]))"
+    },
+    {
+      "name": "reference_values_name_check",
+      "type": "c",
+      "table": "reference_values",
+      "definition": "CHECK (length(TRIM(BOTH FROM name)) >= 2)"
+    },
+    {
+      "name": "reference_values_pkey",
+      "type": "p",
+      "table": "reference_values",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "name": "serfiyyat_projects_name_check",
+      "type": "c",
+      "table": "serfiyyat_projects",
+      "definition": "CHECK (length(TRIM(BOTH FROM name)) >= 2)"
+    },
+    {
+      "name": "serfiyyat_projects_pkey",
+      "type": "p",
+      "table": "serfiyyat_projects",
+      "definition": "PRIMARY KEY (id)"
+    }
+  ],
+  "publications": [
+    {
+      "pubname": "supabase_realtime",
+      "attnames": [
+        "id",
+        "date",
+        "warehouse",
+        "item_code",
+        "in_qty",
+        "out_qty",
+        "type",
+        "partner",
+        "contract_num",
+        "invoice_num",
+        "price",
+        "note",
+        "doc_num",
+        "created_by",
+        "created_at",
+        "channel"
+      ],
+      "rowfilter": null,
+      "tablename": "movements",
+      "schemaname": "public"
+    }
+  ]
+}

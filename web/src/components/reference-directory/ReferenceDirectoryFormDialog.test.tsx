@@ -15,7 +15,7 @@ import { blockedReason } from '../../lib/mutationGuard'
 import type { ReferenceEntity } from '../../types/referenceDirectory'
 
 const unusedWarehouse: ReferenceEntity = {
-  kind: 'warehouse', id: '7', name: 'Bos anbar', active: true, voen: '', contract: '', contractDate: '',
+  kind: 'warehouse', id: '7', name: 'Bos anbar', active: true, voen: '', contract: '', contractDate: '', linkedWarehouse: '',
 }
 const partner: ReferenceEntity = {
   kind: 'partner',
@@ -25,6 +25,7 @@ const partner: ReferenceEntity = {
   voen: '1234567890',
   contract: 'MQ-15',
   contractDate: '2026-06-05',
+  linkedWarehouse: '',
 }
 
 const ok = { data: { ok: true, kind: 'partner', action: 'update', id: 'x', cascaded_rows: 0 }, error: null }
@@ -399,5 +400,405 @@ describe('ReferenceDirectoryFormDialog — typed contract date reaches the RPC',
       'partner', 'update', partner.id, 'Bakcell MMC',
       expect.objectContaining({ contract_date: '2026-12-31' }),
     ))
+  })
+})
+
+/* Phase 3a kinds. Their rules differ from warehouse in one decisive way: the
+   name stays editable when the value is in use, because manage_reference
+   cascades the rename instead of refusing it (index.html:3085 vs the RPC's
+   channel/unit/category branch). */
+const channel: ReferenceEntity = {
+  kind: 'channel', id: 'rv-c1', name: 'Nağd', active: true, voen: '', contract: '', contractDate: '', linkedWarehouse: '',
+}
+const unit: ReferenceEntity = {
+  kind: 'unit', id: 'rv-u1', name: 'ədəd', active: true, voen: '', contract: '', contractDate: '', linkedWarehouse: '',
+}
+const category: ReferenceEntity = {
+  kind: 'category', id: 'rv-k1', name: 'Kanselyariya', active: true, voen: '', contract: '', contractDate: '', linkedWarehouse: '',
+}
+
+describe('ReferenceDirectoryFormDialog — Phase 3a kinds', () => {
+  it('titles the dialog with each kind label', () => {
+    for (const [entity, label] of [
+      [channel, 'Alınma kanalı'],
+      [unit, 'Ölçü vahidi'],
+      [category, 'Mal kateqoriyası'],
+    ] as const) {
+      const { unmount } = render(
+        <ReferenceDirectoryFormDialog entity={entity} kind={entity.kind} usage={exact(0)} onDone={vi.fn()} onClose={vi.fn()} />,
+      )
+      expect(screen.getByText(`${label} — redaktə`)).toBeTruthy()
+      unmount()
+    }
+  })
+
+  it('keeps a used value renameable — unlike a warehouse', async () => {
+    const user = userEvent.setup()
+    render(<ReferenceDirectoryFormDialog entity={unit} kind="unit" usage={exact(41)} onDone={vi.fn()} onClose={vi.fn()} />)
+
+    const name = screen.getByLabelText('Ad') as HTMLInputElement
+    expect(name.readOnly).toBe(false)
+    await user.clear(name)
+    await user.type(name, 'ədəd (yeni)')
+    await user.click(screen.getByRole('button', { name: 'Yadda saxla' }))
+
+    await waitFor(() => expect(manageReference).toHaveBeenCalledWith('unit', 'update', 'rv-u1', 'ədəd (yeni)', {}))
+  })
+
+  it('sends empty meta — VÖEN and contract fields belong to partners only', async () => {
+    const user = userEvent.setup()
+    render(<ReferenceDirectoryFormDialog entity={channel} kind="channel" usage={exact(0)} onDone={vi.fn()} onClose={vi.fn()} />)
+
+    expect(screen.queryByLabelText('VÖEN')).toBeNull()
+    expect(screen.queryByLabelText('Müqavilə tarixi')).toBeNull()
+    expect(screen.queryByLabelText('Müqavilə №')).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: 'Yadda saxla' }))
+    await waitFor(() => expect(manageReference).toHaveBeenCalledWith('channel', 'update', 'rv-c1', 'Nağd', {}))
+  })
+
+  it('creates a new value with the UI kind name, which the server maps to its stored kind', async () => {
+    const user = userEvent.setup()
+    render(<ReferenceDirectoryFormDialog entity={null} kind="category" presetName="Yeni kateqoriya" usage={exact(0)} onDone={vi.fn()} onClose={vi.fn()} />)
+
+    await user.click(screen.getByRole('button', { name: 'Yadda saxla' }))
+    /* p_kind is the UI name; manage_reference maps category to item_category. */
+    await waitFor(() => expect(manageReference).toHaveBeenCalledWith('category', 'create', null, 'Yeni kateqoriya', {}))
+  })
+
+  it('enforces the 2-character minimum before calling the RPC', async () => {
+    const user = userEvent.setup()
+    render(<ReferenceDirectoryFormDialog entity={null} kind="unit" presetName="" usage={exact(0)} onDone={vi.fn()} onClose={vi.fn()} />)
+
+    await user.type(screen.getByLabelText('Ad'), 'q')
+    await user.click(screen.getByRole('button', { name: 'Yadda saxla' }))
+
+    expect(toasts()).toContain('Ad ən azı 2 simvol olmalıdır')
+    expect(manageReference).not.toHaveBeenCalled()
+  })
+
+  it('offers delete only for an unused value, behind the two-step confirmation', async () => {
+    const user = userEvent.setup()
+    const { unmount } = render(
+      <ReferenceDirectoryFormDialog entity={unit} kind="unit" usage={exact(41)} onDone={vi.fn()} onClose={vi.fn()} />,
+    )
+    expect(screen.queryByRole('button', { name: 'Tamamilə sil' })).toBeNull()
+    unmount()
+
+    render(<ReferenceDirectoryFormDialog entity={unit} kind="unit" usage={exact(0)} onDone={vi.fn()} onClose={vi.fn()} />)
+    await user.click(screen.getByRole('button', { name: 'Tamamilə sil' }))
+    expect(manageReference).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: 'Tamamilə sil' }))
+    await waitFor(() => expect(manageReference).toHaveBeenCalledWith('unit', 'delete', 'rv-u1', 'ədəd', {}))
+  })
+
+  it('hides and reactivates', async () => {
+    const user = userEvent.setup()
+    const { unmount } = render(
+      <ReferenceDirectoryFormDialog entity={channel} kind="channel" usage={exact(3)} onDone={vi.fn()} onClose={vi.fn()} />,
+    )
+    await user.click(screen.getByRole('button', { name: 'Gizlət' }))
+    await waitFor(() => expect(manageReference).toHaveBeenCalledWith('channel', 'deactivate', 'rv-c1', 'Nağd', {}))
+    unmount()
+
+    render(
+      <ReferenceDirectoryFormDialog entity={{ ...channel, active: false }} kind="channel" usage={exact(3)} onDone={vi.fn()} onClose={vi.fn()} />,
+    )
+    await user.click(screen.getByRole('button', { name: 'Aktiv et' }))
+    await waitFor(() => expect(manageReference).toHaveBeenCalledWith('channel', 'activate', 'rv-c1', 'Nağd', {}))
+  })
+
+  it('reports the rename cascade count returned by the server', async () => {
+    const user = userEvent.setup()
+    vi.mocked(manageReference).mockResolvedValue({
+      data: { ok: true, kind: 'channel', action: 'update', id: 'rv-c1', cascaded_rows: 12 },
+      error: null,
+    } as never)
+    render(<ReferenceDirectoryFormDialog entity={channel} kind="channel" usage={exact(12)} onDone={vi.fn()} onClose={vi.fn()} />)
+
+    await user.click(screen.getByRole('button', { name: 'Yadda saxla' }))
+    await waitFor(() => expect(toasts()).toContain('Soraqça yeniləndi (12 tarixi qeydin mətni uzlaşdırıldı)'))
+  })
+
+  it('surfaces a server refusal verbatim', async () => {
+    const user = userEvent.setup()
+    vi.mocked(manageReference).mockResolvedValue({
+      data: null,
+      error: { message: 'Dəyər istifadə olunub: silinmir, yalnız gizlədilə bilər' },
+    } as never)
+    render(<ReferenceDirectoryFormDialog entity={unit} kind="unit" usage={exact(0)} onDone={vi.fn()} onClose={vi.fn()} />)
+
+    await user.click(screen.getByRole('button', { name: 'Tamamilə sil' }))
+    await user.click(screen.getByRole('button', { name: 'Tamamilə sil' }))
+
+    await waitFor(() => expect(toasts()).toContain(
+      'Soraqça yenilənmədi: Dəyər istifadə olunub: silinmir, yalnız gizlədilə bilər',
+    ))
+  })
+
+  it('is blocked by the localhost write guard like every other kind', async () => {
+    const user = userEvent.setup()
+    vi.mocked(blockedReason).mockReturnValue('Bütün yazma əməliyyatları bloklanıb')
+    render(<ReferenceDirectoryFormDialog entity={unit} kind="unit" usage={exact(0)} onDone={vi.fn()} onClose={vi.fn()} />)
+
+    await user.click(screen.getByRole('button', { name: 'Yadda saxla' }))
+    expect(manageReference).not.toHaveBeenCalled()
+    expect(toasts()).toContain('Bütün yazma əməliyyatları bloklanıb')
+  })
+
+  it('warns that usage is unknown without claiming the name is locked', async () => {
+    /* The warehouse-only clause about the name must not appear for these kinds. */
+    render(<ReferenceDirectoryFormDialog entity={unit} kind="unit" usage={{ count: 1, exact: false }} onDone={vi.fn()} onClose={vi.fn()} />)
+
+    const warning = screen.getByText(/İstifadə məlumatı yüklənmədi/)
+    expect(warning.textContent).toContain('silinmir')
+    expect(warning.textContent).not.toContain('adı dəyişdirilmir')
+    expect((screen.getByLabelText('Ad') as HTMLInputElement).readOnly).toBe(false)
+  })
+})
+
+/* Phase 3b. */
+const location: ReferenceEntity = {
+  kind: 'location', id: '9', name: 'Sahə A', active: true,
+  voen: '', contract: '', contractDate: '', linkedWarehouse: '',
+}
+const project: ReferenceEntity = {
+  kind: 'project', id: 'pj-1', name: 'Layihə A', active: true,
+  voen: '', contract: '', contractDate: '', linkedWarehouse: 'Ələt',
+}
+const WHS = ['Ələt', 'Astara']
+
+describe('ReferenceDirectoryFormDialog — location', () => {
+  it('locks the name once the value is used, like a warehouse', async () => {
+    /* index.html:3085 groups location with warehouse: the name is the
+       accounting and access key, so it is frozen and «Yadda saxla» is gone. */
+    render(<ReferenceDirectoryFormDialog entity={location} kind="location" usage={exact(4)} onDone={vi.fn()} onClose={vi.fn()} />)
+
+    expect((screen.getByLabelText('Ad') as HTMLInputElement).readOnly).toBe(true)
+    expect(screen.queryByRole('button', { name: 'Yadda saxla' })).toBeNull()
+    expect(screen.getByText(/Adı uçot və giriş hüquqlarının/)).toBeTruthy()
+  })
+
+  it('stays editable while unused', async () => {
+    const user = userEvent.setup()
+    render(<ReferenceDirectoryFormDialog entity={location} kind="location" usage={exact(0)} onDone={vi.fn()} onClose={vi.fn()} />)
+
+    const name = screen.getByLabelText('Ad') as HTMLInputElement
+    expect(name.readOnly).toBe(false)
+    await user.clear(name)
+    await user.type(name, 'Sahə B')
+    await user.click(screen.getByRole('button', { name: 'Yadda saxla' }))
+
+    await waitFor(() => expect(manageReference).toHaveBeenCalledWith('location', 'update', '9', 'Sahə B', {}))
+  })
+
+  it('locks the name when usage is unknown, and says so', async () => {
+    render(<ReferenceDirectoryFormDialog entity={location} kind="location" usage={{ count: 1, exact: false }} onDone={vi.fn()} onClose={vi.fn()} />)
+
+    expect((screen.getByLabelText('Ad') as HTMLInputElement).readOnly).toBe(true)
+    expect(screen.getByText(/İstifadə məlumatı yüklənmədi/).textContent).toContain('adı dəyişdirilmir')
+  })
+
+  it('sends empty meta and shows no project or partner fields', async () => {
+    const user = userEvent.setup()
+    render(<ReferenceDirectoryFormDialog entity={null} kind="location" presetName="Yeni sahə" usage={exact(0)} warehouseNames={WHS} onDone={vi.fn()} onClose={vi.fn()} />)
+
+    expect(screen.queryByLabelText('VÖEN')).toBeNull()
+    expect(screen.queryByLabelText(/Bağlı anbar/)).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: 'Yadda saxla' }))
+    await waitFor(() => expect(manageReference).toHaveBeenCalledWith('location', 'create', null, 'Yeni sahə', {}))
+  })
+})
+
+describe('ReferenceDirectoryFormDialog — project linked warehouse', () => {
+  it('offers the active anbar warehouses plus the empty option, with the original hint', () => {
+    render(<ReferenceDirectoryFormDialog entity={project} kind="project" usage={exact(0)} warehouseNames={WHS} onDone={vi.fn()} onClose={vi.fn()} />)
+
+    const select = screen.getByLabelText(/Bağlı anbar/) as HTMLSelectElement
+    expect(Array.from(select.options).map((o) => o.textContent)).toEqual(['— bağlanmayıb —', 'Ələt', 'Astara'])
+    expect(select.value).toBe('Ələt')
+    expect(screen.getByText(/yalnız bu layihədə sənəd yarada/)).toBeTruthy()
+  })
+
+  it('ALWAYS resends the stored linked_warehouse when only the name is edited', async () => {
+    /* Approved decision Q4 / registry M3-11. manage_reference sets
+       linked_warehouse unconditionally from meta, so omitting the key would
+       silently clear the link — the same silent-data-loss shape as D-13. */
+    const user = userEvent.setup()
+    render(<ReferenceDirectoryFormDialog entity={project} kind="project" usage={exact(0)} warehouseNames={WHS} onDone={vi.fn()} onClose={vi.fn()} />)
+
+    const name = screen.getByLabelText('Ad')
+    await user.clear(name)
+    await user.type(name, 'Layihə B')
+    await user.click(screen.getByRole('button', { name: 'Yadda saxla' }))
+
+    await waitFor(() => expect(manageReference).toHaveBeenCalledWith(
+      'project', 'update', 'pj-1', 'Layihə B', { linked_warehouse: 'Ələt' },
+    ))
+  })
+
+  it('sends a changed linked warehouse', async () => {
+    const user = userEvent.setup()
+    render(<ReferenceDirectoryFormDialog entity={project} kind="project" usage={exact(0)} warehouseNames={WHS} onDone={vi.fn()} onClose={vi.fn()} />)
+
+    await user.selectOptions(screen.getByLabelText(/Bağlı anbar/), 'Astara')
+    await user.click(screen.getByRole('button', { name: 'Yadda saxla' }))
+
+    await waitFor(() => expect(manageReference).toHaveBeenCalledWith(
+      'project', 'update', 'pj-1', 'Layihə A', { linked_warehouse: 'Astara' },
+    ))
+  })
+
+  it('sends an empty string when the link is deliberately cleared', async () => {
+    const user = userEvent.setup()
+    render(<ReferenceDirectoryFormDialog entity={project} kind="project" usage={exact(0)} warehouseNames={WHS} onDone={vi.fn()} onClose={vi.fn()} />)
+
+    await user.selectOptions(screen.getByLabelText(/Bağlı anbar/), '')
+    await user.click(screen.getByRole('button', { name: 'Yadda saxla' }))
+
+    /* The server trims '' to NULL — clearing is a real, intended action, as
+       distinct from omitting the key by accident. */
+    await waitFor(() => expect(manageReference).toHaveBeenCalledWith(
+      'project', 'update', 'pj-1', 'Layihə A', { linked_warehouse: '' },
+    ))
+  })
+
+  it('creates an unlinked project when nothing is selected', async () => {
+    const user = userEvent.setup()
+    render(<ReferenceDirectoryFormDialog entity={null} kind="project" presetName="Yeni layihə" usage={exact(0)} warehouseNames={WHS} onDone={vi.fn()} onClose={vi.fn()} />)
+
+    await user.click(screen.getByRole('button', { name: 'Yadda saxla' }))
+    await waitFor(() => expect(manageReference).toHaveBeenCalledWith(
+      'project', 'create', null, 'Yeni layihə', { linked_warehouse: '' },
+    ))
+  })
+
+  it('surfaces the server\'s invalid-warehouse refusal verbatim', async () => {
+    const user = userEvent.setup()
+    vi.mocked(manageReference).mockResolvedValue({
+      data: null,
+      error: { message: 'Bağlı anbar tapılmadı və ya aktiv deyil: Yoxdur' },
+    } as never)
+    render(<ReferenceDirectoryFormDialog entity={project} kind="project" usage={exact(0)} warehouseNames={WHS} onDone={vi.fn()} onClose={vi.fn()} />)
+
+    await user.click(screen.getByRole('button', { name: 'Yadda saxla' }))
+    await waitFor(() => expect(toasts()).toContain(
+      'Soraqça yenilənmədi: Bağlı anbar tapılmadı və ya aktiv deyil: Yoxdur',
+    ))
+  })
+
+  it('does not render the linked-warehouse field for any other kind', () => {
+    const { unmount } = render(
+      <ReferenceDirectoryFormDialog entity={unit} kind="unit" usage={exact(0)} warehouseNames={WHS} onDone={vi.fn()} onClose={vi.fn()} />,
+    )
+    expect(screen.queryByLabelText(/Bağlı anbar/)).toBeNull()
+    unmount()
+
+    render(<ReferenceDirectoryFormDialog entity={partner} kind="partner" usage={exact(0)} warehouseNames={WHS} onDone={vi.fn()} onClose={vi.fn()} />)
+    expect(screen.queryByLabelText(/Bağlı anbar/)).toBeNull()
+  })
+})
+
+/* Registry M3-17 — the approved safety deviation from the old platform. */
+describe('ReferenceDirectoryFormDialog — typed-name gate for project deletion', () => {
+  async function openDelete(user: ReturnType<typeof userEvent.setup>) {
+    render(<ReferenceDirectoryFormDialog entity={project} kind="project" usage={exact(0)} warehouseNames={WHS} onDone={vi.fn()} onClose={vi.fn()} />)
+    await user.click(screen.getByRole('button', { name: 'Tamamilə sil' }))
+  }
+
+  it('asks for the project name and keeps the delete button disabled until it matches', async () => {
+    const user = userEvent.setup()
+    await openDelete(user)
+
+    const confirm = screen.getByLabelText('Layihənin adı')
+    const del = screen.getByRole('button', { name: 'Tamamilə sil' }) as HTMLButtonElement
+    expect(del.disabled).toBe(true)
+
+    await user.type(confirm, 'Layihə')
+    expect((screen.getByRole('button', { name: 'Tamamilə sil' }) as HTMLButtonElement).disabled).toBe(true)
+
+    await user.type(confirm, ' A')
+    expect((screen.getByRole('button', { name: 'Tamamilə sil' }) as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('does not call the RPC while the typed name is wrong, even if the click gets through', async () => {
+    const user = userEvent.setup()
+    await openDelete(user)
+
+    await user.type(screen.getByLabelText('Layihənin adı'), 'Layihə B')
+    /* The guard lives in send(), not only on the disabled attribute. */
+    screen.getByRole('button', { name: 'Tamamilə sil' }).click()
+
+    expect(manageReference).not.toHaveBeenCalled()
+  })
+
+  it('deletes once the exact name is typed', async () => {
+    const user = userEvent.setup()
+    await openDelete(user)
+
+    await user.type(screen.getByLabelText('Layihənin adı'), 'Layihə A')
+    await user.click(screen.getByRole('button', { name: 'Tamamilə sil' }))
+
+    await waitFor(() => expect(manageReference).toHaveBeenCalledWith('project', 'delete', 'pj-1', 'Layihə A', { linked_warehouse: 'Ələt' }))
+  })
+
+  it('tolerates surrounding whitespace but not a different name', async () => {
+    const user = userEvent.setup()
+    await openDelete(user)
+
+    await user.type(screen.getByLabelText('Layihənin adı'), '  Layihə A  ')
+    await user.click(screen.getByRole('button', { name: 'Tamamilə sil' }))
+    await waitFor(() => expect(manageReference).toHaveBeenCalled())
+  })
+
+  it('warns that the server will not stop the deletion', async () => {
+    const user = userEvent.setup()
+    await openDelete(user)
+    expect(screen.getByText(/server bu silinməni dayandırmayacaq/)).toBeTruthy()
+  })
+
+  it('still offers «Gizlət» as the safe alternative', async () => {
+    const user = userEvent.setup()
+    await openDelete(user)
+    await user.click(screen.getByRole('button', { name: 'Gizlət' }))
+    await waitFor(() => expect(manageReference).toHaveBeenCalledWith('project', 'deactivate', 'pj-1', 'Layihə A', { linked_warehouse: 'Ələt' }))
+  })
+
+  it('does NOT gate deletion for the other seven kinds', async () => {
+    /* The deviation is project-specific; every other kind keeps the
+       original's plain two-step confirmation. */
+    const user = userEvent.setup()
+    for (const [entity, kind] of [
+      [unusedWarehouse, 'warehouse'],
+      [location, 'location'],
+      [partner, 'partner'],
+      [channel, 'channel'],
+      [unit, 'unit'],
+      [category, 'category'],
+    ] as const) {
+      vi.mocked(manageReference).mockClear()
+      const { unmount } = render(
+        <ReferenceDirectoryFormDialog entity={entity} kind={kind} usage={exact(0)} warehouseNames={WHS} onDone={vi.fn()} onClose={vi.fn()} />,
+      )
+      await user.click(screen.getByRole('button', { name: 'Tamamilə sil' }))
+      expect(screen.queryByLabelText('Layihənin adı')).toBeNull()
+      await user.click(screen.getByRole('button', { name: 'Tamamilə sil' }))
+      await waitFor(() => expect(manageReference).toHaveBeenCalledWith(kind, 'delete', entity.id, entity.name, expect.anything()))
+      unmount()
+    }
+  })
+
+  it('is still subject to the localhost write guard', async () => {
+    const user = userEvent.setup()
+    vi.mocked(blockedReason).mockReturnValue('Bütün yazma əməliyyatları bloklanıb')
+    await openDelete(user)
+
+    await user.type(screen.getByLabelText('Layihənin adı'), 'Layihə A')
+    await user.click(screen.getByRole('button', { name: 'Tamamilə sil' }))
+
+    expect(manageReference).not.toHaveBeenCalled()
+    expect(toasts()).toContain('Bütün yazma əməliyyatları bloklanıb')
   })
 })
