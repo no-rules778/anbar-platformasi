@@ -60,14 +60,19 @@ export function DraftLinesPanel({
 
   return (
     <div className="card" data-testid="draft-lines-panel">
-      <div className="phead">
-        <h3>Sənəd sətirləri</h3>
+      {/* M18-52 — index.html:303. The heading is «Sənədin sətirləri» (the
+          legacy wording; «Sənəd sətirləri» was a React paraphrase), and the
+          title row is the card's own `<header>` — `.card>header` is what
+          carries the padding, the bottom border and the flex row, while
+          `.phead` is the PAGE heading block and gives a card title neither. */}
+      <header>
+        <h3>Sənədin sətirləri</h3>
         <div className="sp" />
         <span className="hint">
           {nf(lines.length)} sətir · {money(totals.amount)}
           {totals.priceless > 0 && ` · ${nf(totals.priceless)} qiymətsiz`}
         </span>
-      </div>
+      </header>
 
       {restoredAt != null && (
         <div className="notice" data-testid="draft-restore-banner">
@@ -76,8 +81,15 @@ export function DraftLinesPanel({
         </div>
       )}
 
+      {/* M18-54 — the legacy empty state is `tbl()`'s own shape
+          (index.html:1411): a BOLD «Məlumat yoxdur» followed by the caller's
+          explanatory text, which for `#op-lines` is index.html:3751. React
+          showed a single paraphrased line and no bold lead. */}
       {lines.length === 0 ? (
-        <div className="empty">Sətir əlavə edilməyib.</div>
+        <div className="empty">
+          <b>Məlumat yoxdur</b>
+          Sətir əlavə edin — sənəd bir neçə maldan ibarət ola bilər.
+        </div>
       ) : (
         <Table>
           <Thead>

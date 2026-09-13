@@ -656,7 +656,12 @@ export function NewOperationPage({ me }: Props) {
       <div className="phead">
         <div>
           <h2>Yeni əməliyyat</h2>
-          <p>Mədaxil, məxaric və yerdəyişmə sənədləri.</p>
+          {/* M18-53 — index.html:296 verbatim. «Mədaxil, məxaric və
+              yerdəyişmə sənədləri.» was a React paraphrase that dropped both
+              facts the legacy subtitle actually states: that all three kinds
+              are recorded from ONE form, and that a transfer writes TWO
+              records. */}
+          <p>Mədaxil, məxaric və anbarlararası yerdəyişməni bir formadan qeyd edin. Yerdəyişmə avtomatik olaraq iki qeyd yaradır.</p>
         </div>
       </div>
 
@@ -671,7 +676,20 @@ export function NewOperationPage({ me }: Props) {
       ) : readiness.coreError && !readiness.loaded ? (
         <LoadErrorState error={readiness.coreError} />
       ) : (
-        <div className="grid2">
+        /* M18-40 — the two-column workspace, index.html:297 verbatim.
+
+           This was `<div className="grid2">`, a class name that exists in NO
+           stylesheet — not index.css, not the legacy <style> block. An
+           undefined class is inert, so the card laid out as a full-width
+           block and the form stretched down the whole page; that is the
+           reported defect, measured in Chrome as
+           `display:block; grid-template-columns:none`.
+
+           The legacy authority is `.grid` (display:grid;gap:12px) carrying an
+           INLINE template, which is the idiom every other migrated screen
+           already uses (Dashboard 1.35fr 1fr, Settings/Finance 1fr 1fr). No
+           new CSS rule is invented for a class legacy never had. */
+        <div className="grid" style={{ gridTemplateColumns: 'minmax(0,1.15fr) minmax(0,.85fr)' }}>
           <OperationForm
             me={me}
             state={state}
@@ -685,27 +703,38 @@ export function NewOperationPage({ me }: Props) {
             onCreateItem={onCreateItem}
             onOpenBulk={onOpenBulk}
           />
-          <ItemStatePanel code={state.pick} bal={state.core.indexes.bal} />
+          {/* M18-41 — the RIGHT column, index.html:303-310. Legacy stacks two
+              cards in one plain <div>: «Sənədin sətirləri» FIRST, then
+              «Seçilmiş malın vəziyyəti» beneath it at margin-top:12px.
+
+              React had the lines panel OUTSIDE the grid entirely, rendered
+              below both columns, and the item-state panel alone on the right —
+              so the document lines never appeared beside the form at all.
+              Both panels keep their own props, state and guards; only their
+              placement changes. */}
+          <div>
+            {readiness.loaded && (
+              <DraftLinesPanel
+                lines={state.lines}
+                restoredAt={restoredAt}
+                onDismissRestoreBanner={() => useOperationStore.setState({ restoredAt: null })}
+                onRemove={onRemoveLine}
+                onEdit={onEditLine}
+                canPost={canPost}
+                editMode={state.editDoc != null}
+                onPost={onPost}
+                onClear={onClearLines}
+              />
+            )}
+            <div style={{ marginTop: 12 }}>
+              <ItemStatePanel code={state.pick} bal={state.core.indexes.bal} />
+            </div>
+          </div>
         </div>
       )}
 
-      {readiness.loaded && (
-        <>
-          <DraftLinesPanel
-            lines={state.lines}
-            restoredAt={restoredAt}
-            onDismissRestoreBanner={() => useOperationStore.setState({ restoredAt: null })}
-            onRemove={onRemoveLine}
-            onEdit={onEditLine}
-            canPost={canPost}
-            editMode={state.editDoc != null}
-            onPost={onPost}
-            onClear={onClearLines}
-          />
-          {readiness.coreError && (
-            <div className="hint" style={{ color: 'var(--alarm)' }}>{readiness.coreError}</div>
-          )}
-        </>
+      {readiness.loaded && readiness.coreError && (
+        <div className="hint" style={{ color: 'var(--alarm)' }}>{readiness.coreError}</div>
       )}
 
       {dialog.kind === 'clear' && (

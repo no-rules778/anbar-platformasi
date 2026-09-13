@@ -2,6 +2,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, within, waitFor, act, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ComponentProps } from 'react'
+/* Read from disk with the same Node globals App.nav.test.ts declares locally,
+   rather than pulling @types/node into the application build. */
+declare const process: { cwd(): string }
+declare function require(id: string): { readFileSync(p: string, enc: string): string }
 
 /* «Anbar qalıqları» — the page rows of Module J (Phase 9), T3.
 
@@ -604,19 +608,43 @@ describe('«Əvvələ qalıq» view (M9-71, M9-78, M9-80 … M9-83, M9-58)', () 
     })
   })
 
-  it('a negative quantity carries the neg class', async () => {
+  /* M9-83 — the `neg` class on a negative opening quantity.
+
+     STRUCTURALLY UNREACHABLE through the supported model, and proved so
+     rather than asserted: `initial_qty += qty` is unconditional (legacy 2011),
+     so an opening-marked row with out > in drives it negative, and
+     `current_qty` is a sum of surviving lots (never negative) — but BOTH view
+     modes filter strictly `> 1e-9` (M9-77, legacy 2244-2245), so a negative
+     row never reaches the table in either mode. The class expression itself
+     is ported (source-level parity with 2271) and pinned below; it cannot be
+     falsified from rendered output. An earlier version of this test rendered
+     a POSITIVE row and asserted the class was absent, which proved nothing
+     about `.neg` — superseded by these two. */
+  it('M9-83: a negative opening quantity is filtered out of «İlkin miqdar», and «Cari qalıq» is never negative — .neg is unreachable', async () => {
     fetchBalancesSnapshot.mockResolvedValue(snapshot({
       movements: [
         opening({ item_code: '0000002', warehouse: 'Ələt', in_qty: 7, date: '2026-01-01' }),
-        mv({ item_code: '0000002', warehouse: 'Ələt', out_qty: 9, date: '2026-02-01', type: 'Silinmə' }),
+        /* an opening-MARKED outbound row: net initial_qty = 7 − 9 = −2 */
+        opening({ item_code: '0000002', warehouse: 'Ələt', out_qty: 9, date: '2026-01-02' }),
       ],
       conditions: [],
     }))
     await openInit()
-    /* initial_qty stays 7 (positive); the «Cari qalıq» mode filters ≤ 0 out,
-       so the class is exercised on the initial column of a synthetic row. */
-    const b = bodyRows()[0].cells[4].querySelector('b')
-    expect(b?.className).toBe('')
+    /* the row EXISTS in the reconstruction (so the empty state is «filtered»,
+       not «no opening rows») but is excluded by the > 1e-9 filter */
+    expect(screen.getByTestId('bal-empty-filtered')).toBeTruthy()
+    expect(document.querySelector('#t-bal table')).toBeNull()
+    /* «Cari qalıq» reads the SURVIVING opening lot (7): an opening-marked
+       outbound row is not consumption, so current_qty stays ≥ 0 by
+       construction and the row renders positive, never with .neg */
+    fireEvent.click(screen.getByRole('button', { name: 'Cari qalıq' }))
+    expect(cells(bodyRows()[0])[4]).toBe(nf(7, 2))
+    expect(document.querySelector('#t-bal b.neg')).toBeNull()
+  })
+
+  it('M9-83: the neg class expression is ported for the opening quantity cell (source-level)', () => {
+    const src = require('fs').readFileSync(process.cwd() + '/src/pages/BalancesPage.tsx', 'utf8')
+    expect(src).toContain("className={b[qtyCol] < 0 ? 'neg' : undefined}")
   })
 })
 

@@ -84,8 +84,8 @@ const SUMMARY_FILES = [
   },
   { file: 'docs/superpowers/CLAUDE_NEXT_PROMPT.md', label: 'next-prompt banner', scope: 'phase9' },
   {
-    file: 'docs/superpowers/audits/2026-09-10-phase9-t3-balances-page.md',
-    label: 'current (T3) audit verdict',
+    file: 'docs/superpowers/audits/2026-09-10-phase9-t10-live-window.md',
+    label: 'current (T10) audit verdict',
   },
 ]
 

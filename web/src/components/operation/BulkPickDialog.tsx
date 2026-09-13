@@ -299,8 +299,9 @@ export function BulkPickDialog({
           <Input value={note} aria-label="Ümumi qeyd" onChange={(e) => setNote(e.target.value)} />
         </label>
 
+        {/* M18-48 — `.err`, the platform's error class; `alarm` was inert. */}
         {summary.bad.length > 0 && (
-          <div className="alarm" data-testid="bulk-bad">
+          <div className="err" data-testid="bulk-bad">
             {summary.bad.map((b) => <div key={b.code}>{b.code} — {b.why}</div>)}
           </div>
         )}

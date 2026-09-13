@@ -1,13 +1,475 @@
 # ANBAR Functional Parity Registry
 
-> **PHASE 9 T3 PAGE / STORE / API — 2026-09-10 (latest).** The `bal` route is
+
+> **PHASE 18 ACCEPTED — 2026-09-12 (latest).** The owner accepted Phase 18 in its
+> implemented **shell / read-only** scope after the independent Codex audit,
+> which found no application defect. Mechanically derived tally: **24 CODE
+> VERIFIED / 5 LIVE VERIFIED / 3 ACCEPTED / 0 IN PROGRESS / 0 NOT STARTED /
+> 10 BLOCKED / 42 unique**. D-P1 and D-P4 ACCEPTED (no duplicate «Kontragentlər»
+> rail page — the `knt` report stays the single surface, and the consumerless
+> `c-knt` fetch was removed; `c-mov`/`c-bal`/`c-ctrl` intentionally omitted).
+> D-P3 PARTIALLY COMPLETE: Codex's TEST admin/anbardar read-only responsive
+> rehearsal promoted M18-01, M18-02, M18-30, M18-31 and M18-34 — do NOT re-run
+> it. D-P2 DEFERRED: legacy is NOT retired and nothing is deployed. The 10
+> remaining contracts were transferred intact, retaining BLOCKED, to the
+> [authority package](./plans/2026-09-12-phase18-authority-verification-package.md) and the [cutover package](./plans/2026-09-12-phase18-cutover-package.md); **none was
+> promoted by the transfer**, and each still needs its own explicit authority.
+> Server enforcement, realtime delivery, export parity, cross-module
+> consistency, stale-session behaviour, rehber-role evidence and all cutover
+> work remain unproved. Phase 18 acceptance is NOT authority to retire legacy or
+> deploy. [Decision](./decisions/2026-09-12-phase18-shell-acceptance-scope.md) · [audit](./audits/2026-09-12-phase18-final-codex-audit.md) · [ledger](./specs/2026-09-12-phase18-registry-rows.md).
+
+> **HISTORY — SUPERSEDED BY THE PHASE 18 ACCEPTANCE ABOVE. PHASE 18 FINAL CODEX AUDIT — 2026-09-12.** No
+> application defect found; TEST read-only evidence promotes M18-01, M18-02,
+> M18-30, M18-31 and M18-34. Current derived tally: **24 CODE VERIFIED / 5 LIVE
+> VERIFIED / 13 BLOCKED / 42 unique**. D-P1…D-P4 and their dependent authority,
+> realtime, export and cutover evidence remain open. [Audit](./audits/2026-09-12-phase18-final-codex-audit.md).
+
+
+> **HISTORY — SUPERSEDED BY THE FINAL CODEX AUDIT ABOVE. PHASE 18 IMPLEMENTED, NOT ACCEPTED — 2026-09-12.** Whole-platform
+> final parity and cutover readiness. Phase 18 owns the application SHELL, which
+> no page-by-page phase owned: it repaired the rail order, the missing counter
+> badges, the absent responsive layout and burger, the missing page-switch
+> scroll reset and item-card clear, the missing topbar presence chip, one report
+> card header, and the stale «Miqrasiya» notice. Mechanically derived tally:
+> **28 CODE VERIFIED / 0 LIVE VERIFIED / 0 IN PROGRESS / 0 NOT STARTED /
+> 14 BLOCKED / 42 unique**. **No Phase 18 row is LIVE VERIFIED and no Supabase
+> call was executed**; every role-enforcement, realtime, export, rendered-visual
+> and cutover row is BLOCKED on D-P1…D-P4. The full offline gate passes
+> (208 files / 4366 tests, typecheck, lint, sandbox build, ledger parse).
+> Phase 18 stays NOT ACCEPTED pending independent Codex audit.
+> [Ledger](./specs/2026-09-12-phase18-registry-rows.md) · [proposal](./specs/2026-09-12-react-migration-phase18-whole-platform-parity-proposal.md) ·
+> [plan](./plans/2026-09-12-react-migration-phase18-whole-platform-parity.md) · [handoff](./audits/2026-09-12-phase18-claude-handoff.md).
+
+> **HISTORY — SUPERSEDED BY THE PHASE 18 BANNER ABOVE. PHASE 17 ACCEPTED — 2026-09-12.** Owner accepted the implemented
+> read/pure scope after the final independent Codex gate. The 17 catalog/role/
+> network/write/delete/import/egress contracts were transferred unchanged to
+> a separate authority verification package and do not block acceptance; they
+> retain BLOCKED as honest backlog evidence statuses. Tally remains 85 CODE
+> VERIFIED / 8 LIVE VERIFIED / 17 BLOCKED / 110 unique. No write or egress was
+> authorised by this decision. [Decision](./decisions/2026-09-12-phase17-read-pure-acceptance-scope.md) ·
+> [package](./plans/2026-09-12-phase17-authority-verification-package.md).
+
+> **HISTORY — SUPERSEDED BY THE OWNER ACCEPTANCE ABOVE. PHASE 17 FINAL CODEX AUDIT — 2026-09-12.** Client implementation
+> and all offline gates pass; no application defect was found. Current derived
+> tally remains 85 CODE VERIFIED / 8 LIVE VERIFIED / 17 BLOCKED / 110 unique.
+> Phase 17 is NOT ACCEPTED because the 17 rows require explicit catalog, role,
+> captured-network, residual-bearing write/import/delete or bulk-egress
+> authority. Recommended closure: owner accepts the read/pure migration scope
+> and defers those rows to a separately authorised evidence package. [Audit](./audits/2026-09-12-phase17-final-codex-audit.md).
+
+> **PHASE 17 READ-ONLY LIVE UPDATE (Codex, 2026-09-12, latest).** The earlier
+> Claude identity blocker was session-local, not project-wide. Owner-supplied
+> TEST credentials from the active conversation enabled a real sandbox browser
+> window. TEST admin rendered and switched both empty Azpetrol/Araz boards;
+> TEST anbardar received the exact access gate and had no rail entry; both
+> sessions ended via «Çıxış». M17-01, 02, 06, 07, 08, 09, 10 and 110 are now
+> LIVE VERIFIED. Server/catalog/network contracts M17-17…21 and M17-28 remain
+> BLOCKED and were not inferred from UI behaviour. Current derived tally:
+> **85 CODE VERIFIED / 8 LIVE VERIFIED / 0 IN PROGRESS / 0 NOT STARTED /
+> 17 BLOCKED / 110 unique**. No write, fixture, import, delete or real-data
+> export occurred; Phase 17 remains NOT ACCEPTED. [Audit](./audits/2026-09-12-phase17-admin-anbardar-readonly-live-check.md).
+
+> **PHASE 17 / MODULE T — TEMPLATE EXPORT INTEGRATION (2026-09-12, latest).**
+> On top of the accepted read-only slice and the offline write/import slice,
+> the module now has a REAL client-side template-export orchestrator
+> (`web/src/lib/azpExportRun.ts`) wired to the page's `azp-exp-<m>` control:
+> it fetches `./azpetrol-template.xlsx`, loads it through JSZip, writes back
+> the worksheet patched in exactly its four data elements, removes the other
+> module's sheet from `workbook.xml`, `workbook.xml.rels` and
+> `[Content_Types].xml` together with its part, its rels and
+> `xl/calcChain.xml`, generates one blob and downloads it under the legacy
+> filename — and its catch branch actually executes the plain SheetJS fallback
+> with the exact «Şablonsuz ixrac (dizayn tətbiq olunmadı)» warning.
+> `styles.xml` and `theme1.xml` are asserted byte-identical.
+> Codex's final audit closed the delivery gap: JSZip is now a production
+> dependency and the existing 21,427-byte template is published under
+> `web/public`, with a byte-identical SHA-256. The designed path is available
+> in the shipped React build rather than only under injected tests.
+> **NOTHING WAS EXECUTED:** zero Supabase writes, no TEST fixture, no live
+> import, no `azp_delete_card` call and no real-data export — every fixture is
+> hand-written and `fetch`, JSZip, SheetJS and the anchor download are all
+> injected doubles.
+> Current tally: 93 CODE VERIFIED, 0 IN PROGRESS, 0 NOT STARTED, 17 BLOCKED,
+> 110 unique — derived by `node tools/ledger-check-m17.mjs`, which first
+> FAILED against the stale 89/4 banner and was corrected to the derived
+> figures.
+> **M17-100 (egress) was NOT promoted and stays BLOCKED:** synthetic export
+> tests are not authority for, and not evidence about, real data leaving the
+> system. All 17 BLOCKED rows are unchanged: each needs a live server answer,
+> an exercised identity, a TEST fixture or real egress, and no mocked test may
+> satisfy one. **The JSZip/template delivery gap this banner previously
+> recorded is CLOSED** (Codex, 2026-09-12): `jszip` is a production dependency,
+> the resolver imports it rather than `globalThis`, and
+> `web/public/azpetrol-template.xlsx` is published (21,427 bytes, SHA-256
+> matching source) — verified still in place; do not revert either.
+> **The cheapest authenticated TEST read-only closure was attempted and NOT
+> executed (2026-09-12):** no authenticated TEST identity is available to a
+> session, so nothing was run, nothing was promoted and no evidence was
+> inferred; the boundary and the minimal owner input are recorded once in
+> `audits/2026-09-12-phase17-live-readonly-identity-boundary.md`.
+> D-T1…D-T5 remain owner-bounded for LIVE execution. Phase 17 remains
+> NOT ACCEPTED.
+> [Ledger](./specs/2026-09-12-phase17-registry-rows.md) ·
+> [Export integration audit](./audits/2026-09-12-phase17-export-integration.md)
+> · [Offline slice Codex audit](./audits/2026-09-12-phase17-offline-slice-codex-audit.md)
+> · [Read-only Codex audit](./audits/2026-09-12-phase17-readonly-codex-audit.md)
+> · [Final export Codex audit](./audits/2026-09-12-phase17-export-final-codex-audit.md)
+
+> **PHASE 17 / MODULE T — OFFLINE WRITE / IMPORT / EXPORT SLICE (2026-09-12,
+> SUPERSEDED banner, retained as chronology).** Its tally of 89 CODE VERIFIED
+> / 4 IN PROGRESS / 17 BLOCKED / 110 unique was correct when written and is
+> superseded by the figures above; the four export rows it left IN PROGRESS
+> are now complete.
+
+> **PHASE 16 / MODULE R — M16-11 UPDATE (2026-09-11, latest).** Settings is
+> routed, its non-destructive slice is implemented, and the Settings→page
+> export delegation (M16-11) is now implemented by REUSING each page's
+> existing export: Settings derives no movement, balance or nomenclature
+> matrix of its own. The 24-row ledger is now 16 CODE VERIFIED, none NOT
+> STARTED and eight BLOCKED. Full JSON backup, stock import and user mutation
+> require explicit owner decisions; they have not run. Phase 16 remains NOT
+> ACCEPTED.
+> [Ledger](./specs/2026-09-11-phase16-registry-rows.md) ·
+> [Safe-slice audit](./audits/2026-09-11-phase16-safe-slice.md) ·
+> [M16-11 audit](./audits/2026-09-11-phase16-m16-11-export-delegation.md)
+
+> **PHASE 15 / MODULE Q — IMPLEMENTATION UPDATE (2026-09-11, latest).**
+> «Maliyyə göstəriciləri» and «Nəzarət və risklər» are implemented from
+> `rFin()` / `rCtrl()`. The 60-row ledger derives to 56 CODE VERIFIED and four
+> narrow NOT STARTED live rows (authenticated read set, realtime, browser
+> downloads and role/RLS comparison). No write path exists in this phase.
+> Phase 15 remains NOT ACCEPTED pending live evidence and independent Codex
+> audit. [Ledger](./specs/2026-09-11-phase15-registry-rows.md) ·
+> [Audit](./audits/2026-09-11-phase15-implementation.md)
+
+> **PHASE 14 / MODULE P — CODEX AUDIT UPDATE (2026-09-11, latest).** Offline
+> implementation verification passed: 177 files / 3935 tests, typecheck,
+> lint, sandbox build, diff hygiene and a 99-row / 99-unique ledger. A
+> test-only M14-14 `act()` warning was corrected. **Phase 14 remains NOT
+> ACCEPTED** solely for M14-10, M14-17 and M14-99: authenticated page reads,
+> realtime/debounce, and the admin/anbardar RLS comparison. These need existing
+> TEST role sessions; no write window is required.
+
+> **SUPERSEDED STATUS BANNER — 2026-09-11.** The prior Phase 14 banner below
+> remains historical evidence.
+
+> **AUTHORITATIVE UPDATE — 2026-09-11. Module P («Hesabatlar», legacy
+> `rRep()` / `rQaimeReport()`) is IMPLEMENTED ON CLAUDE'S SIDE and remains
+> `NOT ACCEPTED`.** Its authoritative ledger is
+> [`specs/2026-09-11-phase14-registry-rows.md`](./specs/2026-09-11-phase14-registry-rows.md);
+> this registry does not restate its rows. **Tally, measured mechanically from
+> the 99 `| M14-* |` status cells: 96 `CODE VERIFIED`, 0 `LIVE VERIFIED`, 0
+> `IN PROGRESS`, 3 `NOT STARTED` (M14-10, M14-17, M14-99), 0 `BLOCKED`, 0
+> unclassified; 99 unique ids.**
+>
+> Phase 14 performs **no write and issues no RPC** — the first migrated screen
+> with no write gate at all. T8 did not run because no TEST identity was
+> supplied, so the three live rows stay unpromoted and **no row is
+> `LIVE VERIFIED`**.
+>
+> «Hesabatlar» therefore leaves the `NOT STARTED` list below. The `dead`
+> report branch REUSES the accepted Phase 10 functions as its single
+> derivation (M14-60…M14-64): Phase 10 behaviour is unchanged and its accepted
+> contracts remain Phase 10 rows, not re-verified here.
+> [Implementation audit](./audits/2026-09-11-phase14-implementation.md)
+
+> **PHASE 13 / MODULE N — CLOSURE UPDATE (2026-09-11, authoritative,
+> latest).** The owner accepted M13-91's missing rehber refusal as a
+> non-blocking scope exception. TEST Supabase Dashboard, read only through SQL
+> Editor as database role `postgres`, read 7 INSERT, 2 UPDATE and 7 DELETE
+> `serfiyyat_documents` audit rows with exact fixed reasons; all DELETE
+> payloads retain the prior header and `lines`. This closes M13-94 without a
+> mutation and explains, rather than contradicts, the ordinary TEST admin's
+> RLS-limited zero-row view. **Tally: 68 `CODE VERIFIED`, 9 `LIVE VERIFIED`,
+> 0 `IN PROGRESS`, 0 `NOT STARTED`, 0 `BLOCKED`, 0 unclassified; 77 unique
+> rows.** The final independent Codex acceptance audit passed: **Phase 13 is
+> ACCEPTED.**
+
+> **SUPERSEDED STATUS BANNER — 2026-09-11.** The prior Phase 13 banner below
+> remains historical evidence only.
+
+> **PHASE 13 / MODULE N — IMPLEMENTED ON CLAUDE'S SIDE (2026-09-11,
+> authoritative, latest).** The owner accepted D-N1, D-N2, D-N3, D-N5, D-N6 and
+> D-N7 and authorised implementation plus TEST read/write verification. T1-T6
+> and T9 ran as one block; **T7 subsequently ran and all temporary TEST
+> documents/projects were deleted.** Real UI create/edit/delete plus direct
+> refusal and line-replacement server checks completed. D-N1 permits the
+> permanent document-sequence/audit residual; `audit_log` remains unreadable
+> to this TEST admin.
+> **Tally, measured mechanically across the 77 `M13-*` status cells: 67
+> `CODE VERIFIED`, 8 `LIVE VERIFIED`, 2 `IN PROGRESS` (M13-91, M13-94), 0
+> `NOT STARTED`, 0 `BLOCKED`, 0 unclassified; 77 unique
+> ids, 0 duplicates.**
+> New files: `lib/serfiyyat.ts`, `lib/serfiyyatFilters.ts`,
+> `lib/serfiyyatImport.ts`, `lib/serfiyyatExport.ts`,
+> `api/serfiyyatDocuments.api.ts`, `store/serfiyyat.store.ts`,
+> `pages/SerfiyyatPage.tsx` and the three `components/serfiyyat/` components,
+> each with its own test file. Additive edits only to `mutationGuard.ts`
+> (three `sm.*` actions), `index.css` (the single `.row` rule, M13-99) and
+> `App.tsx` (the `sm` route and rail entry). Gate: 168 files / 3741 tests,
+> tsc, oxlint, sandbox build (238 modules), `git diff --check` clean, 0
+> staged, dirty tree preserved. Phase 13 remains **NOT ACCEPTED** pending
+> Codex's final independent audit.
+> [Implementation audit](audits/2026-09-11-phase13-implementation.md) ·
+> [Ledger](specs/2026-09-11-phase13-registry-rows.md).
+
+> **PHASE 13 / MODULE N — DESIGN ACCEPTED (2026-09-11; SUPERSEDED as the
+> current status by the implementation banner above — its design verdict
+> still stands).**
+> Independent Codex review verified the source contract after two corrections:
+> D-N4 is withdrawn because input `"0"` is truthy and applies a zero numeric
+> bound; the atomic snapshot failure applies to the three core table reads plus the required item catalogue
+> reads, while reference-values failure remains non-fatal. All 77 rows remain
+> `NOT STARTED`; implementation awaited owner decisions D-N1…D-N3 and
+> D-N5…D-N7. **HISTORY —** those decisions were granted and the code now
+> exists; the current tally and status are in the implementation banner at the
+> top of this file. Phase 13 remains `NOT ACCEPTED`.
+> [Audit](audits/2026-09-11-phase13-design-codex-audit.md) ·
+> [Ledger](specs/2026-09-11-phase13-registry-rows.md).
+
+> **PHASE 13 / MODULE N — DESIGN DRAFTED (2026-09-11, SUPERSEDED by the audit
+> banner above).** Scope: the
+> legacy «Sərfiyyat Materialları» (`rSm()`, `index.html:262, 382-390,
+> 6178-6246, 6250-6726, 7505-7507`) over the applied, unchanged server
+> contract `sql/032_serfiyyat_materiallari.sql`. A 77-row `M13-*` ledger,
+> proposal and TEST-only plan were created. **Measured mechanically across the
+> 77 `M13-*` status cells: 0 `CODE VERIFIED`, 0 `LIVE VERIFIED`, 0
+> `IN PROGRESS`, 77 `NOT STARTED`, 0 `BLOCKED`, 0 unclassified; 77 unique ids,
+> 0 duplicates.** No application code exists for this module and no row is
+> promoted. No Supabase project was contacted; no application, test, SQL or
+> CSS file was changed; the dirty tree is preserved and staging is empty.
+>
+> This is the migration's first DOCUMENT workflow that is not a stock
+> movement, and its largest single legacy surface so far (~500 lines). It
+> writes no `movements` row and must never reach balances, the item index or
+> any stock export (M13-95). Two findings worth carrying forward: the rail
+> entry carries an `id` but **no gate** — no `display:none`, no sign-in
+> assignment, no `go()` branch — so the page is ungated for every role
+> (M13-02); and of the legacy stylesheet rules this page needs, only
+> `.row{display:grid;gap:10px}` is missing from `web/src/index.css` (M13-99).
+> Seven owner decisions were raised in the draft; D-N4 was later withdrawn.
+> **D-N1 is the
+> write gate:** a document IS catalogue-reversible (create → delete), unlike
+> Phase 12's approval, but the window is not database-net-zero. Base
+> create/edit/delete leaves one sequence advance and three audit rows; the
+> required M13-70 partial-success leg adds further sequence and audit residuals
+> per successful group, all of which must be measured and cleaned up by id.
+> A TEST admin identity remains unavailable (the M10-51 / M11-91 / M12-98
+> boundary). **HISTORY — superseded by the implementation banner at the top of
+> this file.** Phase 13 was `NOT STARTED / NOT ACCEPTED`; next step was Codex's
+> independent design audit.
+> [Handoff audit](audits/2026-09-11-phase13-design-handoff.md) ·
+> [Ledger](specs/2026-09-11-phase13-registry-rows.md).
+
+> **PHASE 12 / MODULE M — ACCEPTED (2026-09-11, authoritative scoped
+> decision).** Independent Codex audit accepted D-M1 and D-M3…D-M6 after
+> correcting the M12-10 source fan-out defect. D-M2 remains a deferred
+> live-write extension, not executed or implied: no TEST request/item/code was
+> created. Tally remains 61 `CODE VERIFIED`, 0 `LIVE VERIFIED`, 3 `IN
+> PROGRESS`, 6 `NOT STARTED`, 0 `BLOCKED`, 0 unclassified across 70 unique
+> rows. Final gate: 157 files / 3430 tests; typecheck, lint, sandbox build and
+> diff hygiene clean; staging empty.
+> [Final audit](audits/2026-09-11-phase12-final-codex-acceptance.md) ·
+> [Ledger](specs/2026-09-11-phase12-registry-rows.md).
+
+> **PHASE 12 / MODULE M — IMPLEMENTED (2026-09-11, latest).**
+> «Nomenklatura sorğuları» (`rNreq()`) is migrated under the owner-approved
+> package D-M1 and D-M3…D-M6 over the applied, unchanged `sql/017`: a new
+> pure/API/store/page/dialog slice, the `nreq` route and rail entry, the four
+> additive `mutationGuard` actions and the five ported CSS rules. No accepted
+> module's file was modified except the additive guard union, the `App.tsx`
+> route/rail entry and its two rail fixtures.
+> **Measured mechanically across the 70 `M12-*` status cells: 61
+> `CODE VERIFIED`, 0 `LIVE VERIFIED`, 3 `IN PROGRESS` (M12-04, M12-24,
+> M12-98), 6 `NOT STARTED` (M12-78, M12-91, M12-92, M12-94, M12-95, M12-96),
+> 0 `BLOCKED`, 0 unclassified.** Gate at Claude handoff: 157 files / 3429 tests, tsc, oxlint,
+> sandbox build, `git diff --check` clean, 0 staged.
+> **D-M2 stays DEFERRED and T7 was NOT run:** no request was created,
+> withdrawn, rejected or approved; no permanent TEST item or 7-digit code
+> exists. **No row is `LIVE VERIFIED`** — no TEST identity was available, so
+> the read-only sweep armed its production-abort and blanket mutation guards,
+> reached the login gate and stopped: **0 Supabase mutations, 0 production
+> contacts, 0 write attempts.** Phase 12 remains `NOT ACCEPTED` pending
+> Codex's independent audit.
+> [Implementation audit](audits/2026-09-11-phase12-implementation.md) ·
+> [Ledger](specs/2026-09-11-phase12-registry-rows.md).
+
+> **PHASE 12 IMPLEMENTATION AUTHORISED — 2026-09-11.** Owner accepted D-M1
+> and D-M3…D-M6 after the corrected Codex design audit. Claude may implement
+> all code and perform read-only TEST verification. D-M2 remains deferred:
+> no request create/withdraw/reject/approve and no permanent TEST item/code.
+> Phase 12 remains NOT ACCEPTED.
+> [Decision](decisions/2026-09-11-phase12-design-scope.md) ·
+> [Audit](audits/2026-09-11-phase12-design-codex-audit.md).
+
+> **PHASE 12 DESIGN AUDITED — 2026-09-11 (authoritative).** Independent
+> Codex review passed the 70-row design after correcting three contract
+> defects: failed request reads now consistently produce atomic snapshot
+> failure/retention; withdrawal/rejection are item-catalogue-neutral but not
+> database-net-zero; and the browser's silent withdrawal early return no
+> longer substitutes for server refusal evidence. All 70 rows remain `NOT
+> STARTED`. Owner decisions D-M1…D-M6 remain pending; D-M2 requires explicit
+> acceptance of immutable request/audit history and one permanent approved
+> TEST item/code.
+> [Audit](audits/2026-09-11-phase12-design-codex-audit.md).
+
+> **PHASE 12 / MODULE M — DESIGN DRAFTED (2026-09-11, latest).** Scope: the
+> legacy «Nomenklatura sorğuları» (`rNreq()`, `index.html:257, 346-350,
+> 889-903, 1499, 2464-2551, 2555-2711, 7506`) over the applied, unchanged
+> server contract `sql/017_nomenclature_requests.sql`. A 70-row `M12-*`
+> ledger, proposal and TEST-only plan were created. **Measured mechanically
+> across the 70 `M12-*` rows: 0 `CODE VERIFIED`, 0 `LIVE VERIFIED`, 0
+> `IN PROGRESS`, 70 `NOT STARTED`, 0 `BLOCKED`, 0 unclassified.** No
+> application code exists for this module; no row is promoted; no Supabase
+> project was contacted. This is the migration's first multi-role WRITE
+> workflow, so affordance rows are kept separate from server-authoritative
+> ones. Implementation is blocked pending Codex's independent design audit and
+> owner decisions D-M1…D-M6; **D-M2 (a narrow TEST write window) is the
+> acceptance gate**, and approval is not reversible. Phase 12 is
+> `NOT STARTED / NOT ACCEPTED`.
+> [Proposal](specs/2026-09-11-react-migration-phase12-nomenclature-requests-proposal.md) ·
+> [Ledger](specs/2026-09-11-phase12-registry-rows.md) ·
+> [Plan](plans/2026-09-11-react-migration-phase12-nomenclature-requests.md) ·
+> [Design handoff](audits/2026-09-11-phase12-design-handoff.md).
+
+> **PHASE 11 ACCEPTED — 2026-09-11 (authoritative).** Independent Codex
+> review found no further application defect. Final gate: focused 9 files /
+> 189 tests, full suite 151 files / 3270 tests, typecheck, oxlint, sandbox
+> build and `git diff --check` clean; staging empty. Final 55-row tally
+> remains 28 `CODE VERIFIED`, 26 `LIVE VERIFIED`, 1 `IN PROGRESS`
+> (M11-91's explicit admin/rehber comparison boundary), 0 `NOT STARTED`,
+> 0 `BLOCKED`.
+> [Final audit](audits/2026-09-11-phase11-final-codex-acceptance.md) ·
+> [Ledger](specs/2026-09-11-phase11-registry-rows.md).
+
+> **PHASE 11 / MODULE L — IMPLEMENTED + LIVE SWEEP (2026-09-11, latest).**
+> «İdarə paneli» (`rDash()`) is migrated under the owner-approved package
+> D-L1…D-L5: a new pure/snapshot/store/page slice plus the `dash` route, rail
+> entry, default landing page and the D-L5 CSS port. No earlier accepted
+> module's file was modified. **Measured mechanically across the 55 `M11-*`
+> rows: 28
+> `CODE VERIFIED`, 26 `LIVE VERIFIED`, 1 `IN PROGRESS` (M11-91 — the admin
+> comparison leg needs an unavailable TEST admin identity), 0 `NOT STARTED`,
+> 0 `BLOCKED`.** Gate: 151 files / 3270 tests, tsc, oxlint, sandbox build,
+> `git diff --check` clean, 0 staged. One read-only TEST sweep as the anbardar
+> (0 production hits, 0 write attempts; failed refresh retains the snapshot
+> under both HTTP 503 and network abort). Phase 11 remains `NOT ACCEPTED`
+> pending Codex's final independent audit.
+> [Evidence](audits/2026-09-11-phase11-implementation-live-check.md) ·
+> [Ledger](specs/2026-09-11-phase11-registry-rows.md) ·
+> [Owner decision](decisions/2026-09-11-phase11-design-scope.md).
+
+> **PHASE 11 / MODULE L — DESIGN DRAFTED (2026-09-11; SUPERSEDED by the
+> implementation banner above, which carries the current tally).** Scope: the
+> legacy «İdarə paneli» (`rDash()`, `index.html:277-292`, `1534-1589`) plus
+> the helpers it calls directly (`barChart`, `donut`, `tbl`, `TYPE_TAG`,
+> `controlIssues`). A 55-row `M11-*` ledger, proposal and TEST-only plan were
+> created. **HISTORY —** the tally of that moment (55 `NOT STARTED`, 0 in
+> every other status) is superseded by the implementation banner above, as is
+> the statement that D-L1…D-L5 and the design audit were pending and that no
+> implementation was authorised; all are now complete. Header exports
+> (`Tam ixrac`, `Excel (SON formatı)`) remain Phase 16 and are not ledger rows.
+> [Proposal](specs/2026-09-11-react-migration-phase11-dashboard-proposal.md) ·
+> [Ledger](specs/2026-09-11-phase11-registry-rows.md) ·
+> [Plan](plans/2026-09-11-react-migration-phase11-dashboard.md) ·
+> [Handoff audit](audits/2026-09-11-phase11-design-handoff.md).
+
+> **PHASE 10 ACCEPTED — 2026-09-11 (authoritative).** Independent Codex
+> review found no further application defect. Final gate: focused 7 files /
+> 122 tests, full suite 144 files / 3153 tests, typecheck, oxlint, sandbox
+> build and `git diff --check` clean; 0 staged. Final 36-row tally remains
+> 26 `CODE VERIFIED`, 9 `LIVE VERIFIED`, 1 `IN PROGRESS` (M10-51's explicit
+> admin-comparison evidence boundary), 0 `NOT STARTED`, 0 `BLOCKED`.
+> [Final audit](audits/2026-09-11-phase10-final-codex-acceptance.md) ·
+> [ledger](specs/2026-09-10-phase10-registry-rows.md).
+
+> **PHASE 10 IMPLEMENTATION AUDITED + LIVE SWEEP — 2026-09-11 (latest).**
+> Module K («Anbar və layihələr» + the D-K1 dead-stock view) — the existing
+> code was audited against legacy and preserved; three concrete defects fixed
+> (export warehouse alias, partner-key `(göstərilməyib)` fallback, legacy empty
+> block / `th.r` / dead-table cut); 56 tests added; gate: 144 files / 3153
+> tests, tsc, oxlint, sandbox build, `git diff --check` clean, 0 staged; one
+> read-only TEST sweep as the anbardar (0 production hits, 0 write attempts;
+> failed refresh retains the snapshot under both HTTP 503 and network abort).
+> Measured mechanically across the 36 `M10-*` rows: **26 `CODE VERIFIED`, 9
+> `LIVE VERIFIED` (M10-01, M10-02, M10-10, M10-12, M10-21, M10-25, M10-31,
+> M10-32, M10-52), 1 `IN PROGRESS` (M10-51 — admin live leg needs an
+> unavailable TEST admin identity), 0 `NOT STARTED`.** Phase 10 remains
+> `NOT ACCEPTED` pending Codex's final independent audit.
+> [Evidence](audits/2026-09-11-phase10-implementation-live-check.md) ·
+> [ledger](specs/2026-09-10-phase10-registry-rows.md).
+
+> **PHASE 10 / MODULE K — DESIGN KICKOFF (2026-09-10; SUPERSEDED by design
+> acceptance below and by the implementation banner above).** Scope:
+> «Anbar və layihələr» plus the inactive/dead-stock report. A 36-row draft
+> ledger and TEST-only draft plan now exist; all rows remain `NOT STARTED`.
+> D-K1…D-K3 and independent design review were pending at this point and are
+> now complete below.
+> [Proposal](specs/2026-09-10-react-migration-phase10-warehouses-dead-proposal.md) ·
+> [Ledger](specs/2026-09-10-phase10-registry-rows.md) ·
+> [Plan](plans/2026-09-10-react-migration-phase10-warehouses-dead.md).
+
+> **PHASE 10 DESIGN ACCEPTED — 2026-09-10.** Owner approved D-K1…D-K3 and
+> independent Codex design review passed. The 36 ledger rows remain `NOT
+> STARTED`; implementation T1-T4 is now authorised under the read-only TEST
+> plan. [Decision](decisions/2026-09-10-phase10-design-scope.md) ·
+> [Audit](audits/2026-09-10-phase10-design-codex-acceptance.md).
+
+> **PHASE 9 / MODULE J — `ACCEPTED` (2026-09-10).** Independent Codex review
+> accepted the implementation for the owner-approved TEST scope. The T10
+> `stock_conditions` content was restored but its `created_at`/`updated_by`
+> identity metadata changed; the owner accepted that TEST-only residual and
+> prohibited direct repair. T0B, M9-109 and the remaining M9-108 legs stay
+> explicitly unpromoted external evidence boundaries. Row tally remains 108
+> `CODE VERIFIED`, 6 `NOT STARTED`, 6 `LIVE VERIFIED`, 4 `IN PROGRESS`, 0
+> `BLOCKED`, 0 unclassified, 124 unique. [Decision](decisions/2026-09-10-phase9-acceptance-scope.md) ·
+> [Final audit](audits/2026-09-10-phase9-final-codex-acceptance.md).
+
+> **PHASE 9 ACCEPTANCE CLOSURE — 2026-09-10 (latest).** Documentation-only;
+> no code, SQL or Supabase contact. **Correction:** the T10 revert is
+> content-equivalent, **not byte-identical and not exact net-zero** — the
+> six-argument probe deleted and the next call re-inserted the
+> `stock_conditions` row, so `created_at` (`2026-09-09T13:52:35Z` →
+> `2026-09-10T18:49:22Z`) and `updated_by` (TEST admin → T10 anbardar)
+> changed while all quantities and the note equal the baseline. This is an
+> **owner-decision item** (accept as identity-only residual, or authorise a
+> separate restoration); it is not classified as accepted, `audit_log`
+> history is preserved, no direct-table write was made. Remaining items are
+> bounded: T0B has no catalog authority (narrow external boundary, M9-19);
+> M9-109 needs an unavailable TEST admin identity; M9-108's session leg is
+> unreachable from the supported interface (captured `REVOKE … FROM anon`),
+> its inactive-profile/rehber legs lack state/identity, its NaN leg is
+> structurally unavailable via JSON. Tally unchanged, measured mechanically
+> across the 124 ledger rows: **108 `CODE VERIFIED`, 6 `NOT STARTED`, 6
+> `LIVE VERIFIED` (M9-10, M9-17, M9-18, M9-92, M9-141a, M9-146), 4 `IN PROGRESS`
+> (M9-19, M9-99, M9-100, M9-108), 0 `BLOCKED`, 0 unclassified.** Phase 9
+> remains `NOT ACCEPTED`; ready for Codex's final independent audit.
+> [Evidence](audits/2026-09-10-phase9-t10-live-window.md) (§ Correction, § Closure pass).
+>
+> **PHASE 9 T10 LIVE WINDOW — 2026-09-10.** One authorised minimal
+> reversible TEST write window (anbardar identity, 0 production hits): five
+> exact server refusals incl. the binding foreign-warehouse refusal (M9-92),
+> one edit, the `exceeds_balance` branch, revert of quantities and note
+> (SUPERSEDED wording — was "exact revert"; content equal, row identity
+> changed, see the closure banner above);
+> live UI pass proved the four-table snapshot, RLS-narrowed rows, the unscoped
+> filter list and the rail order. **M9-10, M9-17, M9-18, M9-92, M9-146 are
+> `LIVE VERIFIED`.** Two findings recorded: the six-argument call is not a
+> no-op on the 031 schema (it deleted and the next call re-inserted the probe
+> row; content reconciled, row identity not), and the anbardar cannot read
+> `audit_log` (M9-109 open). Measured mechanically across the 124 ledger rows:
+> **108 `CODE VERIFIED`, 6 `NOT STARTED`, 6 `LIVE VERIFIED` (M9-10, M9-17, M9-18, M9-92, M9-141a, M9-146), 4 `IN PROGRESS` (M9-19, M9-99, M9-100, M9-108), 0 `BLOCKED`, 0 unclassified.** Phase 9 remains `NOT ACCEPTED`.
+> [Evidence](audits/2026-09-10-phase9-t10-live-window.md).
+>
+> **PHASE 9 T3 PAGE / STORE / API — 2026-09-10.** The `bal` route is
 > wired (M9-01, M9-04) and `pages/BalancesPage.tsx` plus its store, snapshot
 > API, condition write API, `ConditionCell` and the export/xls modules were
 > audited row by row against legacy and the owner-approved Q1 / D-J1…D-J4
 > decisions. Promoted on unit/page evidence (72 rows incl. the closed M9-71);
 > M9-92, M9-99, M9-100, M9-108 are `IN PROGRESS` (client half verified,
 > server/live leg open). Measured mechanically across the 124 ledger rows:
-> **112 `CODE VERIFIED`, 6 `NOT STARTED`, 1 `LIVE VERIFIED` (M9-141a), 5 `IN PROGRESS` (M9-19, M9-92, M9-99, M9-100, M9-108), 0 `BLOCKED`, 0 unclassified.** Phase 9 remains `NOT ACCEPTED`.
+> (SUPERSEDED — T10): 112 `CODE VERIFIED`, 6 `NOT STARTED`, 1 `LIVE VERIFIED` (M9-141a), 5 `IN PROGRESS` (M9-19, M9-92, M9-99, M9-100, M9-108), 0 `BLOCKED`, 0 unclassified. Phase 9 remains `NOT ACCEPTED`.
 > [Evidence](audits/2026-09-10-phase9-t3-balances-page.md).
 >
 > **PHASE 9 STATUS — 2026-09-10 (authoritative).** Phase 9 design is
@@ -1157,8 +1619,16 @@ table, RPC, auth-subscription or Realtime client calls.
 
 Dashboard; Yeni əməliyyat; Mal hərəkəti; Anbar qalıqları; stock layers and
 Silinmə; item requests (`nreq`); group operations; documents, cancellation and
-correction; Excel import/export and SON export; reports; finance;
+correction; Excel import/export and SON export; ~~reports~~; finance;
 Azpetrol/Araz; users administration.
+
+**«Hesabatlar» (`rep`) left this list in Phase 14 — 2026-09-11.** Module P is
+implemented on Claude's side (96 of 99 `M14-*` rows `CODE VERIFIED`) and
+remains `NOT ACCEPTED` pending Codex's independent audit; its authoritative
+ledger is [`specs/2026-09-11-phase14-registry-rows.md`](./specs/2026-09-11-phase14-registry-rows.md).
+Note that «finance» above is a DIFFERENT, still-unmigrated screen (`rFin()`),
+as is «Nəzarət və risklər» (`rCtrl()`); the roadmap assigns both to Phase 15.
+Phase 14 covers `rRep()` / `rQaimeReport()` only.
 
 **Mal qrupları (`grp`) left this list in Phase 6** — Module G below is
 `CODE VERIFIED` (implemented, independently re-audited, and live verified for

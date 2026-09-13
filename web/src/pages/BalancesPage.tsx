@@ -3,6 +3,7 @@ import { useBalancesStore, isInitialView } from '../store/balances.store'
 import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh'
 import { useToastStore } from '../store/toast.store'
 import { useSyncStore } from '../store/sync.store'
+import { useExportRequestStore } from '../store/exportRequest.store'
 import { Button } from '../components/ui/Button'
 import { PrintHead } from '../components/PrintHead'
 import { ItemCard } from '../components/nomenclature/ItemCard'
@@ -195,6 +196,37 @@ export function BalancesPage({ me, onOpenOperation, onEditItem }: Props) {
     if (outcome === 'csv') showToast('Excel kitabxanası yüklənmədi, CSV yüklənir', true)
     else showToast(BALANCE_EXPORT_NAME + '.xlsx yükləndi')
   }
+
+  /* M16-11 — a Settings-initiated export, the React form of legacy
+     `go('bal'); setTimeout(() => $('#bal-exp').click(), 50)`
+     (index.html:7197). Consumed ONCE, and it runs THIS page's `exportXls()`,
+     so the ACTIVE view decides the matrix — «Əvvələ qalıq» exports the
+     opening set and the current view exports the current one, exactly as
+     pressing «Excel» here would. No second export path exists.
+
+     Gated on `canExport` like the button: before the first complete snapshot
+     there is nothing to export.
+
+     The request is consumed WHEN THE EXPORT RUNS, not on arrival. Settings
+     navigates here while the snapshot is still loading, so `canExport` is
+     false on the first render; consuming then would clear the request a tick
+     before the data arrived and the user would get no file at all. Waiting
+     for the gate keeps it alive across that transition; the unmount cleanup
+     below stops it leaking into a later visit. */
+  const pendingExport = useExportRequestStore((s) => s.pending)
+  const consumeExport = useExportRequestStore((s) => s.consume)
+  useEffect(() => {
+    if (pendingExport !== 'bal' || !canExport) return
+    consumeExport()
+    exportXls()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingExport, canExport])
+
+  /* Leaving abandons an unsatisfied request — it was addressed to THIS visit. */
+  useEffect(() => () => {
+    if (useExportRequestStore.getState().pending === 'bal') consumeExport()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   /* ---------- print (M9-120 / M9-121 — OUTSIDE acceptance, Q2) ---------- */
   const [stampedAt, setStampedAt] = useState<Date | null>(null)

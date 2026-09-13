@@ -82,6 +82,17 @@ No new Q1 decision was requested.
   form lives there (legacy `editItem()`, 1888). No ledger row governs this;
   it is a navigation convenience, not a parity claim.
 
+## Correction after Codex review — M9-83 (SUPERSEDED claim)
+
+The first version of this audit relied on a page test named «a negative
+quantity carries the neg class» that rendered a POSITIVE row and asserted the
+class was absent — it proved nothing about `.neg`. Superseded: the `.neg`
+branch of the opening view is unreachable through the supported model
+(`initial_qty` can go negative but both modes filter `> 1e-9`; `current_qty`
+is never negative). Two replacement tests prove that a negative opening row
+never reaches either mode and pin the ported class expression at source level.
+M9-83 is therefore `CODE VERIFIED` **source-level only**, like M9-79b.
+
 ## Rows kept `IN PROGRESS` and why (§6, §7)
 
 | Row | Verified half | Open half |

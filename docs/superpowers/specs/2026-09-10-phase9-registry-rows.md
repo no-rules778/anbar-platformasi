@@ -1,6 +1,69 @@
 # Phase 9 parity-registry rows — Module J ledger
 
-> **T3 PAGE / STORE / API — 2026-09-10 (latest).** `pages/BalancesPage.tsx`,
+> **FINAL CODEX ACCEPTANCE — 2026-09-10 (authoritative). Phase 9 / Module J is
+> `ACCEPTED` for the owner-approved TEST scope.** The owner accepted the T10
+> `created_at`/`updated_by` identity drift as a TEST-only metadata residual and
+> accepted T0B, M9-109 and the remaining M9-108 legs as explicit external
+> evidence boundaries; none is promoted beyond its recorded row status. The
+> authoritative row tally remains 108 `CODE VERIFIED`, 6 `NOT STARTED`, 6
+> `LIVE VERIFIED`, 4 `IN PROGRESS`, 0 `BLOCKED`, 0 unclassified, 124 unique.
+> [Scope decision](../decisions/2026-09-10-phase9-acceptance-scope.md) ·
+> [Final independent audit](../audits/2026-09-10-phase9-final-codex-acceptance.md).
+
+> **ACCEPTANCE CLOSURE — 2026-09-10 (latest).** Documentation-only pass; no
+> application, test or SQL change, no Supabase contact. **Correction:** the
+> T10 revert is **content-equivalent, not byte-identical and not an exact
+> net-zero restoration** — the six-argument probe deleted the
+> `stock_conditions` row and the next call re-inserted it, so `created_at`
+> moved from `2026-09-09T13:52:35.264964+00:00` to
+> `2026-09-10T18:49:22.687817+00:00` and `updated_by` from the TEST admin
+> (`aa0fd092…`) to the T10 anbardar (`089440eb…`); all four quantities and the
+> note equal the baseline. This identity drift is an **owner-decision item**
+> (accept as a residual TEST identity-only mutation, or authorise a separate
+> restoration) — it is NOT classified as accepted, the `audit_log` history is
+> kept, no direct-table write was made, and the probe is not to be repeated.
+> The "exact revert" wording in the T10 banner below is superseded on that
+> point only. Remaining items are bounded, not closed: T0B has no catalog
+> authority in any session so far (narrow external boundary, M9-19); M9-109
+> needs a TEST admin identity that is not available (no password supplied,
+> `.env` never read); M9-108's session leg is unreachable from the supported
+> interface (captured grants: `REVOKE … FROM anon`), its inactive-profile and
+> rehber legs lack the state/identity, and its NaN leg is structurally
+> unavailable through the client's JSON interface (`JSON.stringify(NaN)` is
+> `null`). **Tally unchanged and re-derived mechanically from the 124
+> `| M9-* |` rows: 108 `CODE VERIFIED`, 6 `NOT STARTED`, 6 `LIVE VERIFIED`
+> (M9-10, M9-17, M9-18, M9-92, M9-141a, M9-146), 4 `IN PROGRESS` (M9-19, M9-99,
+> M9-100, M9-108), 0 `BLOCKED`, 0 unclassified.** Phase 9 remains
+> **NOT ACCEPTED**; the package is ready for Codex's final independent audit.
+> [Evidence](../audits/2026-09-10-phase9-t10-live-window.md) (§ Correction and
+> § Closure pass).
+
+> **T10 LIVE WINDOW — 2026-09-10.** One authorised, minimal,
+> reversible TEST write window (`alkjjbaawmsirsfvqljm`, anbardar identity,
+> production rejected at the network layer, 0 hits). Persisted REST evidence:
+> five exact server refusals with no row written, one `onsite` edit, the
+> `exceeds_balance: true` branch (balance 8), and a revert of all four
+> quantities and the note (SUPERSEDED wording — earlier "exact revert": content
+> equal, row identity changed; see the closure banner above).
+> Browser-interception evidence: the live page load
+> is exactly four GETs and no RPC, rows are RLS-narrowed with no client
+> scoping, the filter list is unscoped, the rail entry is third. Promoted:
+> **M9-10, M9-17, M9-18, M9-92 and M9-146 are `LIVE VERIFIED`**. Two live
+> findings recorded, not hidden: the six-argument call is NOT a no-op on the
+> 031 schema (it resolves to the seven-argument function with icare defaulted
+> to 0 and DELETED the probe row, which the next full call re-inserted — the
+> quantities reconciled exactly, `created_at`/`updated_by` did not), and the
+> anbardar cannot read `audit_log` (RLS), so M9-109 stays open. M9-83 is
+> narrowed to source-level evidence (its `.neg` branch is unreachable through
+> the supported model). **Authoritative tally, measured mechanically from the
+> 124 `| M9-* |` rows: 108 `CODE VERIFIED`, 6 `NOT STARTED`, 6
+> `LIVE VERIFIED` (M9-10, M9-17, M9-18, M9-92, M9-141a, M9-146), 4 `IN PROGRESS`
+> (M9-19, M9-99, M9-100, M9-108), 0 `BLOCKED`, 0 unclassified.** Remaining: T0B
+> (catalog authority), an admin-identity read of the server-written audit rows
+> (M9-109), the rehber refusal text, and the independent Codex audit. Phase 9
+> remains **NOT ACCEPTED**. [Evidence](../audits/2026-09-10-phase9-t10-live-window.md).
+
+> **T3 PAGE / STORE / API — 2026-09-10.** `pages/BalancesPage.tsx`,
 > `store/balances.store.ts`, `api/balancesSnapshot.api.ts`,
 > `api/setStockCondition.api.ts`, `components/balances/ConditionCell.tsx`,
 > `lib/balanceExport.ts` and `lib/xls.ts` (M9-117/M9-119) were written by a
@@ -9,18 +72,20 @@
 > was absent and now carries 56 page tests including the required M9-134b
 > cross-key regression, one harness defect (`xlsFallback.test.ts` reading a
 > BOM through `Blob.text()`) and one lint defect (`ConditionCell` setState in
-> an effect) were fixed. Promoted on that evidence: **M9-01…M9-06, M9-10…M9-18,
-> M9-20, M9-36, M9-40, M9-41, M9-44, M9-46, M9-50, M9-53, M9-56…M9-58,
-> M9-60…M9-64, M9-71, M9-78, M9-80…M9-83, M9-85, M9-93…M9-95, M9-98,
-> M9-101…M9-107, M9-110…M9-119, M9-130…M9-136, M9-140, M9-141b, M9-143, M9-144
-> and M9-146 are `CODE VERIFIED`; M9-92, M9-99, M9-100 and M9-108 are
-> `IN PROGRESS`** (client half verified, server/live leg open); M9-19 stays
-> `IN PROGRESS` (T0B). Not promoted: M9-109 (server audit row, Q4), M9-120 and
+> an effect) were fixed. Promoted on that evidence to `CODE VERIFIED`:
+> **M9-01…M9-06, M9-11…M9-16, M9-20, M9-36, M9-40, M9-41, M9-44, M9-46, M9-50,
+> M9-53, M9-56…M9-58, M9-60…M9-64, M9-71, M9-78, M9-80…M9-83, M9-85,
+> M9-93…M9-95, M9-98, M9-101…M9-107, M9-110…M9-119, M9-130…M9-136, M9-140,
+> M9-141b, M9-143 and M9-144**; M9-10, M9-17, M9-18 and M9-146 were promoted
+> here too and **later raised to `LIVE VERIFIED` in T10** (their current status
+> is in the T10 banner above); M9-99, M9-100 and M9-108 are `IN PROGRESS`
+> (client half verified, server/live leg open); M9-92 was `IN PROGRESS` here
+> and is now `LIVE VERIFIED` (T10); M9-19 stays `IN PROGRESS` (T0B). Not promoted: M9-109 (server audit row, Q4), M9-120 and
 > M9-121 (outside acceptance), M9-141 (withdrawn), M9-142 (deferred), M9-145
 > (out of scope).
-> **Authoritative tally, measured mechanically from the 124 `| M9-* |` rows:
-> 112 `CODE VERIFIED`, 6 `NOT STARTED`, 1 `LIVE VERIFIED` (M9-141a), 5
-> `IN PROGRESS` (M9-19, M9-92, M9-99, M9-100, M9-108), 0 `BLOCKED`, 0 unclassified.**
+> (SUPERSEDED — T10): the tally at this slice was 112 `CODE VERIFIED`, 6
+> `NOT STARTED`, 1 `LIVE VERIFIED`, 5 `IN PROGRESS`, 0 `BLOCKED`, 0 unclassified;
+> the current figure is in the T10 banner above.
 > No row is `ACCEPTED`; Phase 9 remains **NOT ACCEPTED** — live legs (T0B, Q4/T10)
 > and the independent Codex audit are still ahead.
 > [Evidence](../audits/2026-09-10-phase9-t3-balances-page.md).
@@ -89,10 +154,10 @@ carried forward from any earlier claim):
 
 | Status | Rows |
 |---|---|
-| `CODE VERIFIED` | **112** |
+| `CODE VERIFIED` | **108** |
 | `NOT STARTED` | **6** (M9-109, M9-120, M9-121, M9-141, M9-142, M9-145) |
-| `LIVE VERIFIED` | **1** (M9-141a) |
-| `IN PROGRESS` | **5** (M9-19, M9-92, M9-99, M9-100, M9-108) |
+| `LIVE VERIFIED` | **6** (M9-10, M9-17, M9-18, M9-92, M9-141a, M9-146) |
+| `IN PROGRESS` | **4** (M9-19, M9-99, M9-100, M9-108) |
 | `BLOCKED` | **0** |
 | unclassified | **0** |
 | **total unique** | **124** |
@@ -236,16 +301,16 @@ None is `RECOMMENDED / OWNER DECISION PENDING` any longer.
 
 | Row | Contract | Old ref | React ref | Roles | Status |
 |---|---|---|---|---|---|
-| M9-10 | Snapshot reads exactly four tables: `movements`, `items`, `warehouses`, `stock_conditions`. No RPC | 930-975 | `api/balancesSnapshot.api.ts` | — | `CODE VERIFIED` — [T3 balances-page audit](../audits/2026-09-10-phase9-t3-balances-page.md) |
+| M9-10 | Snapshot reads exactly four tables: `movements`, `items`, `warehouses`, `stock_conditions`. No RPC | 930-975 | `api/balancesSnapshot.api.ts` | — | `LIVE VERIFIED` — the live page load issued exactly `movements`, `items`, `warehouses`, `stock_conditions` GETs and no RPC (browser interception, StrictMode-doubled); api test [T3 audit](../audits/2026-09-10-phase9-t3-balances-page.md). [T10 live window](../audits/2026-09-10-phase9-t10-live-window.md) |
 | M9-11 | **All four reads fatal — DEVIATION D-J1.** Legacy swallows a failed `stock_conditions` read (`try/catch`, `condsReady` set only inside `if (!condErr)`) and keeps working with blank markers. Phase 9 makes it fatal instead. **Must not be described as parity** | **904-923** (legacy contrast) | `api/balancesSnapshot.api.ts` | — | `CODE VERIFIED` — [T3 balances-page audit](../audits/2026-09-10-phase9-t3-balances-page.md) |
 | M9-12 | A failed refresh **retains the previous snapshot whole** — rows, conditions and displayed values — and surfaces the error without blanking | M8-45 precedent | `store/balances.store.ts` | — | `CODE VERIFIED` — [T3 balances-page audit](../audits/2026-09-10-phase9-t3-balances-page.md) |
 | M9-13 | A read that SUCCEEDS with zero `stock_conditions` rows is valid: markers read 0, **no error**. This is the one case where D-J1 and legacy agree | `api/stockConditions.api.ts:41-96` | reuse | — | `CODE VERIFIED` — [T3 balances-page audit](../audits/2026-09-10-phase9-t3-balances-page.md) |
 | M9-14 | Both failure shapes absorbed — returned `{error}` and rejected promise | M3-06a | `api/balancesSnapshot.api.ts` | — | `CODE VERIFIED` — [T3 balances-page audit](../audits/2026-09-10-phase9-t3-balances-page.md) |
 | M9-15 | `warehouses` = `active && type === 'anbar'` only; locations and deactivated rows never appear | 933 | reuse `warehouseNames()` | — | `CODE VERIFIED` — [T3 balances-page audit](../audits/2026-09-10-phase9-t3-balances-page.md) |
 | M9-16 | Paged reads keep deterministic ORDER (`movements` by `date,created_at`; `stock_conditions` by `warehouse,item_code`; `items` by `code`) | A02/A11 | reuse | — | `CODE VERIFIED` — [T3 balances-page audit](../audits/2026-09-10-phase9-t3-balances-page.md) |
-| M9-17 | **NO client-side warehouse scoping of rows.** An anbardar's narrowing comes from live RLS; the client renders what the server returns | D2 / M8-42 | `api/balancesSnapshot.api.ts` | anbardar | `CODE VERIFIED` — [T3 balances-page audit](../audits/2026-09-10-phase9-t3-balances-page.md) |
-| M9-18 | The warehouse **filter list** is unscoped (`DB.whs` in full), matching legacy `#bf-w` | 2214 | `pages/BalancesPage.tsx` | all | `CODE VERIFIED` — [T3 balances-page audit](../audits/2026-09-10-phase9-t3-balances-page.md) |
-| M9-19 | Captured server facts (schema, RPC, RLS) re-confirmed read-only on TEST **before dependent implementation begins** — mandatory split gate. Admin exposed-column read and current admin/anbardar RLS legs are live; missing rehber read is an owner-approved non-blocking scope waiver; T0B metadata remains open | proposal §7A + [T0A audit](../audits/2026-09-10-phase9-t0a-admin-and-m9-141a-live-check.md) + [decision](../decisions/2026-09-10-phase9-t0a-rehber-waiver.md) | — (server) | — | `IN PROGRESS` — **T0A passed; T0B blocking** |
+| M9-17 | **NO client-side warehouse scoping of rows.** An anbardar's narrowing comes from live RLS; the client renders what the server returns | D2 / M8-42 | `api/balancesSnapshot.api.ts` | anbardar | `LIVE VERIFIED` — the anbardar's unfiltered live snapshot returned only `Test Anbar` rows and the page rendered exactly those (no client scoping); api test [T3 audit](../audits/2026-09-10-phase9-t3-balances-page.md). [T10 live window](../audits/2026-09-10-phase9-t10-live-window.md) |
+| M9-18 | The warehouse **filter list** is unscoped (`DB.whs` in full), matching legacy `#bf-w` | 2214 | `pages/BalancesPage.tsx` | all | `LIVE VERIFIED` — the live filter list carried both TEST anbars for the `Test Anbar` anbardar; page test [T3 audit](../audits/2026-09-10-phase9-t3-balances-page.md). [T10 live window](../audits/2026-09-10-phase9-t10-live-window.md) |
+| M9-19 | Captured server facts (schema, RPC, RLS) re-confirmed read-only on TEST **before dependent implementation begins** — mandatory split gate. Admin exposed-column read and current admin/anbardar RLS legs are live; missing rehber read is an owner-approved non-blocking scope waiver; T0B metadata remains open | proposal §7A + [T0A audit](../audits/2026-09-10-phase9-t0a-admin-and-m9-141a-live-check.md) + [decision](../decisions/2026-09-10-phase9-t0a-rehber-waiver.md) | — (server) | — | `IN PROGRESS` — **T0A passed; T0B blocking.** Closure 2026-09-10: T0B is a **narrow external boundary** — no session has had catalog authority (service-role/SQL); the publishable-key OpenAPI probe returned 401; a TEST UI password cannot read `pg_policy`/`pg_proc`/ACLs/constraints. All catalog-level facts cited in Phase 9 are *captured server metadata* from `test-environment/restore-test-schema.sql`, not live reads. [T10 audit § Closure pass](../audits/2026-09-10-phase9-t10-live-window.md) |
 
 ## C. Current-balance computation
 
@@ -328,7 +393,7 @@ None is `RECOMMENDED / OWNER DECISION PENDING` any longer.
 | M9-80 | Table columns, in order: Kod · Malın adı · Anbar · Ölçü · `<modeLabel>` · İlk mənbə anbar · Əvvələ qalıq tarixi · Son hərəkət | 2268 | `pages/BalancesPage.tsx` | all | `CODE VERIFIED` — [T3 balances-page audit](../audits/2026-09-10-phase9-t3-balances-page.md) |
 | M9-81 | Missing `opening_warehouse`/`opening_date`/`last` render `—`; dates through `fmtD` | 2272 | `pages/BalancesPage.tsx` | all | `CODE VERIFIED` — [T3 balances-page audit](../audits/2026-09-10-phase9-t3-balances-page.md) |
 | M9-82 | **Three distinct empty states** in order: no opening rows at all; «Cari qalıq» with none; filtered-to-nothing | 2261-2265 | `pages/BalancesPage.tsx` | all | `CODE VERIFIED` — [T3 balances-page audit](../audits/2026-09-10-phase9-t3-balances-page.md) |
-| M9-83 | Negative quantities render with the `neg` class | 2271 | `pages/BalancesPage.tsx` | all | `CODE VERIFIED` — [T3 balances-page audit](../audits/2026-09-10-phase9-t3-balances-page.md) |
+| M9-83 | Negative quantities render with the `neg` class | 2271 | `pages/BalancesPage.tsx` | all | `CODE VERIFIED` — **source-level only.** `initial_qty += qty` is unconditional (2011) so an opening-marked outbound row drives it negative, but both modes filter `> 1e-9` (M9-77) and `current_qty` is a sum of surviving lots; page test proves a negative opening row never reaches either mode and pins the ported `neg` expression. An earlier test asserted the class ABSENT on a positive row — superseded. [T3 audit](../audits/2026-09-10-phase9-t3-balances-page.md) |
 | M9-84 | **DEVIATION D-J4 — marker asymmetry CORRECTED (owner-approved).** Legacy is asymmetric: `isInitialBalanceLine()` (write guard, 1926-1928) recognises the marker in partner **OR channel**, while `getInitialBalanceRows()` (read, 2001) recognises **partner only** — so a channel-only historical row is refused at write for a non-admin yet never reconstructed in the «Əvvələ qalıq» view. Per the [2026-09-10 owner decision §5](../decisions/2026-09-10-phase9-design-package.md), Phase 9 **widens the read to recognise the marker in partner OR channel**, matching the already-supported write definition. **The legacy partner-only omission is NOT preserved.** A test must prove a channel-only opening row **IS** reconstructed, and that partner-marked rows behave exactly as before (no regression) | 1926-1928 vs 2001 | `lib/initialBalance.ts` | admin | `CODE VERIFIED` — **owner-approved correction (D-J4)**, [T2 initial-balance audit](../audits/2026-09-10-phase9-t2-initial-balance.md) |
 | M9-85 | Opening-view KPIs are **four**: «Mövqe sayı» `nf(filtered.length)` subtitle = selected warehouse or «bütün anbarlar»; «Ümumi miqdar» `nf(totQty,2)` subtitle `<modeLabel> · ölçü vahidləri qarışıqdır`; «Ümumi dəyər» **always `money(0)` → «—»** subtitle «bu görünüşdə hesablanmır»; «Sıfır qalıq» count of `\|qty\|<1e-9` subtitle «bu filtrdə». **No «Mənfi qalıq» KPI in this view**, and no KPI carries a colour class | 2255-2260 | `pages/BalancesPage.tsx` | all | `CODE VERIFIED` — [T3 balances-page audit](../audits/2026-09-10-phase9-t3-balances-page.md) |
 
@@ -338,15 +403,15 @@ None is `RECOMMENDED / OWNER DECISION PENDING` any longer.
 |---|---|---|---|---|---|
 | M9-90 | `canEditCond(w)` false when conditions not loaded, and for warehouse `bütün anbarlar` or `—` | 2148-2149 | `lib/canEditCond.ts` | all | `CODE VERIFIED` — [T2 audit](../audits/2026-09-10-phase9-t2-condition-pure-rules.md) |
 | M9-91 | Admin may edit any warehouse; anbardar only their own; **`rehber` may not edit** | 2150-2151 | `lib/canEditCond.ts` | admin/anbardar/rehber | `CODE VERIFIED` — [T2 audit](../audits/2026-09-10-phase9-t2-condition-pure-rules.md) |
-| M9-92 | The UI check is convenience only — the binding refusal is server-side in `set_stock_condition`; the live refusal call belongs to the separately authorised T10 window, not read-only T0A | 2061-2064 + live RPC at T10 | `api/setStockCondition.api.ts` | all | `IN PROGRESS` — the UI convenience gate is `CODE VERIFIED` (`canEditCond` + page role tests, [T3 balances-page audit](../audits/2026-09-10-phase9-t3-balances-page.md)); **the binding server-side refusal remains the Q4/T10 live leg** |
+| M9-92 | The UI check is convenience only — the binding refusal is server-side in `set_stock_condition`; the live refusal call belongs to the separately authorised T10 window, not read-only T0A | 2061-2064 + live RPC at T10 | `api/setStockCondition.api.ts` | all | `LIVE VERIFIED` — TEST anbardar `set_stock_condition` on the other warehouse refused HTTP 400 / P0001 «İcazə yoxdur: yalnız öz anbarınızda mal vəziyyətini dəyişə bilərsiniz», rows unchanged; UI gate `CODE VERIFIED` ([T3 audit](../audits/2026-09-10-phase9-t3-balances-page.md)). [T10 live window](../audits/2026-09-10-phase9-t10-live-window.md) |
 | M9-93 | A user without edit rights sees the same numbers as plain text | 2347-2354 | `components/balances/ConditionCell.tsx` | rehber | `CODE VERIFIED` — [T3 balances-page audit](../audits/2026-09-10-phase9-t3-balances-page.md) |
 | M9-94 | Inline editor: `number`, `min=0`, `step=0.01`, pre-filled only when > 0; Enter/blur commits, Escape cancels | 2384-2398 | `components/balances/ConditionCell.tsx` | admin/anbardar | `CODE VERIFIED` — [T3 balances-page audit](../audits/2026-09-10-phase9-t3-balances-page.md) |
 | M9-95 | Clicking a condition cell does **not** open the item card (`stopPropagation`) | 2366, 2392 | `components/balances/ConditionCell.tsx` | all | `CODE VERIFIED` — [T3 balances-page audit](../audits/2026-09-10-phase9-t3-balances-page.md) |
 | M9-96 | Input normalisation: trim, comma→dot, empty→0; non-finite or negative → «Miqdar mənfi olmayan düzgün ədəd olmalıdır» and NO RPC | 2156-2158 | `lib/condInput.ts` | admin/anbardar | `CODE VERIFIED` — [T2 audit](../audits/2026-09-10-phase9-t2-condition-pure-rules.md) |
 | M9-97 | Value rounded to 2 decimals client-side before sending | 2159 | `lib/condInput.ts` | admin/anbardar | `CODE VERIFIED` — [T2 audit](../audits/2026-09-10-phase9-t2-condition-pure-rules.md) |
 | M9-98 | **All four quantities plus the existing note sent every time**, so a concurrent partial edit cannot write an inconsistent row | 2153-2162 | `api/setStockCondition.api.ts` | admin/anbardar | `CODE VERIFIED` — [T3 balances-page audit](../audits/2026-09-10-phase9-t3-balances-page.md) |
-| M9-99 | On `PGRST202` the call retries with the pre-031 six-argument signature; T0B verifies the exposed signature without invocation, while any executable live fallback probe belongs to T10 | 2163-2183 | `api/setStockCondition.api.ts` | admin/anbardar | `IN PROGRESS` — the client PGRST202 six-argument retry is `CODE VERIFIED` (api test, [T3 balances-page audit](../audits/2026-09-10-phase9-t3-balances-page.md)); **T0B verification of the exposed signature still open** |
-| M9-100 | On `PGRST202` for the `icare` key: no retry, message «İcarə sütunu bazada yoxdur — sql/031 hələ tətbiq edilməyib», sync set to failed; any executable live probe belongs to T10 | 2176-2181 | `api/setStockCondition.api.ts` | admin/anbardar | `IN PROGRESS` — the client branch is `CODE VERIFIED`: no retry for the `icare` key, the exact message verbatim, sync set to failed (api + page tests, [T3 balances-page audit](../audits/2026-09-10-phase9-t3-balances-page.md)); **the executable live probe belongs to T10** |
+| M9-99 | On `PGRST202` the call retries with the pre-031 six-argument signature; T0B verifies the exposed signature without invocation, while any executable live fallback probe belongs to T10 | 2163-2183 | `api/setStockCondition.api.ts` | admin/anbardar | `IN PROGRESS` — client PGRST202 six-argument retry `CODE VERIFIED` (api test, [T3 audit](../audits/2026-09-10-phase9-t3-balances-page.md)). **Live finding (T10):** on the 031-applied TEST schema the six-argument call does NOT raise PGRST202 — PostgREST resolves it to the seven-argument function with `p_icare_qty DEFAULT 0`, so the fallback branch is unreachable there and, if reached, silently zeroes İcarə (observed: `action: DELETE` on a row whose only marker was icare 0.01; the row was re-inserted by the next full call — content equal, `created_at`/`updated_by` changed, owner decision pending, probe not to be repeated). T0B signature verification still open. [T10 live window](../audits/2026-09-10-phase9-t10-live-window.md) |
+| M9-100 | On `PGRST202` for the `icare` key: no retry, message «İcarə sütunu bazada yoxdur — sql/031 hələ tətbiq edilməyib», sync set to failed; any executable live probe belongs to T10 | 2176-2181 | `api/setStockCondition.api.ts` | admin/anbardar | `IN PROGRESS` — client branch `CODE VERIFIED` (api + page tests, [T3 audit](../audits/2026-09-10-phase9-t3-balances-page.md)). **Live (T10):** PGRST202 cannot be provoked on the 031-applied TEST schema (see M9-99), so the live probe is structurally unavailable; unit evidence only. [T10 live window](../audits/2026-09-10-phase9-t10-live-window.md) |
 | M9-101 | Response `action === 'DELETE'` (or empty) removes the local entry; otherwise the map is replaced from the returned row | 2185-2194 | `store/balances.store.ts` | admin/anbardar | `CODE VERIFIED` — [T3 balances-page audit](../audits/2026-09-10-phase9-t3-balances-page.md) |
 | M9-102 | `exceeds_balance: true` → warning toast «Diqqət: işarələnmiş miqdar qalıqdan (<balance>) çoxdur»; **the write still succeeds** | 2196-2198 | `pages/BalancesPage.tsx` | admin/anbardar | `CODE VERIFIED` — [T3 balances-page audit](../audits/2026-09-10-phase9-t3-balances-page.md) |
 | M9-103 | Otherwise success toast «Vəziyyət yeniləndi» | 2199 | `pages/BalancesPage.tsx` | admin/anbardar | `CODE VERIFIED` — [T3 balances-page audit](../audits/2026-09-10-phase9-t3-balances-page.md) |
@@ -354,8 +419,8 @@ None is `RECOMMENDED / OWNER DECISION PENDING` any longer.
 | M9-105 | The table always re-renders from the server-confirmed value; an optimistic value is never left on screen | 2380-2383 | `store/balances.store.ts` | admin/anbardar | `CODE VERIFIED` — [T3 balances-page audit](../audits/2026-09-10-phase9-t3-balances-page.md) |
 | M9-106 | The RPC is the ONLY application write; no direct PostgREST write to `stock_conditions` is attempted. The captured ACL is `authenticated=rDxtm/postgres` (not “only `r`”) and lacks `a`/`w`/`d`; no write policy exists | 2061-2064 + captured policies/ACL | `api/setStockCondition.api.ts` | all | `CODE VERIFIED` — client half: every call is the `set_stock_condition` RPC and no direct table write exists (api test); metadata half: the captured ACL `authenticated=rDxtm/postgres` (no `a`/`w`/`d`) and the single SELECT policy, proposal §3.1. [T3 balances-page audit](../audits/2026-09-10-phase9-t3-balances-page.md) |
 | M9-107 | The write goes through `lib/mutationGuard.ts`, so `VITE_ALLOW_LOCAL_WRITES=false` blocks it on localhost | reuse | `api/setStockCondition.api.ts` | all | `CODE VERIFIED` — [T3 balances-page audit](../audits/2026-09-10-phase9-t3-balances-page.md) |
-| M9-108 | Server refusals surface their exact Azerbaijani text (session, inactive profile, role, warehouse, inactive warehouse, unknown item, NaN, negative, too large) | live RPC body | `pages/BalancesPage.tsx` | all | `IN PROGRESS` — the client surfaces the server text verbatim behind the legacy «Xəta: » prefix (api + page tests, [T3 balances-page audit](../audits/2026-09-10-phase9-t3-balances-page.md)); **the nine Azerbaijani refusal texts are a live RPC-body leg (Q4)** |
-| M9-109 | A successful write produces an `audit_log` row written **by the server**; the browser writes no audit row | live RPC body | — (server) | — | `NOT STARTED` — **Q4** |
+| M9-108 | Server refusals surface their exact Azerbaijani text (session, inactive profile, role, warehouse, inactive warehouse, unknown item, NaN, negative, too large) | live RPC body | `pages/BalancesPage.tsx` | all | `IN PROGRESS` — client surfaces the server text verbatim behind «Xəta: » (api + page tests, [T3 audit](../audits/2026-09-10-phase9-t3-balances-page.md)). **Live (T10): 5 of 9 texts observed exactly** — unknown item, negative, too large, inactive/unknown warehouse, foreign warehouse. **Closure 2026-09-10 — the other four are bounded, not closed:** *session* — unreachable from the supported interface, the captured grants `REVOKE ALL … FROM anon` refuse an anonymous call before the body's `auth.uid() IS NULL` guard (captured server metadata); *inactive profile* — no inactive TEST profile exists and none was fabricated; *rehber role* — no rehber identity authenticates; *NaN* — structurally unavailable through the client's JSON interface (`JSON.stringify(NaN)` → `null` → server `COALESCE` → 0; unit/source), reachable only by a hand-built REST string body that is not the application contract. None executed. [T10 live window](../audits/2026-09-10-phase9-t10-live-window.md) |
+| M9-109 | A successful write produces an `audit_log` row written **by the server**; the browser writes no audit row | live RPC body | — (server) | — | `NOT STARTED` — **Q4**. T10 wrote five non-NOOP actions (DELETE, INSERT, UPDATE×3) but the anbardar's `audit_log` read returned 0 rows both before and after (RLS `p_audit_read`); server-written rows are not observable without an admin identity. **Closure 2026-09-10:** no TEST admin identity is available (the T10 harness used a process-only `T10_PASSWORD` that is unset now; no password supplied; `.env` never read). Browser-interception evidence proves the *page* wrote no `audit_log` row (0 such requests); the server-side write is by captured function body only, not observed. Unavailable external evidence — stays open. [T10 live window](../audits/2026-09-10-phase9-t10-live-window.md) |
 
 ## J. Export
 
@@ -408,4 +473,4 @@ None is `RECOMMENDED / OWNER DECISION PENDING` any longer.
 | M9-143 | `whLabel` alias `Xocahəsən → Xocəsən` is display-only; stored values, keys and RLS scope keep the real name | 584-593 | reuse `lib/movementRoute.ts` | — | `CODE VERIFIED` — [T3 balances-page audit](../audits/2026-09-10-phase9-t3-balances-page.md) |
 | M9-144 | `money(0)` renders «—», not `0,00 ₼` | 599 | reuse `lib/format.ts` | — | `CODE VERIFIED` — [T3 balances-page audit](../audits/2026-09-10-phase9-t3-balances-page.md) |
 | M9-145 | `rAnb` and the `dead` report also consume `IX.bal`; Phase 9 must not change their inputs. Both stay unmigrated | 2900-2916, 407 | — | — | `NOT STARTED` — out of scope |
-| M9-146 | This screen never reads `stock_layers`; no layer deactivation and no cutover occur in Phase 9 | — | — | — | `CODE VERIFIED` — the snapshot issues exactly the four reads and nothing else (no `stock_layers`), api test; no layer deactivation or cutover was performed in Phase 9. [T3 balances-page audit](../audits/2026-09-10-phase9-t3-balances-page.md) |
+| M9-146 | This screen never reads `stock_layers`; no layer deactivation and no cutover occur in Phase 9 | — | — | — | `LIVE VERIFIED` — no `stock_layers` request in the live page load; no deactivation or cutover performed; api test [T3 audit](../audits/2026-09-10-phase9-t3-balances-page.md). [T10 live window](../audits/2026-09-10-phase9-t10-live-window.md) |

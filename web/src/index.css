@@ -35,6 +35,11 @@ button,input,select,textarea{font-family:inherit;font-size:13px;color:inherit}
 h1,h2,h3,h4{margin:0;font-weight:650;letter-spacing:-.01em}
 .num{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
 .code{font-family:var(--mono);font-size:12px;color:var(--ink-2)}
+/* Phase 11 / D-L5 — the dashboard's KPI, grid, bar, pill and chart rules,
+   ported verbatim from index.html:30, 66-72, 89-91, 121, 151. Until this
+   port the React stylesheet had NO rule for these classes, so the Phase 9/10
+   KPI blocks rendered unstyled and a `.bar` would have been invisible. */
+.eyebrow{font-size:10px;text-transform:uppercase;letter-spacing:.13em;color:var(--ink-3);font-weight:650}
 
 /* ---------- shell ---------- */
 .topbar{position:sticky;top:0;z-index:60;height:46px;background:var(--steel-d);color:#fff;display:flex;align-items:center;gap:14px;padding:0 14px}
@@ -64,16 +69,53 @@ h1,h2,h3,h4{margin:0;font-weight:650;letter-spacing:-.01em}
 .card>header h3{font-size:13px}
 .card>header .sp{flex:1}
 .pad{padding:13px}
-.tw{overflow:auto}
+.grid{display:grid;gap:12px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:10px}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:5px;padding:11px 13px;position:relative;overflow:hidden}
+.kpi:after{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--steel)}
+.kpi.g:after{background:var(--in)}.kpi.o:after{background:var(--out)}.kpi.r:after{background:var(--alarm)}.kpi.v:after{background:var(--move)}
+.kpi .v{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:22px;font-weight:600;letter-spacing:-.02em;margin-top:3px}
+.kpi .s{font-size:11px;color:var(--ink-3);margin-top:2px}
+/* M18-42 — ported VERBATIM from index.html:73-74.
+
+   React kept only `overflow:auto` and dropped BOTH the viewport cap and the
+   min-height, so every table on every screen grew to its full row count
+   instead of scrolling inside a bounded box — measured in Chrome as
+   `max-height:none; min-height:0px`. The second rule is the escape hatch the
+   first one needs: a `.tw` carrying its OWN inline max-height (AzpPage,
+   ControlsPage, BatchCancelDialog all do) must not also inherit the 180px
+   floor, or a deliberately short box is forced open. */
+.tw{overflow:auto;max-height:calc(100vh - 250px);min-height:180px}
+.tw[style*='max-height']{min-height:0}
 table{width:100%;border-collapse:collapse}
 th{position:sticky;top:0;background:#F7F9FA;box-shadow:0 1px 0 var(--line);text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-3);font-weight:700;padding:8px 9px;border-bottom:1px solid var(--line);z-index:2;white-space:nowrap}
 th.r,td.r{text-align:right}
 td{padding:7px 9px;border-bottom:1px solid var(--line-2);vertical-align:top}
 tbody tr:hover{background:#F8FAFB}
+/* Phase 12 — ported verbatim from index.html:81. The «Malın adı» cell stacks a
+   name, an optional note and an optional rejection reason, so it needs the
+   legacy width cap or a long name pushes every other column out. */
+td.nm{max-width:390px}
+/* Phase 14 (M14-98) — three ADDITIVE rules the «Hesabatlar» tables need.
+   `td.nm` above scopes to a cell, but the `abc`/`dead` branches render a
+   `<div class="nm">` INSIDE the cell (index.html:6785, 6803), which that rule
+   never matches. `.neg` marks a negative-balance count (6766) and `.clk`
+   marks a clickable row (tbl's {clk:1}, 1412). No existing rule is modified. */
+.nm{overflow:hidden;text-overflow:ellipsis}
+.neg{color:var(--alarm);font-weight:650}
+tr.clk{cursor:pointer}
+tr.clk:hover{background:var(--line-2)}
 .tag{display:inline-block;padding:1px 7px;border-radius:3px;font-size:10.5px;font-weight:650;white-space:nowrap;border:1px solid transparent}
 .t-in{background:var(--in-l);color:var(--in)}
 .t-rm{background:var(--alarm-l);color:var(--alarm)}
 .t-mut{background:var(--line-2);color:var(--ink-3)}
+/* Phase 12 — ported verbatim from index.html:84-87. Until this port the React
+   stylesheet had NO rule for these three, so «Gözləyir» (t-op) rendered
+   without its steel background. `.t-mv` and `.t-out` come with them because
+   they are the same legacy block and other screens' tags use them. */
+.t-out{background:var(--out-l);color:var(--out)}
+.t-mv{background:var(--move-l);color:var(--move)}
+.t-op{background:var(--steel-l);color:var(--steel-d)}
 
 /* ---------- controls ---------- */
 .btn{display:inline-flex;align-items:center;gap:6px;background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:6px 11px;cursor:pointer;font-weight:600;color:var(--ink-2)}
@@ -91,8 +133,68 @@ label.f>span{display:block;font-size:10.5px;text-transform:uppercase;letter-spac
 .filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
 .filters input,.filters select{width:auto;min-width:130px}
 .filters input[type=search]{min-width:230px}
+/* Phase 13 (M13-99) — ported VERBATIM from index.html:111.
+
+   Load-bearing, not cosmetic: every header block, the three-column form rows
+   and all three «Sərfiyyat Materialları» filter rows are a `.row` carrying an
+   inline `grid-template-columns`, which does nothing without this
+   `display:grid`. Without it each block collapses to stacked elements. */
+.row{display:grid;gap:10px}
+/* Phase 12 — ported verbatim from index.html:115-118. The «Nomenklatura
+   sorğuları» status filter is a segment control; without these rules it had no
+   styling at all and rendered as four bare buttons. */
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:4px;overflow:hidden;background:#fff}
+.seg button{border:0;background:transparent;padding:6px 12px;cursor:pointer;font-weight:600;color:var(--ink-2);border-right:1px solid var(--line-2)}
+.seg button:last-child{border-right:0}
+.seg button.on{background:var(--steel);color:#fff}
+.bar{height:6px;background:var(--line-2);border-radius:3px;overflow:hidden;min-width:60px}
+.bar i{display:block;height:100%;background:var(--steel)}
+.muted{color:var(--ink-3)}
 .hint{font-size:11.5px;color:var(--ink-3)}
 .err{color:var(--alarm);font-size:11.5px;margin-top:4px;display:block}
+.pill-row{display:flex;gap:6px;flex-wrap:wrap}
+
+/* M18-46 — the inline-draft / edit-mode banner (index.html:3728, 3734).
+
+   Legacy has no `.notice` class: it writes `<div class="hint" style="...">`
+   with these exact declarations at both banner sites. React factored the
+   banner into two shared components (EditModeBanner, DraftLinesPanel), so the
+   same declarations are named ONCE here rather than duplicated inline at each
+   call site. The rendered result is the legacy one — the amber `--out-l`
+   band with a flex row and a trailing button. Measured pre-fix as
+   `display:block; background:rgba(0,0,0,0); padding:0px`, i.e. inert. */
+.notice{font-size:11.5px;color:var(--ink-3);padding:8px 10px;background:var(--out-l);border-radius:4px;margin-bottom:8px;display:flex;gap:8px;align-items:center}
+.notice>span{flex:1}
+
+/* M18-47 — the item-search result list (index.html:3299).
+
+   Legacy's `#o-res` is an inline-styled absolutely-positioned box inside a
+   `position:relative` wrapper, so the results OVERLAY the form instead of
+   pushing it down. React renders a `<ul class="combobox-results">`, a class
+   no stylesheet defined — measured pre-fix as `position:static`, which is the
+   defect: the list displaced every field below it. The declarations are the
+   legacy ones; the list-reset and the row rules reproduce the per-row
+   `padding:7px 9px` and separator legacy writes into each result div. */
+.combobox-wrap{position:relative}
+.combobox-results{position:absolute;left:0;right:0;top:100%;background:#fff;border:1px solid var(--line);border-radius:0 0 4px 4px;max-height:230px;overflow:auto;z-index:20;margin:0;padding:0;list-style:none}
+.combobox-results li{border-bottom:1px solid var(--line-2)}
+.combobox-results li:last-child{border-bottom:0}
+.combobox-results button{display:block;width:100%;text-align:left;border:0;background:transparent;padding:7px 9px;cursor:pointer}
+.combobox-results button:hover{background:var(--line-2)}
+
+/* M18-49 — «Yeni mal yarat →» (index.html:3320).
+
+   Legacy renders a bare `<a href="#">` inside the «Tapılmadı.» hint, so it
+   carries ordinary anchor styling. React renders a <button> — the better
+   control, since the handler already preventDefaults and a button is
+   focusable and announced correctly — but `.link` is defined nowhere, so it
+   rendered with full button chrome instead of looking like a link. This rule
+   strips the chrome; the ELEMENT is deliberately left a <button>. */
+.link{border:0;background:transparent;padding:0;color:var(--steel);text-decoration:underline;cursor:pointer;font:inherit}
+.link:hover{color:var(--steel-d)}
+
+/* ---------- charts (index.html:151) ---------- */
+.chart{width:100%;height:auto;display:block;overflow:visible}
 
 /* ---------- overlays ---------- */
 .mask{position:fixed;inset:0;background:rgba(14,20,26,.45);z-index:100}
@@ -139,3 +241,179 @@ label.f>span{display:block;font-size:10.5px;text-transform:uppercase;letter-spac
   .tw{max-height:none!important;overflow:visible!important}
   th{position:static}
 }
+
+/* ==========================================================================
+   AZPETROL / ARAZ — Phase 17 (M17-101 … M17-106). Ported VERBATIM from
+   index.html:158-201: the `#p-azp` custom-property scope, ten `#p-azp`
+   overrides, the `.azp-band` / `.azp-switch` / `.azp-board` component rules
+   and the two rail rules. 27 rules, no more.
+
+   Every selector is scoped to `#p-azp` or `.azp-*`, so no ANBAR `:root`
+   variable and no existing class is altered (M17-101). The page root carries
+   `id="p-azp"`, exactly as the legacy `<section class="page" id="p-azp">`
+   does, which is what brings the ten scoped overrides — including `.t-az`,
+   whose ONLY definition in legacy is this azp-scoped one — into effect.
+
+   DELIBERATELY ABSENT: `.azp-table` and `.kpi.app`. Legacy EMITS both (at
+   8669/8791 and 8262) but DEFINES neither, in either copy of index.html.
+   They are inert there and must stay inert here — inventing rules for them
+   would be a visual change, not parity (M17-104, M17-105).
+
+   The azp KPI severities are `gd`/`wn`/`al`, distinct from ANBAR's
+   `g`/`o`/`r`/`v`, and exist only under `#p-azp` (M17-106). */
+#p-azp{
+  --azp:#2E7D4F; --azp-d:#1B5E38; --azp-l:#E8F5EC; --azp-l2:#F4FBF6;
+  --azp-line:#C7E3D3; --azp-accent:#57B87E; --azp-ink:#123A26;
+}
+#p-azp .card{border-color:var(--azp-line)}
+#p-azp .card>header{background:var(--azp-l2);border-bottom-color:var(--azp-line)}
+#p-azp .card>header h3{color:var(--azp-ink)}
+#p-azp th{background:var(--azp-l);color:var(--azp-d);box-shadow:0 1px 0 var(--azp-line);border-bottom-color:var(--azp-line)}
+#p-azp tbody tr:hover{background:var(--azp-l2)}
+#p-azp .kpi{border-color:var(--azp-line)}
+#p-azp .kpi:after{background:var(--azp-accent)}
+#p-azp .kpi.gd:after{background:var(--azp-d)}
+#p-azp .kpi.wn:after{background:var(--out)}
+#p-azp .kpi.al:after{background:var(--alarm)}
+#p-azp .btn.pri{background:var(--azp);border-color:var(--azp);color:#fff}
+#p-azp .btn.pri:hover{background:var(--azp-d)}
+#p-azp .seg button.on{background:var(--azp);color:#fff}
+#p-azp input:focus,#p-azp select:focus,#p-azp textarea:focus{border-color:var(--azp);box-shadow:0 0 0 3px rgba(46,125,79,.14)}
+#p-azp .t-az{background:var(--azp-l);color:var(--azp-d);border-color:var(--azp-line)}
+/* modul başlığı — açıq-yaşıl lent, ANBAR səhifə başlıqlarından fərqli */
+.azp-band{background:linear-gradient(90deg,var(--azp-l),var(--azp-l2));border:1px solid var(--azp-line);
+  border-left:4px solid var(--azp);border-radius:5px;padding:11px 14px;margin-bottom:14px;
+  display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.azp-band h2{font-size:18px;color:var(--azp-ink)}
+.azp-band p{margin:2px 0 0;font-size:11.5px;color:#4C6B58}
+.azp-band .sp{flex:1}
+/* modul daxili dashboard seçicisi — Azpetrol ↔ Araz */
+.azp-switch{display:inline-flex;border:1px solid var(--azp-line);border-radius:5px;overflow:hidden;background:#fff}
+.azp-switch button{border:0;background:transparent;padding:8px 18px;cursor:pointer;font-weight:650;
+  color:var(--azp-d);border-right:1px solid var(--azp-line);letter-spacing:.02em}
+.azp-switch button:last-child{border-right:0}
+.azp-switch button.on{background:var(--azp);color:#fff}
+.azp-switch button:not(.on):hover{background:var(--azp-l)}
+.azp-board{display:none}
+.azp-board.on{display:block}
+/* sol menyuda modulun öz vurğusu */
+.rail a[data-p="azp"].on{background:#E8F5EC;color:#1B5E38;border-left-color:#2E7D4F}
+.rail a[data-p="azp"].on b{color:#2E7D4F}
+
+/* ==========================================================================
+   PHASE 18 — SHELL PARITY (M18-30, M18-31)
+
+   Ported VERBATIM from index.html. Every rule below existed in the legacy
+   stylesheet and was simply never carried across when the pages were migrated
+   one at a time; none is new design.
+   ========================================================================== */
+
+/* M18-31 — the topbar presence chip (index.html:38-40). */
+.presence{display:flex;align-items:center;gap:5px}
+.chip{display:inline-flex;align-items:center;gap:5px;background:rgba(255,255,255,.12);border-radius:20px;padding:3px 9px 3px 4px;font-size:11px}
+.chip i{width:18px;height:18px;border-radius:50%;display:grid;place-items:center;font-style:normal;font-size:9px;font-weight:700;background:#fff;color:var(--steel-d)}
+
+/* M18-30 — the burger, hidden until the responsive breakpoint
+   (index.html:211). The `display:none` here is what makes it invisible on a
+   desktop; the media query below is the ONLY thing that reveals it. */
+#burger{display:none;background:rgba(255,255,255,.14);border:0;color:#fff;border-radius:4px;padding:5px 9px;cursor:pointer}
+
+/* M18-30 — the responsive rail (index.html:204-210).
+
+   Below 900px the rail leaves the flow and becomes a fixed off-canvas drawer,
+   translated fully out of view until `.open` brings it back. Without this
+   block the rail keeps its 210px column on a phone and cannot be dismissed,
+   which is the defect this restores. */
+@media (max-width:900px){
+  .rail{position:fixed;left:0;top:46px;bottom:0;z-index:55;transform:translateX(-100%);transition:.2s}
+  .rail.open{transform:none}
+  .main{padding:14px 12px 60px}
+  .tw{max-height:calc(100vh - 200px)}
+  #burger{display:inline-flex!important}
+
+  /* M18-50 — multi-column page grids STACK below the breakpoint.
+
+     This is the one rule in this file that is NOT a legacy port, and it is
+     recorded as a deliberate deviation rather than parity. Legacy's own
+     media block re-flows the rail and `.main` only; a `.grid` carrying an
+     inline `grid-template-columns` keeps its columns at every width, so the
+     legacy platform renders a 203px / 150px pair of cards on a 390px phone —
+     measured, not assumed. That is unusable, and the owner instruction
+     requires narrow viewports to stack vertically without horizontal
+     overflow.
+
+     `grid-template-columns` is set INLINE on each of these elements, so a
+     plain rule here would lose to the style attribute; `!important` is what
+     lets the breakpoint win. Scoped to `.main .grid` so no dialog, KPI strip
+     or `.row` field grid is affected — `.kpis` already collapses on its own
+     via auto-fit, and `.row` blocks are narrow field pairs that stay legible. */
+  .main .grid{grid-template-columns:minmax(0,1fr)!important}
+
+  /* A `.card>header` is `display:flex` with no wrap (line 68), so at phone
+     width its controls cannot fall to a second line and run off the screen
+     instead. Measured on TEST at 390px: «Soraqçalar» pushed the document to
+     667px (an `input` with `min-width:170px` ending at x=667, after two
+     selects) and «Azpetrol / Araz» to 400px (its «Hesabat» button ending at
+     x=400). Both are clean at every width from 901px up, so this is a
+     phone-only defect and the rule belongs here rather than in the base
+     header rule, which desktop still needs on one line. */
+  .card>header{flex-wrap:wrap}
+
+  /* M19-10 — the FIVE-column `.row` re-flows to two columns on a phone.
+
+     Measured in real Chrome at 390px against this stylesheet (jsdom has no
+     layout engine and cannot see any of this), on synthetic fixtures carrying
+     the shipped markup of «Sərfiyyat Materialları → Hesabat», because no
+     eligible TEST data ever mounted that populated row:
+
+       ReportView:115  document scrollWidth 474px against a 390px viewport —
+                       real horizontal overflow. `repeat(5,1fr)` is
+                       `minmax(auto,1fr)`, so the two `input[type=date]`
+                       refuse to shrink below their intrinsic width and the
+                       remaining three collapse UNEQUALLY to 42.3px / 57.3px /
+                       77.9px. «Kontragent» clips its value (135px into 76px).
+       ReportView:142  no overflow, but five 64.5px fields; four captions wrap
+                       to two lines and «Avtomobil nömrəsi» clips (78px into
+                       66px).
+
+     A `min-width:0` clamp alone is NOT sufficient — it was measured too: it
+     equalises the columns at 65.2px but the document still reaches 391px and
+     the value still clips. Two columns clears both defects (178px per field,
+     nothing clipped); one column was measured as well and is merely wider
+     (366px) without fixing anything two columns does not already fix, so the
+     narrower re-flow is the smaller change.
+
+     Deliberately NOT `.main .row` — the THREE-column rows were measured in the
+     same run and are clean: «Yeni əməliyyat» (OperationForm:638) renders three
+     115.3px fields and «Yeni sənəd» (DocumentForm:295) 112-122px, with no
+     overflow, no clipping and no wrapped caption. Collapsing those would be an
+     unmeasured behaviour change, not a fix.
+
+     The hook is an EXPLICIT class on the two rows (ReportView:115, :142), not
+     a `[style*="repeat(5,1fr)"]` attribute match. The attribute form was
+     brittle: it silently stops matching if the inline template is ever
+     reformatted, reordered or given a space, which would unhook the fix with
+     no test failure anywhere. The class states the intent and survives any
+     such edit. It carries NO desktop styling — the inline template remains the
+     desktop layout at every width above the breakpoint. */
+  .main .row.sm-report-filter-row{grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important}
+}
+
+/* Grid columns must be allowed to SHRINK below their content's intrinsic
+   width, or a wide table forces its column — and the page — past the viewport.
+
+   Measured on TEST: between 901px and 979px «Anbar və layihələr» pushed the
+   document to 980px and «Hesabatlar» to 981px, while the same two-column
+   `.main .grid` on «İdarə paneli», «Maliyyə göstəriciləri» and «Parametrlər və
+   ixrac» stayed clean at 940px. So the cause is not the two-column layout: it
+   is that a grid item defaults to `min-width:auto`, which refuses to go below
+   the intrinsic width of the table inside it. Both affected cards already wrap
+   their table in `.tw` (`overflow:auto`), so once the column may shrink the
+   table scrolls inside its own card exactly as it does at every other width.
+
+   Deliberately NOT a wider stacking breakpoint: raising the `max-width:900px`
+   ceiling would also restack the three screens that render correctly in that
+   band, which is a behaviour change, not a fix. This rule is unconditional
+   because the same clamp is correct at every width — it changes nothing where
+   the column was already wide enough. */
+.main .grid>*{min-width:0}

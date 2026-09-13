@@ -61,9 +61,74 @@ export type DocumentCancelAction =
                 PGRST202 fallback — one action covers both signatures) */
 export type ConditionWriteAction = 'cond.set'
 
+/* Phase 12 (M12-97) widens the guard to the four nomenclature-request writes.
+   Each is its own action name because they are not interchangeable: one of
+   them is irreversible in a way nothing else on this screen is.
+
+   `nreq.create`  request_new_item      (a pending row, withdrawable)
+   `nreq.approve` approve_item_request  (PERMANENTLY creates an item and
+                                         consumes a 7-digit code — not undoable
+                                         through any supported interface)
+   `nreq.reject`  reject_item_request   (decided row + audit row remain)
+   `nreq.cancel`  cancel_item_request   (decided row + audit row remain)
+
+   None of the four is database-net-zero: withdrawal and rejection are only
+   item-catalogue-neutral, since the decided request and its audit_log row stay
+   permanently (sql/017:432-436, 477-481). */
+export type ItemRequestWriteAction =
+  | 'nreq.create' | 'nreq.approve' | 'nreq.reject' | 'nreq.cancel'
+
+/* Phase 13 (M13-97) widens the guard to the three «Sərfiyyat Materialları»
+   document writes. Each is its own action name because they are not
+   interchangeable, and one of them is irreversible:
+
+   `sm.create`  create_serfiyyat_document (a new document; consumes a
+                `serfiyyat_doc_seq` value that never returns)
+   `sm.edit`    edit_serfiyyat_document   (admin-only server-side; DELETEs and
+                re-INSERTs every line, so line ids are not stable)
+   `sm.delete`  delete_serfiyyat_document (admin-only server-side; the row is
+                DELETEd and its lines cascade — there is NO reversal document,
+                unlike the movements module, and only the audit_log row
+                survives)
+
+   None of the three is database-net-zero: create → delete restores the
+   document CATALOGUE, but the consumed sequence value and the INSERT/DELETE
+   audit history remain permanently (sql/032, schema 2476-2480, 2535-2537). */
+export type SerfiyyatWriteAction = 'sm.create' | 'sm.edit' | 'sm.delete'
+
+/* Phase 17 (M17-107) widens the guard to the Azpetrol / Araz module. Until
+   now this file had NO `azp.*` action at all, which was correct while no
+   write path existed; these are added together with the first write callers,
+   not after them.
+
+   `azp.card-save`   azp_save_card      (create or update a fuel card)
+   `azp.card-delete` azp_delete_card    (a HARD DELETE — see below)
+   `azp.post`        azp_post_movements (1..5000 rows, atomic)
+   `azp.cancel`      azp_cancel_movement
+   `azp.correct`     azp_correct_movement (cancel + replace in one transaction)
+   `azp.app-balance` azp_set_application_balance (moves the module's fund)
+   `azp.import`      the import orchestration as a whole
+
+   `azp.card-delete` is the most consequential action the guard has ever
+   covered. Unlike every cancellation family above it, it leaves NO reversal
+   row and no document to trace: `azp_delete_card` DELETEs the card outright
+   and is recoverable only from a backup. The server refuses any card that
+   carries movements, which bounds the blast radius but does not make the
+   action reversible.
+
+   `azp.import` is guarded SEPARATELY from `azp.post` even though it ends in
+   one, because the import is NOT atomic as a whole (M17-89): it creates
+   cards in a per-card RPC loop first, and a failure after that loop leaves
+   real cards behind with no movements. Blocking the orchestration by its own
+   name stops the loop before its first write rather than midway. */
+export type AzpWriteAction =
+  | 'azp.card-save' | 'azp.card-delete' | 'azp.post' | 'azp.cancel'
+  | 'azp.correct' | 'azp.app-balance' | 'azp.import'
+
 export type GuardedAction =
   ReferenceAction | ItemWriteAction | OperationWriteAction | DocumentCancelAction
-  | ConditionWriteAction
+  | ConditionWriteAction | ItemRequestWriteAction | SerfiyyatWriteAction
+  | AzpWriteAction
 
 export const WRITE_ACTIONS: readonly GuardedAction[] = [
   'create', 'update', 'delete', 'deactivate', 'activate',
@@ -72,6 +137,10 @@ export const WRITE_ACTIONS: readonly GuardedAction[] = [
   'doc.cancel', 'doc.cancel-transfer', 'doc.cancel-row', 'doc.replace-item',
   'doc.cancel-legacy', 'doc.cancel-legacy-transfer', 'doc.cancel-batch',
   'cond.set',
+  'nreq.create', 'nreq.approve', 'nreq.reject', 'nreq.cancel',
+  'sm.create', 'sm.edit', 'sm.delete',
+  'azp.card-save', 'azp.card-delete', 'azp.post', 'azp.cancel',
+  'azp.correct', 'azp.app-balance', 'azp.import',
 ]
 
 /** Every guarded action mutates live data; none is read-only. */

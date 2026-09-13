@@ -194,7 +194,8 @@ export function LayerPickDialog({
           </>
         )}
 
-        {error && <div className="alarm" role="alert">{error}</div>}
+        {/* M18-48 — `.err`, the platform's error class; `alarm` was inert. */}
+        {error && <div className="err" role="alert">{error}</div>}
       </div>
     </Dialog>
   )

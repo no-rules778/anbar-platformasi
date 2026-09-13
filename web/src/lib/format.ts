@@ -50,6 +50,24 @@ export function fmtD(s: string | null | undefined): string {
 }
 
 /**
+ * `fmtM(s)` — index.html:603. `YYYY-MM` → `MM.YYYY`.
+ *
+ * Added by Phase 14 (M14-46): «Hesabatlar»' period report is the first screen
+ * to need it. The rule is deliberately STRICTER than `fmtD`'s — the regex is
+ * anchored at both ends, so a full `YYYY-MM-DD` date does NOT match and is
+ * returned unchanged rather than silently losing its day.
+ *
+ * Like `fmtD`, anything that is not the exact expected shape comes back
+ * untouched and null becomes the empty string, never an em-dash.
+ */
+export function fmtM(s: string | null | undefined): string {
+  if (typeof s === 'string' && /^\d{4}-\d{2}$/.test(s)) {
+    return s.slice(5, 7) + '.' + s.slice(0, 4)
+  }
+  return s ?? ''
+}
+
+/**
  * `TYPE_TAG` — index.html:1415-1418, as the CLASS ONLY.
  *
  * The original returns an HTML string; JSX renders the element, so only the
@@ -69,4 +87,19 @@ const TYPE_TAG_CLASS: Record<string, string> = {
 
 export function typeTagClass(type: string | null | undefined): string {
   return TYPE_TAG_CLASS[String(type ?? '')] ?? 't-mut'
+}
+
+/**
+ * M18-31 — `initials()`, index.html:606:
+ *
+ *   n.trim().split(/\s+/).slice(0,2).map(x => x[0] || '').join('').toUpperCase() || '?'
+ *
+ * At most TWO initials, from the first two whitespace-separated parts. The
+ * legacy `|| '?'` fallback is load-bearing: an empty or whitespace-only name
+ * yields `'?'`, not an empty chip. Ported verbatim rather than "improved" —
+ * the `x[0] || ''` guard is what makes a double space harmless.
+ */
+export function initials(n: string | null | undefined): string {
+  return (n ?? '').trim().split(/\s+/).slice(0, 2)
+    .map((x) => x[0] || '').join('').toUpperCase() || '?'
 }

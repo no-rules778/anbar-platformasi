@@ -164,7 +164,9 @@ describe('NewOperationPage — load on mount', () => {
     })
     render(<NewOperationPage me={ADMIN} />)
     await waitFor(() => expect(screen.getByTestId('operation-form')).toBeTruthy())
-    const select = screen.getByText('Kanal').closest('label')?.querySelector('select')
+    /* M18-56 — the caption is now the legacy «Alınma kanalı»
+       (index.html:3284); «Kanal» was a React abbreviation. */
+    const select = screen.getByText('Alınma kanalı').closest('label')?.querySelector('select')
     const options = Array.from(select?.options ?? []).map((o) => o.textContent)
     expect(options).toContain('Nağd alış')
     expect(options).toContain('Canlı müşahidə')
@@ -1537,12 +1539,16 @@ describe('H-4 — the M5-55 prefill transition', () => {
       })
     })
 
-    /* 1. the item itself */
-    const picked = await screen.findByTestId('picked-item')
-    expect(picked.textContent).toContain('Nasos')
-    expect(picked.textContent).toContain('C1')
-    /* 2. its unit */
-    expect(picked.textContent).toContain('ədəd')
+    /* 1. the item itself. M18-57 — the single-item ROW is always rendered, so
+       its presence no longer signals a selection; legacy's own selection
+       readout is `#o-itemsel` (index.html:3277/3282), «Seçilməyib» replaced by
+       the chosen item. That readout is the probe. */
+    await waitFor(() => expect(screen.getByText('Nasos (C1)')).toBeTruthy())
+    expect(screen.queryByText('Seçilməyib')).toBeNull()
+    /* 2. its unit — M18-56 moved the read-only unit from a bare hint span
+       into the legacy «Ölçü vahidi» field (index.html:3287), so it is now an
+       input VALUE rather than text content. */
+    expect((screen.getByLabelText('Ölçü vahidi') as HTMLInputElement).value).toBe('ədəd')
     /* 3. the balance panel */
     const panel = screen.getByTestId('op-state')
     expect(panel.textContent).toContain('Ələt')
@@ -1582,9 +1588,11 @@ describe('H-4 — the M5-55 prefill transition', () => {
     render(<NewOperationPage me={ADMIN} />)
     await waitFor(() => expect(screen.getByTestId('operation-form')).toBeTruthy())
 
-    /* The code is not in the snapshot yet, so nothing can be applied. */
+    /* The code is not in the snapshot yet, so nothing can be applied. M18-57 —
+       probed through legacy's selection readout rather than the always-present
+       single-item row. */
     act(() => { useOperationStore.getState().prefill('C1') })
-    expect(screen.queryByTestId('picked-item')).toBeNull()
+    expect(screen.getByText('Seçilməyib')).toBeTruthy()
     expect(useOperationStore.getState().pendingPrefill).toBe('C1')
 
     /* It arrives on the next refresh. */
@@ -1594,9 +1602,11 @@ describe('H-4 — the M5-55 prefill transition', () => {
     })
     await act(async () => { await useOperationStore.getState().refresh(ADMIN) })
 
-    const picked = await screen.findByTestId('picked-item')
-    expect(picked.textContent).toContain('Nasos')
-    expect(picked.textContent).toContain('ədəd')
+    /* M18-57 — probed through legacy's `#o-itemsel` readout, not the
+       always-present single-item row. */
+    await waitFor(() => expect(screen.getByText('Nasos (C1)')).toBeTruthy())
+    /* M18-56 — the unit is now the «Ölçü vahidi» input value. */
+    expect((screen.getByLabelText('Ölçü vahidi') as HTMLInputElement).value).toBe('ədəd')
     await waitFor(() => expect(useOperationStore.getState().header.pr).toBe('10'))
     await waitFor(() => expect(useOperationStore.getState().pendingPrefill).toBeNull())
   })
@@ -1969,6 +1979,173 @@ describe('H-4 / T8 — every write path consults the mutation guard', () => {
   it('never blocks on a deployed host', async () => {
     const { blockedReason } = await import('../lib/mutationGuard')
     expect(blockedReason('op.post', { local: false, allowed: false })).toBeNull()
+  })
+})
+
+/* Characterisation of the three presentation contracts Phase 18 repaired on
+   this screen (M18-53 subtitle, M18-40 two-column workspace, M18-44/M18-56
+   field order). All three were correct in the source but pinned by NO test,
+   so a future paraphrase or a dropped inline grid template would regress them
+   silently. These assert the LEGACY strings and structure verbatim; each one
+   fails if the value drifts to the React paraphrase it replaced. */
+describe('legacy presentation contracts — M18-40, M18-53, M18-56', () => {
+  /* An earlier suite in this file replaces `localStorage` with a stub that
+     has no clear() and never unstubs it (see layeredBulkCore, line 1097), so
+     a previous test's persisted draft is restored into these tests and flips
+     the form to the write-off state, where the item block does not render at
+     all (`isWoOut`, index.html:3255). The store reset in the file-level
+     beforeEach does not touch storage, so the key is removed here exactly as
+     layeredBulkCore does. Without this the tests pass in isolation and fail
+     in the full file — an order dependence, not an application defect. */
+  beforeEach(() => {
+    try { localStorage.removeItem('anbar_op_draft_u1') } catch { /* no storage */ }
+  })
+
+  it('renders the FULL legacy subtitle, index.html:296 verbatim', async () => {
+    render(<NewOperationPage me={ADMIN} />)
+    await waitFor(() => expect(screen.getByTestId('operation-form')).toBeTruthy())
+    const sub = document.querySelector('.phead p')
+    expect(sub?.textContent).toBe(
+      'Mədaxil, məxaric və anbarlararası yerdəyişməni bir formadan qeyd edin.'
+      + ' Yerdəyişmə avtomatik olaraq iki qeyd yaradır.',
+    )
+    /* Falsifying control — the paraphrase this replaced must NOT match, and
+       neither may a truncation that keeps only the first sentence. */
+    expect(sub?.textContent).not.toBe('Mədaxil, məxaric və yerdəyişmə sənədləri.')
+    expect(sub?.textContent).toContain('iki qeyd yaradır')
+  })
+
+  it('lays the workspace out as the legacy two-column grid, index.html:297', async () => {
+    render(<NewOperationPage me={ADMIN} />)
+    await waitFor(() => expect(screen.getByTestId('operation-form')).toBeTruthy())
+    const grid = screen.getByTestId('operation-form').parentElement
+    /* The legacy authority is `.grid` carrying an INLINE template. A class
+       that matches no stylesheet rule (the `grid2` defect) is inert, so the
+       class name alone is not evidence — the template must be present. */
+    expect(grid?.className).toBe('grid')
+    expect((grid as HTMLElement)?.style.gridTemplateColumns)
+      .toBe('minmax(0,1.15fr) minmax(0,.85fr)')
+  })
+
+  it('stacks BOTH right-column cards beside the form, index.html:303-310', async () => {
+    render(<NewOperationPage me={ADMIN} />)
+    await waitFor(() => expect(screen.getByTestId('operation-form')).toBeTruthy())
+    const grid = screen.getByTestId('operation-form').parentElement
+    /* Exactly two grid children: the form, then the right column holding the
+       lines panel ABOVE the item-state panel. The reported defect had the
+       lines panel outside the grid entirely. */
+    expect(grid?.children.length).toBe(2)
+    const right = grid?.children[1] as HTMLElement
+    expect(right.contains(screen.getByTestId('draft-lines-panel'))).toBe(true)
+    expect(right.contains(screen.getByTestId('op-state'))).toBe(true)
+    expect(
+      right.querySelector('[data-testid="draft-lines-panel"]')!
+        .compareDocumentPosition(right.querySelector('[data-testid="op-state"]')!)
+      & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+  })
+
+  /* M18-57 — the quantity row is NOT a picked-state contract. Legacy `rOp()`
+     emits «Miqdar» / «Ölçü vahidi» / «Vahidin qiyməti» unconditionally
+     (index.html:3278-3282); the only state without them is out + «Silinmə»,
+     where «Malları seç» replaces the single-item route. The earlier version of
+     this test asserted the opposite (`not.toContain('Miqdar')`), which pinned
+     the React gating DEFECT as if it were the legacy contract — an empty form
+     was three fields short of production. `Seçilməyib` is legacy's own
+     selected-item hint (index.html:3277) and is itself a `label.f > span`,
+     so it is part of the sequence rather than noise to filter out. */
+  it('renders the legacy FIELD ORDER before an item is picked, rOp() 3261-3300', async () => {
+    render(<NewOperationPage me={ADMIN} />)
+    await waitFor(() => expect(screen.getByTestId('operation-form')).toBeTruthy())
+    const form = screen.getByTestId('operation-form')
+    /* Every field caption in DOM order. Asserting the SEQUENCE catches a
+       reordering that a set of individual getByText calls would pass. */
+    const captions = Array.from(form.querySelectorAll('label.f > span'))
+      .map((s) => s.textContent)
+    expect(captions).toEqual([
+      'Tarix',
+      'Əməliyyatın növü',
+      'Anbar',
+      'Kontragent',
+      'Mal (ad və ya kod yazın)',
+      'Seçilməyib',
+      'Miqdar',
+      'Ölçü vahidi',
+      'Vahidin qiyməti (₼)',
+      'Alınma kanalı',
+      'Müqavilə №',
+      'Qaimə №',
+      'Qeyd',
+    ])
+    /* Falsifying control — the quantity row must sit AFTER the item search,
+       not be hoisted up into the header grid (the defect M18-56 records). */
+    expect(captions.indexOf('Miqdar')).toBeGreaterThan(captions.indexOf('Mal (ad və ya kod yazın)'))
+    expect(captions.indexOf('Vahidin qiyməti (₼)')).toBeLessThan(captions.indexOf('Alınma kanalı'))
+    /* «Sətri əlavə et» is the LAST control (index.html:3296). */
+    const buttons = Array.from(form.querySelectorAll('button')).map((b) => b.textContent)
+    expect(buttons.at(-1)).toBe('Sətri əlavə et')
+  })
+
+  it('inserts the quantity row at step 5 once an item is picked, index.html:3285-3289', async () => {
+    /* The prefill transition the file already uses elsewhere: the pick is
+       issued BEFORE mount, so no combobox interaction is needed. */
+    act(() => { useOperationStore.getState().prefill('C1') })
+    render(<NewOperationPage me={ADMIN} />)
+    await waitFor(() => expect(screen.getByTestId('operation-form')).toBeTruthy())
+    /* M18-57 — wait for the SELECTION, which legacy signals by replacing
+       «Seçilməyib» in `#o-itemsel`; the row itself is always present. */
+    await waitFor(() => expect(screen.queryByText('Seçilməyib')).toBeNull())
+    const form = screen.getByTestId('operation-form')
+    const captions = Array.from(form.querySelectorAll('label.f > span'))
+      .map((s) => s.textContent)
+    /* Step 4 is the selected-item hint, which legacy REPLACES with the
+       selection itself (`Seçildi: <code> · <unit>`, index.html:3394). Its
+       text is fixture-dependent, so the slot is asserted by position and by
+       carrying the picked code — pinning the contract, not `okCore()`'s
+       particular item name. */
+    expect(captions[5]).toContain('C1')
+    expect(captions[5]).not.toBe('Seçilməyib')
+    /* The full nine-step legacy order, with the quantity row now present
+       BETWEEN the item block and «Alınma kanalı» — not appended at the end
+       and not hoisted into the header. */
+    expect([...captions.slice(0, 5), ...captions.slice(6)]).toEqual([
+      'Tarix',
+      'Əməliyyatın növü',
+      'Anbar',
+      'Kontragent',
+      'Mal (ad və ya kod yazın)',
+      'Miqdar',
+      'Ölçü vahidi',
+      'Vahidin qiyməti (₼)',
+      'Alınma kanalı',
+      'Müqavilə №',
+      'Qaimə №',
+      'Qeyd',
+    ])
+  })
+
+  it('keeps the legacy field order on a TRANSFER, incl. the warehouse pair', async () => {
+    const user = userEvent.setup()
+    render(<NewOperationPage me={ADMIN} />)
+    await waitFor(() => expect(screen.getByTestId('operation-form')).toBeTruthy())
+    /* The segment control is a tablist (role="tab"), not plain buttons. */
+    await user.click(screen.getByRole('tab', { name: 'Yerdəyişmə' }))
+    const form = screen.getByTestId('operation-form')
+    const captions = Array.from(form.querySelectorAll('label.f > span'))
+      .map((s) => s.textContent)
+    /* index.html:3268-3269 — the transfer replaces «Anbar»+«Kontragent» with
+       the source/destination pair, and drops «Vahidin qiyməti» and «Alınma
+       kanalı»/«Müqavilə №», which are inbound-only. */
+    expect(captions.slice(0, 4)).toEqual([
+      'Tarix', 'Əməliyyatın növü', 'Haradan (anbar)', 'Hara (anbar)',
+    ])
+    expect(captions).not.toContain('Kontragent')
+    expect(captions).not.toContain('Vahidin qiyməti (₼)')
+    expect(captions).not.toContain('Alınma kanalı')
+    /* Positive control — the inbound-only captions are absent because the
+       KIND changed, not because the selector is wrong. */
+    expect(captions).toContain('Mal (ad və ya kod yazın)')
+    expect(captions).toContain('Qeyd')
   })
 })
 

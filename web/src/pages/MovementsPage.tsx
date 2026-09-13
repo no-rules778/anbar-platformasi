@@ -16,6 +16,7 @@ import {
   resolvedCorrections, unresolvedCorrectionText,
 } from '../lib/correctionReconcile'
 import { useOperationStore } from '../store/operation.store'
+import { useExportRequestStore } from '../store/exportRequest.store'
 import {
   EditDocumentDialog, type EditDocumentTarget,
 } from '../components/movements/EditDocumentDialog'
@@ -296,6 +297,41 @@ export function MovementsPage({ me, onNewOperation, onEditDocument }: Props) {
        carries no toast of its own — see the note in that file. */
     showToast('mal_hereketi.xlsx yükləndi')
   }
+
+  /* M16-11 — a Settings-initiated export, the React form of legacy
+     `go('mov'); setTimeout(() => $('#mov-exp').click(), 50)`
+     (index.html:7197). The request is consumed ONCE and runs THIS page's
+     `exportXls()`, so the matrix, the filters and the `canExport` gate are
+     the same ones the on-screen «Excel» button uses — there is no second
+     export path.
+
+     Gated on `canExport` exactly like the button: arriving before the first
+     complete snapshot must not write a header-only workbook that would read
+     as a genuine empty result.
+
+     The request is consumed WHEN THE EXPORT RUNS, not on arrival. Settings
+     navigates here while the snapshot is still loading, so `canExport` is
+     false on the first render; consuming then would clear the request a tick
+     before the data arrived and the user would get no file at all — a silent
+     failure, and the one this milestone exists to prevent. Waiting for the
+     gate keeps the request alive across that transition, and the unmount
+     cleanup below stops it leaking into a later visit. */
+  const pendingExport = useExportRequestStore((s) => s.pending)
+  const consumeExport = useExportRequestStore((s) => s.consume)
+  useEffect(() => {
+    if (pendingExport !== 'mov' || !canExport) return
+    consumeExport()
+    exportXls()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingExport, canExport])
+
+  /* Leaving the page abandons an unsatisfied request: it was addressed to
+     THIS visit. Without this, a request dropped by a failed load would fire
+     the next time the page happened to open. */
+  useEffect(() => () => {
+    if (useExportRequestStore.getState().pending === 'mov') consumeExport()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   /* M8-50 (I-9) — the SEPARATE «Silinmə» report, `xlsWriteOff()`.
 

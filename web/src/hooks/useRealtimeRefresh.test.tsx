@@ -66,7 +66,10 @@ describe('subscription shape (M9-131, D-J2)', () => {
   it('opens exactly ONE channel and subscribes to exactly the given tables, once each', () => {
     render(<Harness enabled tables={TABLES} onChange={() => {}} />)
     expect(channels).toHaveLength(1)
-    expect(channels[0].name).toBe('anbar_changes')
+    /* The topic carries a per-setup unique suffix, so only the PREFIX is a
+       stable contract. A constant topic would collide with itself during a
+       StrictMode effect replay — see `useRealtimeRefresh.shared.test.tsx`. */
+    expect(channels[0].name).toMatch(/^anbar_changes:\d+$/)
     expect(channels[0].tables).toEqual([...TABLES])
     /* One handler per table — not one per render. */
     expect(channels[0].handlers).toHaveLength(4)

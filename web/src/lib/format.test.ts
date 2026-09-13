@@ -1,5 +1,31 @@
+import { fmtM } from './format'
 import { describe, it, expect } from 'vitest'
-import { nf, money, today } from './format'
+
+/* `fmtM` — index.html:603, added by Phase 14 (M14-46). */
+describe('fmtM — index.html:603', () => {
+  it('formats an exact YYYY-MM key as MM.YYYY', () => {
+    expect(fmtM('2026-03')).toBe('03.2026')
+    expect(fmtM('2025-12')).toBe('12.2025')
+  })
+
+  /* The anchored regex is the point: a full date must NOT match, or the day
+     would be silently discarded. */
+  it('returns a full YYYY-MM-DD date unchanged rather than dropping the day', () => {
+    expect(fmtM('2026-03-15')).toBe('2026-03-15')
+  })
+
+  it('returns any other string unchanged', () => {
+    expect(fmtM('mart')).toBe('mart')
+    expect(fmtM('')).toBe('')
+  })
+
+  /* Like fmtD: null becomes the EMPTY STRING, never an em-dash. */
+  it('maps null and undefined to the empty string', () => {
+    expect(fmtM(null)).toBe('')
+    expect(fmtM(undefined)).toBe('')
+  })
+})
+import { initials, nf, money, today } from './format'
 
 /* M5-14 / M5-15 — ported verbatim from index.html:594-599 (Q4). */
 
@@ -68,5 +94,38 @@ describe('money', () => {
 describe('today', () => {
   it('returns an ISO yyyy-mm-dd string', () => {
     expect(today()).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+  })
+})
+
+/* M18-31 — `initials()`, index.html:606. Ported verbatim, including the two
+   guards that look redundant and are not. */
+describe('initials — index.html:606', () => {
+  it('takes the first letter of the first TWO parts, uppercased', () => {
+    expect(initials('Aysel Məmmədova')).toBe('AM')
+    expect(initials('rəşad quliyev')).toBe('RQ')
+  })
+
+  it('stops at two even when the name has more parts', () => {
+    /* `.slice(0,2)` — a three-part name must not yield three letters. */
+    expect(initials('Aysel Nigar Məmmədova')).toBe('AN')
+  })
+
+  it('handles a single-word name', () => {
+    expect(initials('Admin')).toBe('A')
+  })
+
+  it('falls back to «?» for an empty or whitespace-only name', () => {
+    /* The legacy `|| '?'` is load-bearing: an empty chip would look broken. */
+    expect(initials('')).toBe('?')
+    expect(initials('   ')).toBe('?')
+    expect(initials(null)).toBe('?')
+    expect(initials(undefined)).toBe('?')
+  })
+
+  it('is unharmed by irregular whitespace', () => {
+    /* `split(/\s+/)` after `trim()` — a double space must not produce an
+       empty initial, which is what the `x[0] || ''` guard is for. */
+    expect(initials('  Aysel   Məmmədova  ')).toBe('AM')
+    expect(initials('Aysel	Məmmədova')).toBe('AM')
   })
 })

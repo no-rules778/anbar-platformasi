@@ -11,7 +11,9 @@ const bal = (over: Partial<WarehouseBalance>): WarehouseBalance => ({
 describe('ItemStatePanel — M7-24', () => {
   it('shows the no-selection state when nothing is picked', () => {
     render(<ItemStatePanel code={null} bal={[]} />)
-    expect(screen.getByText('Mal seçilməyib.')).toBeTruthy()
+    /* M18-55 — the legacy initial text (index.html:309); «Mal seçilməyib.»
+       was a React paraphrase. */
+    expect(screen.getByText('Mal seçin — bütün anbarlar üzrə qalıq burada görünəcək.')).toBeTruthy()
   })
 
   it('shows the empty-movement text for a code with no balance rows', () => {

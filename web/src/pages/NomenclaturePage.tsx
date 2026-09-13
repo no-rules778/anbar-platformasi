@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNomenclatureStore } from '../store/nomenclature.store'
+import { useExportRequestStore } from '../store/exportRequest.store'
 import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh'
 import { filterItems, type ItemOnlyFilter } from '../lib/itemFilters'
 import { applyCut, SHOW_MAX } from '../lib/showAllCut'
@@ -58,11 +59,14 @@ export function NomenclaturePage({ me, onOpenOperation }: Props) {
 
   const [dialog, setDialog] = useState<Dialog>(null)
   const [printedAt, setPrintedAt] = useState<Date | null>(null)
+  const [initialLoadSettled, setInitialLoadSettled] = useState(false)
   /* Debounced search text, mirroring the original's 200 ms debounce (2418). */
   const [search, setSearch] = useState(filters.q)
 
   useEffect(() => {
-    void load()
+    let active = true
+    void load().finally(() => { if (active) setInitialLoadSettled(true) })
+    return () => { active = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -114,6 +118,32 @@ export function NomenclaturePage({ me, onOpenOperation }: Props) {
       'nomenklatura',
     )
   }
+
+  /* M16-11 — a Settings-initiated export, the React form of legacy
+     `go('nom'); setTimeout(() => $('#nom-exp').click(), 50)`
+     (index.html:7197). Consumed ONCE and runs THIS page's `exportXls()`, so
+     the exported matrix is `nomenclatureExportMatrix` over the same filtered
+     `rows` the «Excel» button uses. No second export path exists.
+
+     The page's own «Excel» button remains ungated. The cross-page request,
+     however, must wait for this visit's initial load to settle: on a cold
+     visit the store is empty when the first effect runs, whereas legacy's
+     global DB snapshot was already populated before `rSet()` could click the
+     destination button. Exporting on that first React render silently writes
+     an empty workbook. */
+  const pendingExport = useExportRequestStore((s) => s.pending)
+  const consumeExport = useExportRequestStore((s) => s.consume)
+  useEffect(() => {
+    if (pendingExport !== 'nom' || !initialLoadSettled) return
+    consumeExport()
+    exportXls()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingExport, initialLoadSettled])
+
+  useEffect(() => () => {
+    if (useExportRequestStore.getState().pending === 'nom') consumeExport()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   function reload() { setDialog(null); void load() }
 
@@ -211,7 +241,16 @@ export function NomenclaturePage({ me, onOpenOperation }: Props) {
 
       {/* Footer (2448-2450): the total-in-database suffix appears ONLY when
           the filtered count differs from the whole directory. */}
-      <div className="pager">
+      {/* M18-45 — the footer wrapper, index.html:340. Legacy's `#nom-pager` is
+          a `.pad` carrying an inline top border and flex row; `pager` is a
+          class name no stylesheet defines, so this footer rendered with no
+          separator and no padding at all. Every sibling screen already uses
+          the legacy idiom (BalancesPage:504, ItemRequestsPage:219), which is
+          what this adopts — no new rule is introduced. */}
+      <div
+        className="pad"
+        style={{ borderTop: '1px solid var(--line-2)', display: 'flex', alignItems: 'center', gap: 10 }}
+      >
         <span className="hint">
           {nf(rows.length)} mal
           {rows.length !== items.length ? ` (bazada cəmi ${nf(items.length)})` : ''}

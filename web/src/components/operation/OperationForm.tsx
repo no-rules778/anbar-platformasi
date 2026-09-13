@@ -428,7 +428,15 @@ export function OperationForm({
             key={k}
             role="tab"
             aria-selected={kind === k}
-            className={kind === k ? 'active' : ''}
+            /* M18-43 — the selected tab's class is `on`, not `active`.
+               `.seg button.on` is the platform rule (index.css, index.html:116);
+               `active` is defined nowhere, so the chosen tab rendered with no
+               steel background at all — measured in Chrome as a transparent
+               background against `.on`'s rgb(31,78,107). Every other segment
+               control on the platform (Balances, Nomenklatura, Sərfiyyat,
+               Anbar və layihələr, Azpetrol) already uses `on`; this was the
+               single outlier. */
+            className={kind === k ? 'on' : undefined}
             onClick={() => onSetKind(k)}
           >
             {k === 'in' ? 'Mədaxil' : k === 'out' ? 'Məxaric' : 'Yerdəyişmə'}
@@ -436,14 +444,21 @@ export function OperationForm({
         ))}
       </div>
 
-      <div className="grid2">
+      {/* M18-44 — the header field grid, index.html:3262. Legacy builds every
+          header block as `.row` with an INLINE grid-template-columns; `.row`
+          is `display:grid;gap:10px` (index.css:132) and the template is what
+          gives it columns. `grid2` is defined nowhere, so these fields
+          stacked one per row at full width — which is what turned empty
+          inputs into large blank blocks down the page. */}
+      <div className="row" style={{ gridTemplateColumns: '1fr 1fr' }}>
         <label className="f">
           <span>Tarix</span>
           <Input type="date" value={header.d} onChange={(e) => onSetHeaderField({ d: e.target.value })} />
         </label>
 
         <label className="f">
-          <span>Növ</span>
+          {/* M18-56 — index.html:3265. «Növ» was a React abbreviation. */}
+          <span>Əməliyyatın növü</span>
           <select value={header.t} onChange={(e) => onSetHeaderField({ t: e.target.value })}>
             {types.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
@@ -451,14 +466,16 @@ export function OperationForm({
 
         {kind === 'mv' ? (
           <>
+            {/* M18-56 — index.html:3268-3269 captions. «Mənbə anbar» /
+                «Təyinat anbar» were React paraphrases. */}
             <label className="f">
-              <span>Mənbə anbar</span>
+              <span>Haradan (anbar)</span>
               <select value={header.w} onChange={(e) => onWarehouseChange(e.target.value)}>
                 {transferSources.map((w) => <option key={w} value={w}>{w}</option>)}
               </select>
             </label>
             <label className="f">
-              <span>Təyinat anbar</span>
+              <span>Hara (anbar)</span>
               <select value={header.w2} onChange={(e) => onSetHeaderField({ w2: e.target.value })}>
                 {transferDests.map((w) => <option key={w} value={w}>{w}</option>)}
               </select>
@@ -488,49 +505,6 @@ export function OperationForm({
           </label>
         )}
 
-        {kind === 'in' && (
-          <>
-            <label className="f">
-              <span>Kanal</span>
-              <select value={header.ch} onChange={(e) => onSetHeaderField({ ch: e.target.value })}>
-                <option value="">—</option>
-                {channelList.map((c) => <option key={c} value={c}>{c}</option>)}
-              </select>
-            </label>
-            <label className="f">
-              <span>Müqavilə №</span>
-              <Input value={header.ct} onChange={(e) => onSetHeaderField({ ct: e.target.value })} />
-            </label>
-            <label className="f">
-              <span>Qaimə №</span>
-              <Input value={header.iv} onChange={(e) => onSetHeaderField({ iv: e.target.value })} />
-            </label>
-            <label className="f">
-              <span>Qiymət</span>
-              <Input type="number" step="0.01" value={header.pr ?? ''} onChange={(e) => onSetHeaderField({ pr: e.target.value })} />
-            </label>
-          </>
-        )}
-
-        {/* M7-13 / M7-14 — the out and mv hints differ (index.html:3292-3295):
-            on a transfer the single number is written to BOTH legs, which is
-            what the mv wording tells the user. */}
-        {kind !== 'in' && (
-          <label className="f">
-            <span>Qaimə №</span>
-            <Input value={header.iv} onChange={(e) => onSetHeaderField({ iv: e.target.value })} />
-            <span className="hint">
-              {kind === 'mv'
-                ? 'əl ilə yazılır — hər iki tərəfə yazılır'
-                : 'əl ilə yazılır'}
-            </span>
-          </label>
-        )}
-
-        <label className="f" style={{ gridColumn: '1 / -1' }}>
-          <span>Qeyd</span>
-          <Input value={header.note} onChange={(e) => onSetHeaderField({ note: e.target.value })} />
-        </label>
       </div>
 
       {/* M7-56 — the bulk entry point. On `out`+«Silinmə» it REPLACES the
@@ -546,15 +520,26 @@ export function OperationForm({
 
       {!showBulkWo && (
         <div className="pad">
-          <label className="f">
-            <span>Mal axtar</span>
+          {/* M18-47 — the relative wrapper legacy puts around the input and
+              its result box (index.html:3299). The `.combobox-results` rule is
+              `position:absolute`, which resolves against the nearest
+              positioned ancestor — without this wrapper the list would
+              position against the page instead of the field. */}
+          <label className="f combobox-wrap">
+            {/* M18-56 — index.html:3279 caption and placeholder. «Mal axtar»
+                was a React abbreviation. */}
+            <span>Mal (ad və ya kod yazın)</span>
             <Input
               ref={searchRef}
+              type="text"
+              autoComplete="off"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="min. 2 hərf"
+              placeholder="məs. kabel, 0000123…"
               aria-label="Mal axtarışı"
             />
+            {/* index.html:3282 — `#o-itemsel`, the current selection readout. */}
+            <span className="hint">{pickedItem ? `${pickedItem.name} (${pick})` : 'Seçilməyib'}</span>
           </label>
           {debouncedQuery.trim().length >= 2 && (
             candidates.length === 0 ? (
@@ -586,48 +571,155 @@ export function OperationForm({
             )
           )}
 
-          {pickedItem && (
-            <div className="pad" data-testid="picked-item">
-              <div><b>{pickedItem.name}</b> ({pick})</div>
+          <div className="pad" data-testid="picked-item">
+            {/* M18-57 — the quantity / unit / price row is ALWAYS present in
+                the ordinary single-item flow, not gated on a pick.
+
+                Legacy emits this row unconditionally inside the `isWoOut ? ''
+                : …` branch (index.html:3278-3282): the only state in which it
+                does not exist is out + «Silinmə», where «Malları seç»
+                replaces the whole single-item route — and that branch already
+                excludes this block through `!showBulkWo` above. Gating on
+                `pickedItem` meant an empty «Mədaxil» form showed no quantity,
+                no unit and no price at all until an item was chosen, so the
+                form a user first sees was three fields short of production.
+
+                Before a pick the row is simply EMPTY: `qty` is '', the unit
+                resolves to '' and shows its `—` placeholder, and the price
+                renders the header value it is bound to. «Sətri əlavə et»
+                stays disabled on `!pick`, so a visible row cannot commit a
+                line without a selected item. */}
+            <div className="row" style={{ gridTemplateColumns: kind === 'in' ? '1fr 1fr 1fr' : '1fr 1fr' }}>
               <label className="f">
                 <span>Miqdar</span>
                 <Input
                   ref={qtyRef}
-                  type="number" step="0.01" value={qty} readOnly={showSplit}
+                  type="number" step="0.01" min="0" placeholder="0"
+                  value={qty} readOnly={showSplit}
                   onChange={(e) => setQty(e.target.value)}
                 />
-                <span className="hint">{pickedItem.unit}</span>
               </label>
-
-              {showSplit && buckets && (
-                <div data-testid="cond-split">
-                  {COND_COLS.map((cc) => (
-                    <label key={cc.k} className="f">
-                      <span>{cc.t} (max {buckets[cc.k]})</span>
-                      <Input
-                        type="number" step="0.01"
-                        value={split?.[cc.k] ?? 0}
-                        onChange={(e) => {
-                          const v = Math.min(num(e.target.value), buckets[cc.k])
-                          const base = split ?? condSplitZero()
-                          const next = { ...base, [cc.k]: v }
-                          setSplit(next)
-                          setQty(String(COND_COLS.reduce((s, c2) => s + (next[c2.k] || 0), next.normal || 0)))
-                        }}
-                      />
-                    </label>
-                  ))}
-                </div>
+              <label className="f">
+                <span>Ölçü vahidi</span>
+                <Input value={pickedItem?.unit ?? ''} readOnly placeholder="—" />
+              </label>
+              {kind === 'in' && (
+                <label className="f">
+                  <span>Vahidin qiyməti (₼)</span>
+                  <Input
+                    type="number" step="0.01" min="0" value={header.pr ?? ''}
+                    placeholder="0.00"
+                    onChange={(e) => onSetHeaderField({ pr: e.target.value })}
+                  />
+                </label>
               )}
-
-              {error && <div className="alarm">{error}</div>}
-              {warn && <div className="hint">{warn}</div>}
-
-              <Button onClick={onAddLine} disabled={!qty || num(qty) <= 0}>Sətri əlavə et</Button>
             </div>
-          )}
+
+            {/* `showSplit` already implies a pick (`buckets` is null without
+                one), so the split block keeps its existing gating. */}
+            {showSplit && buckets && (
+              <div data-testid="cond-split">
+                {COND_COLS.map((cc) => (
+                  <label key={cc.k} className="f">
+                    <span>{cc.t} (max {buckets[cc.k]})</span>
+                    <Input
+                      type="number" step="0.01"
+                      value={split?.[cc.k] ?? 0}
+                      onChange={(e) => {
+                        const v = Math.min(num(e.target.value), buckets[cc.k])
+                        const base = split ?? condSplitZero()
+                        const next = { ...base, [cc.k]: v }
+                        setSplit(next)
+                        setQty(String(COND_COLS.reduce((s, c2) => s + (next[c2.k] || 0), next.normal || 0)))
+                      }}
+                    />
+                  </label>
+                ))}
+              </div>
+            )}
+
+          </div>
         </div>
       )}
+
+      {/* M18-56 — index.html:3290-3296. These trail the item block in
+          production; React had hoisted them into the header grid ABOVE the
+          item search. Every field keeps its own header key and handler, so
+          only the position changes. */}
+      <div className="pad">
+        {kind === 'in' && (
+          <div className="row" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
+            <label className="f">
+              <span>Alınma kanalı</span>
+              <select value={header.ch} onChange={(e) => onSetHeaderField({ ch: e.target.value })}>
+                <option value="">—</option>
+                {channelList.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </label>
+            <label className="f">
+              <span>Müqavilə №</span>
+              <Input
+                value={header.ct} placeholder="məs. №06/2026"
+                onChange={(e) => onSetHeaderField({ ct: e.target.value })}
+              />
+            </label>
+            <label className="f">
+              <span>Qaimə №</span>
+              <Input
+                value={header.iv} placeholder="məs. 83951"
+                onChange={(e) => onSetHeaderField({ iv: e.target.value })}
+              />
+            </label>
+          </div>
+        )}
+
+        {/* M7-13 / M7-14 — the out and mv hints differ (index.html:3292-3295):
+            on a transfer the single number is written to BOTH legs, which is
+            what the mv wording tells the user. */}
+        {kind !== 'in' && (
+          <div className="row" style={{ gridTemplateColumns: '1fr' }}>
+            <label className="f">
+              <span>Qaimə №</span>
+              <Input
+                value={header.iv}
+                placeholder={kind === 'mv' ? 'məs. YD-2026/041' : 'məs. 83951'}
+                onChange={(e) => onSetHeaderField({ iv: e.target.value })}
+              />
+              <span className="hint">
+                {kind === 'mv'
+                  ? 'Anbarlararası təhvil-təslim sənədinin nömrəsi — əl ilə yazılır, kontragentə bağlı deyil. Hər iki sətirdə eyni saxlanılır.'
+                  : 'Məxaric sənədinin nömrəsi — əl ilə yazılır.'}
+              </span>
+            </label>
+          </div>
+        )}
+
+        <label className="f">
+          <span>Qeyd</span>
+          <Input
+            value={header.note}
+            placeholder="istəyə bağlı — əsaslandırma, sifariş nömrəsi, məsul şəxs"
+            onChange={(e) => onSetHeaderField({ note: e.target.value })}
+          />
+        </label>
+
+        {/* M18-56 — index.html:3296. «Sətri əlavə et» is the LAST control of
+            the form, after Qeyd, sharing its row with `#o-err`. It previously
+            sat inside the picked-item block, which put it ABOVE channel,
+            contract, invoice and note. It stays disabled until a quantity is
+            entered, and it is absent on out+«Silinmə», where «Malları seç»
+            replaces the whole single-item route (isWoOut, index.html:3297). */}
+        {!showBulkWo && (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Button onClick={onAddLine} disabled={!pick || !qty || num(qty) <= 0}>Sətri əlavə et</Button>
+            {/* M18-48 — `.err` is the platform's error class (index.html:110);
+                `alarm` is defined nowhere and rendered as plain ink instead
+                of red. */}
+            {error && <span className="err">{error}</span>}
+            {warn && <span className="hint">{warn}</span>}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

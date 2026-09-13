@@ -21,10 +21,23 @@ export function ItemStatePanel({ code, bal }: Props) {
   )
 
   return (
+    /* M18-51 — the legacy card, index.html:309. Two corrections:
+
+       · the heading is «Seçilmiş malın vəziyyəti», the legacy wording. «Mal
+         üzrə vəziyyət» was a React paraphrase.
+       · the title sits in a `<header>`, which is what the platform's
+         `.card>header` rule styles (padding + bottom border, index.css:68).
+         A bare <h3> child of `.card` matches no rule, so it rendered
+         unpadded and with no separator from the body. */
     <div className="card" data-testid="op-state">
-      <h3>Mal üzrə vəziyyət</h3>
+      <header><h3>Seçilmiş malın vəziyyəti</h3></header>
+      {/* M18-55 — index.html:309. The INITIAL state is the legacy hint that
+          tells the user what the panel will show once an item is picked;
+          «Mal seçilməyib.» was a React paraphrase that stated only the
+          negative. The no-rows case below keeps its own legacy text
+          (index.html:3450), which was already correct. */}
       {!code ? (
-        <div className="empty">Mal seçilməyib.</div>
+        <div className="empty">Mal seçin — bütün anbarlar üzrə qalıq burada görünəcək.</div>
       ) : rows.length === 0 ? (
         <div className="empty">Bu mal üzrə hələ hərəkət yoxdur.</div>
       ) : (

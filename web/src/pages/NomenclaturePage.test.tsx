@@ -330,7 +330,8 @@ describe('show-all cut (M5-18)', () => {
 describe('A10 — Realtime refresh', () => {
   it('opens the shared channel', async () => {
     await renderPage()
-    expect(supabase.channel).toHaveBeenCalledWith('anbar_changes')
+    /* Per-setup unique topic (`anbar_changes:<n>`); only the prefix is fixed. */
+    expect(vi.mocked(supabase.channel).mock.calls[0][0]).toMatch(/^anbar_changes:\d+$/)
   })
 
   it('watches items, movements and warehouses', async () => {

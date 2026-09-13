@@ -34,8 +34,13 @@ function renderPanel(props: Partial<Parameters<typeof DraftLinesPanel>[0]> = {})
 
 describe('DraftLinesPanel — M7-40/41', () => {
   it('shows the empty state with no lines', () => {
-    renderPanel()
-    expect(screen.getByText('Sətir əlavə edilməyib.')).toBeTruthy()
+    const { container } = renderPanel()
+    /* M18-54 — the legacy empty state is `tbl()`'s shape (index.html:1411):
+       a bold «Məlumat yoxdur» plus the caller's text (index.html:3751).
+       «Sətir əlavə edilməyib.» was a React paraphrase. The exact strings are
+       pinned in LegacyFieldOrder.test.tsx; this only asserts the state is
+       still shown. */
+    expect(container.querySelector('.empty > b')?.textContent).toBe('Məlumat yoxdur')
   })
 
   it('lists lines and reports the counter with total and priceless count', () => {

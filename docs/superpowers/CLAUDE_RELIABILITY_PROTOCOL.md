@@ -135,6 +135,15 @@ audit. Update authoritative documents only after implementation and checks pass.
 If one task is blocked, continue with another independent authorised pure-logic
 or read-only task. Stop only when every safe in-scope alternative is exhausted.
 
+For the multi-phase migration, an isolated evidence gap in one phase does not
+justify waiting when the next roadmap phase is independent and already within
+the owner's standing migration scope. Preserve the open row and its exact
+blocker in the ledger/handoff, leave that phase `NOT ACCEPTED`, and continue
+the next safe phase. Pause only when the blocker is a real dependency of all
+remaining work, a new owner decision would change behaviour, or the next step
+requires authority not already granted. Never ask the owner to say “continue”
+merely because a coherent slice or phase report has been completed.
+
 ## 14. Final self-review
 
 Before saying "Done", verify:

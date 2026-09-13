@@ -109,8 +109,11 @@ describe('mutationGuard — Phase 7 operation writes', () => {
   it('did not disturb the existing reference and item actions', () => {
     expect(WRITE_ACTIONS).toContain('create')
     expect(WRITE_ACTIONS).toContain('item.create')
-    /* 21 through Phase 8; Phase 9 adds `cond.set` (M9-107). */
-    expect(WRITE_ACTIONS).toHaveLength(22)
+    /* 21 through Phase 8; Phase 9 adds `cond.set` (M9-107); Phase 12 adds the
+       four nomenclature-request writes (M12-97); Phase 13 adds the three
+       Sərfiyyat document writes (M13-97); Phase 17 adds the seven Azpetrol /
+       Araz writes (M17-107), taking 29 → 36. */
+    expect(WRITE_ACTIONS).toHaveLength(36)
   })
 })
 
@@ -179,6 +182,107 @@ describe('mutationGuard — document cancellation actions (I-4)', () => {
       expect(isWrite(a)).toBe(true)
       expect(blockedReason(a, { local: true, allowed: false })).toMatch(/bloklanıb/)
       expect(blockedReason(a, { local: false, allowed: false })).toBeNull()
+    }
+  })
+})
+
+/* Phase 13 / M13-97 — the three «Sərfiyyat Materialları» document writes. */
+const SM_ACTIONS = ['sm.create', 'sm.edit', 'sm.delete'] as const
+
+describe('mutationGuard — Sərfiyyat document actions (M13-97)', () => {
+  it('registers all three as writes', () => {
+    expect(SM_ACTIONS).toHaveLength(3)
+    for (const a of SM_ACTIONS) {
+      expect(WRITE_ACTIONS).toContain(a)
+      expect(isWrite(a)).toBe(true)
+    }
+  })
+
+  /* THE contract: VITE_ALLOW_LOCAL_WRITES=false blocks each on localhost.
+     `sm.delete` matters most — the document row is DELETEd and its lines
+     cascade, with no reversal document and only an audit_log row surviving. */
+  it('blocks each of them on localhost without the opt-in', () => {
+    for (const a of SM_ACTIONS) {
+      expect(blockedReason(a, { local: true, allowed: false })).toMatch(/bloklanıb/)
+    }
+  })
+
+  it('allows each on localhost with the explicit opt-in', () => {
+    for (const a of SM_ACTIONS) {
+      expect(blockedReason(a, { local: true, allowed: true })).toBeNull()
+    }
+  })
+
+  it('never blocks them off localhost — production is unchanged', () => {
+    for (const a of SM_ACTIONS) {
+      expect(blockedReason(a, { local: false, allowed: false })).toBeNull()
+    }
+  })
+
+  /* Negative control: the extension is ADDITIVE. Nothing existing changed. */
+  it('leaves every previously registered action registered', () => {
+    for (const a of ['create', 'item.create', 'op.post', 'doc.cancel', 'cond.set', 'nreq.create'] as const) {
+      expect(WRITE_ACTIONS).toContain(a)
+    }
+  })
+})
+
+/* Phase 17 / M17-107 — the Azpetrol / Araz write family. Before this phase
+   the guard had NO `azp.*` action at all; these arrive WITH the first write
+   callers, never after them. */
+const AZP_ACTIONS = [
+  'azp.card-save', 'azp.card-delete', 'azp.post', 'azp.cancel',
+  'azp.correct', 'azp.app-balance', 'azp.import',
+] as const
+
+describe('mutationGuard — Azpetrol / Araz write actions (M17-107)', () => {
+  it('registers all seven as writes', () => {
+    expect(AZP_ACTIONS).toHaveLength(7)
+    for (const a of AZP_ACTIONS) {
+      expect(WRITE_ACTIONS).toContain(a)
+      expect(isWrite(a)).toBe(true)
+    }
+  })
+
+  it('blocks each of them on localhost without the opt-in', () => {
+    for (const a of AZP_ACTIONS) {
+      expect(blockedReason(a, { local: true, allowed: false })).toMatch(/bloklanıb/)
+    }
+  })
+
+  it('allows each on localhost with the explicit opt-in', () => {
+    for (const a of AZP_ACTIONS) {
+      expect(blockedReason(a, { local: true, allowed: true })).toBeNull()
+    }
+  })
+
+  it('never blocks them off localhost — production is unchanged', () => {
+    for (const a of AZP_ACTIONS) {
+      expect(blockedReason(a, { local: false, allowed: false })).toBeNull()
+    }
+  })
+
+  /* `azp.card-delete` is the only irreversible one: no reversal row, no
+     document, recoverable only from a backup. It gets its own assertion so a
+     future edit cannot quietly drop it from the guarded set. */
+  it('guards the hard delete by its own name', () => {
+    expect(isWrite('azp.card-delete')).toBe(true)
+    expect(blockedReason('azp.card-delete', { local: true, allowed: false })).toBeTruthy()
+  })
+
+  /* The import is guarded SEPARATELY from the post it ends in, because the
+     orchestration is not atomic as a whole (M17-89): blocking it by its own
+     name stops the card-creation loop before its first write. */
+  it('guards the import orchestration separately from the post', () => {
+    expect(isWrite('azp.import')).toBe(true)
+    expect(isWrite('azp.post')).toBe(true)
+    expect(WRITE_ACTIONS.filter((a) => a === 'azp.import')).toHaveLength(1)
+  })
+
+  /* Negative control: the extension is ADDITIVE. */
+  it('leaves every previously registered action registered', () => {
+    for (const a of ['create', 'item.create', 'op.post', 'doc.cancel', 'cond.set', 'nreq.create', 'sm.create'] as const) {
+      expect(WRITE_ACTIONS).toContain(a)
     }
   })
 })

@@ -495,7 +495,8 @@ describe('ReferenceDirectoryPage — readiness probe', () => {
 describe('ReferenceDirectoryPage — realtime', () => {
   it('watches every entity table and usage source on one channel', async () => {
     await renderPage()
-    expect(supabase.channel).toHaveBeenCalledWith('anbar_changes')
+    /* Per-setup unique topic (`anbar_changes:<n>`); only the prefix is fixed. */
+    expect(vi.mocked(supabase.channel).mock.calls[0][0]).toMatch(/^anbar_changes:\d+$/)
     const watched = channel.on.mock.calls.map((c) => (c[1] as { table: string }).table)
     /* Phase 3a added reference_values and items; Phase 3b adds the two
        serfiyyat tables this screen actually reads rows or counts from.
