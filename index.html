@@ -8673,10 +8673,12 @@ async function enterApp(userId, email) {
     if (!m) return null;
     return pexPartsToSerial({ y: +m[1], mo: +m[2], d: +m[3], h: 0, mi: 0, s: 0 });
   }
-  function pexPostedAtSerial(iso) {
-    const s = String(iso || '').trim();
-    if (!s) return null;
-    const p = pexBakuParts(s);
+  function pexPostedAtSerial(instant) {
+    /* DB.movs.ts is an epoch-millisecond NUMBER. Do not stringify it:
+       `new Date('177...')` is invalid, while `new Date(177...)` is the
+       authoritative created_at instant. ISO strings remain supported too. */
+    if (instant == null || instant === '') return null;
+    const p = pexBakuParts(instant);
     if (!p) return null;
     return pexPartsToSerial(p);
   }
