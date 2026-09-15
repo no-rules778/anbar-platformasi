@@ -252,6 +252,7 @@ label.f>span{display:block;font-size:10.5px;text-transform:uppercase;letter-spac
       <a data-p="op">Yeni əməliyyat</a>
       <a data-p="mov">Mal hərəkəti <b id="c-mov"></b></a>
       <a data-p="bal">Anbar qalıqları <b id="c-bal"></b></a>
+      <a data-p="tmr">Təmir jurnalı <b id="c-tmr"></b></a>
       <div class="grp">Bazalar</div>
       <a data-p="nom">Nomenklatura <b id="c-nom"></b></a>
       <a data-p="nreq" id="nav-nreq" style="display:none">Nomenklatura sorğuları <b id="c-nreq"></b></a>
@@ -277,6 +278,7 @@ label.f>span{display:block;font-size:10.5px;text-transform:uppercase;letter-spac
       <section class="page on" id="p-dash">
         <div class="phead"><div><h2>İdarə paneli</h2><p id="dash-sub"></p></div><div class="sp"></div>
           <button class="btn" id="full-exp" title="Bütün məlumatları Excel-ə ixrac et">⬇ Tam ixrac</button>
+          <button class="btn" id="purchase-exp" title="Yalnız Satınalma mədaxil sənədlərini Excel-ə ixrac et">Mədaxil / Satınalma</button>
           <button class="btn" id="son-exp" title="Excel-i orijinal SON formatında ixrac et (Filtrasiya, anbarlar, pivotlar)">⬇ Excel (SON formatı)</button>
           <select id="dash-wh" style="width:auto;min-width:150px"></select></div>
         <div class="kpis" id="dash-kpis"></div>
@@ -395,6 +397,20 @@ label.f>span{display:block;font-size:10.5px;text-transform:uppercase;letter-spac
         <div id="refs-out"></div>
       </section>
 
+      <!-- TƏMİR JURNALI (sql/038) — «Təmirdə» statusunu dəyişən YEGANƏ ekran.
+           Anbar qalıqları və Mal-material durumu yalnız göstərir. -->
+      <section class="page" id="p-tmr">
+        <div class="phead"><div><h2>Təmir jurnalı</h2><p>Daimi TMD kartları və hər təmir dövrünün tam tarixçəsi. «Təmirdə» göstəricisi yalnız buradan dəyişir.</p></div><div class="sp"></div>
+          <button class="btn pri" id="tmr-need">Təmirə ehtiyac var</button>
+          <button class="btn" id="tmr-send">Birbaşa təmirə göndər</button>
+          <button class="btn" id="tmr-qty">Miqdar düzəlişi</button>
+          <button class="btn" id="tmr-exp">Excel</button><button class="btn" id="tmr-print">Çap</button>
+        </div>
+        <div class="filters" id="tmr-filters"></div>
+        <div class="card"><div class="tw" id="t-tmr"></div><div class="pad" id="tmr-pager" style="display:flex;gap:10px;align-items:center;justify-content:flex-end"></div></div>
+        <div id="tmr-detail" style="margin-top:12px"></div>
+      </section>
+
       <!-- REPORTS -->
       <section class="page" id="p-rep">
         <div class="phead"><div><h2>Hesabatlar</h2><p>Hesabatlar hər əməliyyatdan sonra dərhal yenilənir.</p></div><div class="sp"></div>
@@ -407,6 +423,8 @@ label.f>span{display:block;font-size:10.5px;text-transform:uppercase;letter-spac
             <option value="dead">Hərəkətsiz və ölü qalıq</option>
             <option value="tr">Anbarlararası yerdəyişmə matrisi</option>
             <option value="qaime">Qaimələr üzrə hesabat</option>
+            <!-- sql/038 — yalnız oxumaq üçün; «Təmirdə» törəmə göstəricidir -->
+            <option value="durum">Mal-material durumu</option>
           </select>
           <button class="btn" id="rep-exp">Excel</button><button class="btn" id="rep-print">Çap</button>
         </div>
@@ -829,6 +847,15 @@ const DB = {
      MƏLUMAT XARAKTERLİDİR: qalıq hesabına, hərəkət registrinə və maliyyə
      hesabatlarına HEÇ VAXT daxil olmur. Qalıq = mədaxil − məxaric dəyişmir. */
   conds: new Map(), condsReady: false,
+  /* SQL 038 — TÖRƏMƏ «Təmirdə»: `anbar|kod` → açıq TMD təmir dövrlərinin sayı.
+     Saxlanılmır, hesablanır (Option B). `repairReady` false olarsa xəritə BOŞ
+     deyil, NAMƏLUM sayılır: oxunmayan sayı 0 kimi göstərmək təmirdə olan malı
+     Normal kimi göstərmək demək olardı. */
+  repairCounts: new Map(), repairReady: false,
+  /* Təmir jurnalının öz sətirləri: daimi TMD kartları və hər təmir dövrü.
+     `repairCounts` bunlardan TÖRƏYİR — ayrıca RPC ilə oxunur ki, qalıq ekranı
+     bütün jurnalı yükləmədən «Təmirdə» sütununu göstərə bilsin. */
+  repairCards: [], repairCycles: [],
   /* SQL 036 — partiya qalığı və Silinmə dəyərinin dəyişməz snapshot-u. */
   layerReady: false, layerActive: false, layerVersion: 0,
   woVals: new Map(), woAllocs: [],
@@ -921,6 +948,30 @@ async function loadFromDB() {
       DB.condsReady = true;
     }
   } catch (e) { /* 025 tətbiq edilməyib — vəziyyət sütunları boş görünür */ }
+  /* SQL 038 — törəmə «Təmirdə» sayı. repair_open_counts() RPC-si özü RLS
+     qaydasını tətbiq edir, ona görə müştəri heç bir süzgəc göndərmir.
+     038 tətbiq edilməyibsə (funksiya yoxdur) xəritə boş qalır və «Təmirdə»
+     sütunu hər yerdə 0 göstərir — bu, 038-dən ƏVVƏLKİ davranışın eynisidir. */
+  DB.repairCounts = new Map(); DB.repairReady = false;
+  try {
+    const { data: rcRows, error: rcErr } = await SB.rpc('repair_open_counts');
+    if (!rcErr) {
+      (rcRows || []).forEach(r => DB.repairCounts.set(
+        r.warehouse + '|' + r.item_code, parseFloat(r.in_repair_qty) || 0));
+      DB.repairReady = true;
+    }
+  } catch (e) { /* 038 tətbiq edilməyib — «Təmirdə» sütunu 0 göstərir */ }
+  /* Təmir jurnalının sətirləri. Sıra OXU MÜQAVİLƏSİNİN bir hissəsidir:
+     kartlar `card_no`, dövrlər `(repair_card_id, cycle_no)` üzrə — çünki
+     «təmirdən sonra iş müddəti» məhz ardıcıl dövrlərdən hesablanır. */
+  DB.repairCards = []; DB.repairCycles = [];
+  try {
+    const { data: rcards, error: e1 } = await SB.from('repair_cards').select('*').order('card_no');
+    if (!e1) DB.repairCards = rcards || [];
+    const { data: rcycles, error: e2 } = await SB.from('repair_cycles').select('*')
+      .order('repair_card_id').order('cycle_no');
+    if (!e2) DB.repairCycles = rcycles || [];
+  } catch (e) { /* 038 tətbiq edilməyib — təmir jurnalı boş görünür */ }
   /* sql/031 (mal hərəkətində tiplərə görə bölgü) tətbiq olunubmu. Zond ayrıca
      funksiyadır, çünki post_movement_document-in imzası dəyişmir — naməlum
      `conditions` açarı köhnə serverdə SÜKUTLA iqnor edilərdi və bölgü yazılmadan
@@ -1501,6 +1552,10 @@ function go(p) {
   }
   /* Azpetrol/Araz — ayrıca modul, öz hüquq modeli ilə (anbardar üçün bağlıdır) */
   if (p === 'azp' && !(typeof azpCanRead === 'function' && azpCanRead())) return toast('Azpetrol / Araz moduluna girişiniz yoxdur', true);
+  /* Təmir jurnalı (sql/038) — bütün rollar OXUYA bilər (RLS anbardarı öz
+     anbarı ilə məhdudlaşdırır), lakin dəyişiklik yalnız Admin üçündür və
+     qayda SERVERDƏDİR (repair_require_admin). Buradakı yoxlama sadəcə
+     interfeysi gizlədir. */
   PAGE = p;
   $$('.rail a').forEach(a => a.classList.toggle('on', a.dataset.p === p));
   $$('.page').forEach(s => s.classList.toggle('on', s.id === 'p-' + p));
@@ -1514,13 +1569,20 @@ $$('.rail a').forEach(a => a.onclick = () => go(a.dataset.p));
 $('#burger').onclick = () => $('#rail').classList.toggle('open');
 
 function render(p) {
-  ({ dash: rDash, op: rOp, mov: rMov, bal: rBal, nom: rNom, nreq: rNreq, grp: rGroups, knt: rKnt, anb: rAnb, refs: rRefs, sm: rSm, rep: rRep, fin: rFin, ctrl: rCtrl, log: rLog, set: rSet, azp: (typeof rAzp === 'function' ? rAzp : null) }[p] || (() => { }))();
+  ({ dash: rDash, op: rOp, mov: rMov, bal: rBal, tmr: rTmr, nom: rNom, nreq: rNreq, grp: rGroups, knt: rKnt, anb: rAnb, refs: rRefs, sm: rSm, rep: rRep, fin: rFin, ctrl: rCtrl, log: rLog, set: rSet, azp: (typeof rAzp === 'function' ? rAzp : null) }[p] || (() => { }))();
   counters();
 }
 function renderAll() { render(PAGE); }
 function counters() {
   $('#c-mov').textContent = nf(normalMovements().length);
   $('#c-bal').textContent = nf(IX.positions.length);
+  /* Təmir jurnalı sayğacı — AÇIQ təmir dövrlərinin sayı, yəni ekranda
+     «Təmirdə» kimi görünən ümumi miqdar. 038 tətbiq edilməyibsə xəritə boş
+     olur və sayğac 0 göstərir. */
+  /* YALNIZ `open`: `needed` dovr anbarda durur ve artiq saxlanan «Təmirə
+     ehtiyaclı» ehtiyatinda sayilir — burada da saymaq eyni vahidi iki defe
+     cixmaq olardi. */
+  $('#c-tmr').textContent = nf(DB.repairCycles.filter(c => c.status === 'open').length);
   $('#c-nom').textContent = nf(DB.items.length);
   $('#c-knt').textContent = nf(DB.partners.length);
   $('#c-anb').textContent = nf(DB.whs.length + DB.locs.length);
@@ -2071,7 +2133,31 @@ const COND_COLS = [
   { k: 'onsite', t: 'Sahədə' },
   { k: 'icare',  t: 'İcarədə' }
 ];
+/* ---------- «Təmirdə» — TÖRƏMƏ (hesablanan) göstərici, sql/038 ----------
+   Option B: «Təmirdə» HEÇ VAXT saxlanılmır. O, AÇIQ TMD təmir dövrlərinin
+   (warehouse, item_code) üzrə sayıdır və yalnız «Təmir jurnalı» ekranından
+   dəyişir. Ona görə də:
+
+     COND_COLS          — 4 YAZILA BİLƏN işarə: bölgü, redaktə, RPC yükü.
+     DISPLAY_MARKER_COLS — 5 GÖSTƏRİLƏN işarə: cədvəl, süzgəc, sıralama,
+                           Excel, çap, «Mal-material durumu».
+
+   `inRepair` COND_COLS-a ƏLAVƏ EDİLMİR: əks halda o, condSplitPayload()-a və
+   set_stock_condition çağırışına düşərdi — yəni serverin özü hesabladığı rəqəm
+   ona geri yazılardı. Məhz bu dreyfin qarşısını almaq üçün iki siyahı ayrıdır. */
+const DISPLAY_MARKER_COLS = [
+  { k: 'unfit',    t: 'Yararsız',          writable: true  },
+  { k: 'repair',   t: 'Təmirə ehtiyaclı',  writable: true  },
+  { k: 'inRepair', t: 'Təmirdə',           writable: false },
+  { k: 'onsite',   t: 'Sahədə',            writable: true  },
+  { k: 'icare',    t: 'İcarədə',           writable: true  }
+];
 const condOf = (w, c) => DB.conds.get(w + '|' + c) || null;
+/* Törəmə «Təmirdə» xəritəsi: `anbar|kod` → açıq təmir dövrlərinin sayı.
+   repair_open_counts() RPC-si ilə doldurulur; oxunmayıbsa BOŞ deyil, XƏTA
+   sayılır (bax loadRepairCounts) — çünki boş xəritə «təmirdə heç nə yoxdur»
+   demək olardı və təmirdə olan mal Normal kimi görünərdi. */
+const inRepairOf = (w, c) => DB.repairCounts.get(w + '|' + c) || 0;
 /* ---------- Tiplərə görə bölgü (mal hərəkətində) ----------
    Qalıq sətri tiplərə bölünür: hər işarə öz kovasıdır, qalanı «Normal»dır.
    Mal anbardan çıxanda (silinmə, sahəyə, satış, qaytarma, yerdəyişmə) hansı
@@ -2214,8 +2300,8 @@ function rBal() {
       <select id="bf-w"><option value="">Anbarlar üzrə ayrı</option><option value="__sum">Ümumi (anbarlar birlikdə)</option>${DB.whs.map(w => `<option value="${esc(w)}">${esc(whLabel(w))}</option>`).join('')}</select>
       <div class="seg" id="bf-z"><button data-z="act" class="on">Aktiv qalıq</button><button data-z="all">Hamısı</button><button data-z="neg">Mənfi</button><button data-z="zero">Sıfır</button><button data-z="init" style="margin-left:16px">Əvvələ qalıq</button></div>
       <div class="seg" id="bf-init-mode" style="display:none"><button data-mode="initial" class="on">İlkin miqdar</button><button data-mode="current">Cari qalıq</button></div>
-      <select id="bf-c"><option value="">Vəziyyət: hamısı</option><option value="any">İşarələnmişlər</option>${COND_COLS.map(c => `<option value="${esc(c.k)}">${esc(c.t)}</option>`).join('')}</select>
-      <select id="bf-s"><option value="val">Dəyərə görə</option><option value="q">Miqdara görə</option><option value="name">Ada görə</option><option value="last">Son hərəkətə görə</option>${COND_COLS.map(c => `<option value="cond:${esc(c.k)}">${esc(c.t)} üzrə</option>`).join('')}</select>`;
+      <select id="bf-c"><option value="">Vəziyyət: hamısı</option><option value="any">İşarələnmişlər</option>${DISPLAY_MARKER_COLS.map(c => `<option value="${esc(c.k)}">${esc(c.t)}</option>`).join('')}</select>
+      <select id="bf-s"><option value="val">Dəyərə görə</option><option value="q">Miqdara görə</option><option value="name">Ada görə</option><option value="last">Son hərəkətə görə</option>${DISPLAY_MARKER_COLS.map(c => `<option value="cond:${esc(c.k)}">${esc(c.t)} üzrə</option>`).join('')}</select>`;
     $('#bf-q').oninput = debounce(() => { BF.q = $('#bf-q').value.trim().toLowerCase(); BF.page = 0; rBal(); }, 200);
     $('#bf-w').onchange = () => { BF.w = $('#bf-w').value; BF.page = 0; rBal(); };
     $('#bf-c').onchange = () => { BF.cond = $('#bf-c').value; BF.page = 0; rBal(); };
@@ -2310,30 +2396,45 @@ function rBal() {
       if (!x) { x = { unfit: 0, repair: 0, onsite: 0, icare: 0 }; byCode.set(cd.c, x); }
       x.unfit += cd.unfit; x.repair += cd.repair; x.onsite += cd.onsite; x.icare += (cd.icare || 0);
     }
+    /* Törəmə «Təmirdə» də eyni qayda ilə — anbarlar üzrə, kod üzrə cəmlənir. */
+    const repByCode = new Map();
+    for (const [key, qty] of DB.repairCounts) {
+      const code = key.slice(key.indexOf('|') + 1);
+      repByCode.set(code, (repByCode.get(code) || 0) + (qty || 0));
+    }
     for (const b of src) {
       const x = byCode.get(b.c);
       b.cUnfit = x ? x.unfit : 0; b.cRepair = x ? x.repair : 0; b.cOnsite = x ? x.onsite : 0;
       b.cIcare = x ? x.icare : 0;
+      b.cInRepair = repByCode.get(b.c) || 0;
     }
   } else {
     for (const b of src) {
       const cd = condOf(b.w, b.c);
       b.cUnfit = cd ? cd.unfit : 0; b.cRepair = cd ? cd.repair : 0; b.cOnsite = cd ? cd.onsite : 0;
       b.cIcare = cd ? (cd.icare || 0) : 0;
+      /* Hərəkəti olmayan «—» sətri üçün uyğunluq tapılmır və 0 oxunur. */
+      b.cInRepair = inRepairOf(b.w, b.c);
     }
   }
   const CONDF = { unfit: 'cUnfit', repair: 'cRepair', onsite: 'cOnsite', icare: 'cIcare' };
+  /* Göstərilən işarələrin sətir sahələri — CONDF + törəmə «Təmirdə» (sql/038).
+     Oxu səthləri (cədvəl, süzgəc, sıralama, Excel, çap) BUNU işlədir; yazı
+     səthləri CONDF-də qalır, orada `inRepair` yoxdur. */
+  const MARKERF = Object.assign({}, CONDF, { inRepair: 'cInRepair' });
   let rows = src.filter(b => {
     if (BF.z === 'act' && Math.abs(b.q) < 1e-9) return false;
     if (BF.z === 'neg' && b.q >= 0) return false;
     if (BF.z === 'zero' && Math.abs(b.q) > 1e-9) return false;
     if (BF.q && (b.name + ' ' + b.c).toLowerCase().indexOf(BF.q) < 0) return false;
-    if (BF.cond === 'any') { if (!(b.cUnfit > 0 || b.cRepair > 0 || b.cOnsite > 0 || b.cIcare > 0)) return false; }
-    else if (BF.cond && !(b[CONDF[BF.cond]] > 0)) return false;
+    /* «İşarələnmişlər» törəmə «Təmirdə»ni də əhatə edir: belə sətir işarəlidir,
+       sadəcə işarəsi saxlanılan sütunda deyil. */
+    if (BF.cond === 'any') { if (!(b.cUnfit > 0 || b.cRepair > 0 || b.cInRepair > 0 || b.cOnsite > 0 || b.cIcare > 0)) return false; }
+    else if (BF.cond && !(b[MARKERF[BF.cond]] > 0)) return false;
     return true;
   });
   const cmp = { val: (a, b) => b.val - a.val, q: (a, b) => b.q - a.q, name: (a, b) => a.name.localeCompare(b.name, 'az'), last: (a, b) => dsort(b.last, a.last) };
-  COND_COLS.forEach(cc => { cmp['cond:' + cc.k] = (a, b) => b[CONDF[cc.k]] - a[CONDF[cc.k]]; });
+  DISPLAY_MARKER_COLS.forEach(cc => { cmp['cond:' + cc.k] = (a, b) => b[MARKERF[cc.k]] - a[MARKERF[cc.k]]; });
   rows.sort(cmp[BF.sort] || cmp.val);
   const val = rows.reduce((s, b) => s + b.val, 0), qty = rows.reduce((s, b) => s + b.q, 0);
   $('#bal-kpis').innerHTML = [
@@ -2346,16 +2447,21 @@ function rBal() {
   const page = cut(rows, 'bal');
   /* Vəziyyət xanası. Redaktə hüququ olmayan istifadəçi eyni rəqəmi sadəcə
      oxuyur — serverdəki qayda hər halda RPC-dədir (SQL 025). */
-  const condCell = b => COND_COLS.map(cc => {
-    const v = b[CONDF[cc.k]] || 0;
+  const condCell = b => DISPLAY_MARKER_COLS.map(cc => {
+    const v = b[MARKERF[cc.k]] || 0;
     const txt = v > 0 ? nf(v, 2) : '<span class="muted">—</span>';
+    /* Törəmə «Təmirdə» HEÇ VAXT redaktə olunmur — nə burada, nə başqa yerdə.
+       Onu yalnız «Təmir jurnalı» dəyişir (sql/038, Option B). */
+    if (!cc.writable) {
+      return `<span title="${esc(cc.t)} — açıq TMD təmir dövrlərindən hesablanır, burada dəyişdirilmir">${txt}</span>`;
+    }
     return canEditCond(b.w)
       ? `<span class="cond-ed" data-cw="${esc(b.w)}" data-cc="${esc(b.c)}" data-ck="${esc(cc.k)}" data-cv="${v}" title="${esc(cc.t)} — dəyişmək üçün klikləyin">${txt}</span>`
       : txt;
   });
   $('#t-bal').innerHTML = tbl(
     [{ t: 'Kod' }, { t: 'Malın adı' }, { t: 'Anbar' }, { t: 'Ölçü' }, { t: 'Mədaxil', r: 1 }, { t: 'Məxaric', r: 1 }, { t: 'Qalıq', r: 1 }]
-      .concat(COND_COLS.map(cc => ({ t: cc.t, r: 1 })))
+      .concat(DISPLAY_MARKER_COLS.map(cc => ({ t: cc.t, r: 1 })))
       .concat([{ t: 'Vahid qiyməti', r: 1 }, { t: 'Dəyər', r: 1 }, { t: 'Son hərəkət' }]),
     page.map(b => ({
       _a: `data-card="${esc(b.c)}"`, c: [`<span class="code">${esc(b.c)}</span>`, `<div class="nm">${esc(b.name)}</div>`, esc(whLabel(b.w)), esc(b.unit),
@@ -2366,15 +2472,780 @@ function rBal() {
   $$('#t-bal .cond-ed').forEach(el => el.onclick = ev => { ev.stopPropagation(); condEditStart(el); });
   $('#bal-pager').innerHTML = `<span class="hint">${nf(rows.length)} sətir` + cutNote(rows, 'bal', rBal) + `</span>`;
   $('#bal-print').onclick = () => { printHead('Anbar qalıqları', (BF.w === '__sum' ? 'ümumi' : (BF.w || 'bütün anbarlar')) + ' · ' + nf(rows.length) + ' mövqe'); setTimeout(() => window.print(), 60); };
-  /* İxracın sətirləri də COND_COLS/CONDF-dən qurulur — başlıq oradan, sətirlər
-     əl ilə sayılsaydı (əvvəl belə idi) yeni sütun əlavə edilən kimi başlıqda 4,
-     sətirdə 3 xana olar və ondan sonrakı BÜTÜN sütunlar bir xana sürüşərdi:
-     qiymət «İcarədə»nin altına düşərdi. Tək mənbə bu səhvi struktur olaraq
-     mümkünsüz edir. */
-  $('#bal-exp').onclick = () => xls([['Anbar', 'Kod', 'Malın adı', 'Ölçü', 'Mədaxil', 'Məxaric', 'Qalıq'].concat(COND_COLS.map(cc => cc.t)).concat(['Vahid qiyməti', 'Dəyər', 'Son hərəkət'])]
+  /* İxracın sətirləri də DISPLAY_MARKER_COLS/MARKERF-dən qurulur — başlıq
+     oradan, sətirlər əl ilə sayılsaydı (əvvəl belə idi) yeni sütun əlavə
+     edilən kimi başlıqda 5, sətirdə 4 xana olar və ondan sonrakı BÜTÜN
+     sütunlar bir xana sürüşərdi: qiymət «İcarədə»nin altına düşərdi. Tək
+     mənbə bu səhvi struktur olaraq mümkünsüz edir.
+
+     MƏHZ BU HAL İNDİ BAŞ VERDİ: sql/038 törəmə «Təmirdə» sütununu əlavə etdi
+     və sütun sayı 14-dən 15-ə qalxdı. Başlıq da, sətir də eyni siyahıdan
+     qurulduğu üçün sürüşmə olmadı. */
+  $('#bal-exp').onclick = () => xls([['Anbar', 'Kod', 'Malın adı', 'Ölçü', 'Mədaxil', 'Məxaric', 'Qalıq'].concat(DISPLAY_MARKER_COLS.map(cc => cc.t)).concat(['Vahid qiyməti', 'Dəyər', 'Son hərəkət'])]
     .concat(rows.map(b => [whLabel(b.w), b.c, b.name, b.unit, b.in, b.out, b.q]
-      .concat(COND_COLS.map(cc => b[CONDF[cc.k]] || 0))
+      .concat(DISPLAY_MARKER_COLS.map(cc => b[MARKERF[cc.k]] || 0))
       .concat([b.price || '', b.val.toFixed(2), b.last]))), 'anbar_qaliqlari');
+}
+
+/* ================= TƏMİR JURNALI (sql/038) =================
+   «Təmirdə» statusunu dəyişən YEGANƏ ekran. Anbar qalıqları və Mal-material
+   durumu yalnız göstərir (Option B).
+
+   Bütün hesablamalar React tərəfindəki lib/repairJournal.ts ilə EYNİ qaydadır:
+   * təmir müddəti — qayıtma − göndərilmə (açıq dövrdə: indi − göndərilmə);
+   * təmirdən sonra iş müddəti — növbəti ehtiyac tarixi − əvvəlki qayıtma
+     tarixi, YALNIZ EYNİ TMD KARTI üzrə. Beş nasos eyni nomenklatura kodunu
+     paylaşa bildiyi üçün koda görə zəncir qurmaq İKİ AYRI fiziki vahidin
+     ömrünü bir vahidin tarixçəsi kimi göstərərdi. */
+const TMR = { q: '', wh: '', state: '', card: null, d1: '', d2: '' };
+
+const tmrDay = 86400000;
+const tmrTime = v => { if (!v) return null; const t = new Date(v).getTime(); return isFinite(t) ? t : null; };
+
+/* ---------- TARIX VE SAAT (Baki) ----------
+   Is telebi hem tarixi, hem saati saxlamaqdir. Evvelki qurulus `type="date"`
+   isledirdi, ona gore gun erzindeki her temir 0 gun kimi gorunurdu.
+
+   Bu funksiyalar web/src/lib/repairTime.ts ile EYNI qaydadir: `datetime-local`
+   deyeri BAKI divar saati kimi oxunur, saxlanan deyer ise zona-agah ISO
+   anidir. Ikinci, fergli nusxe mehz bu ozelliyin pozulmasina aparardi. */
+const TMR_TZ = 'Asia/Baku';
+const tmrPad = n => String(n).padStart(2, '0');
+
+/* Baki ofseti (deqiqe) — verilen anda. Sabit +04:00 yazmaq, zona deyisdiyi
+   gun sessiz ve askarlanmayan sehv olardi. */
+function tmrOffsetMin(utcMs) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: TMR_TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+  }).formatToParts(new Date(utcMs));
+  const g = t => Number((parts.find(p => p.type === t) || {}).value || 0);
+  const h = g('hour') === 24 ? 0 : g('hour');
+  const asUtc = Date.UTC(g('year'), g('month') - 1, g('day'), h, g('minute'), g('second'));
+  return Math.round((asUtc - Math.floor(utcMs / 1000) * 1000) / 60000);
+}
+
+/* `datetime-local` (Baki divar saati) -> zona-agah ISO ani. Bos deyer null
+   qaytarir: «istifadeci doldurmayib», uydurulmus vaxt yox. */
+function tmrLocalToIso(v) {
+  const s = String(v == null ? '' : v).trim();
+  if (!s) return null;
+  const wall = /^\d{4}-\d{2}-\d{2}$/.test(s) ? s + 'T00:00' : s;
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(wall)) return null;
+  const [d, t] = wall.split('T');
+  const [y, mo, da] = d.split('-').map(Number);
+  const [h, mi, se] = t.split(':').map(Number);
+  const guess = Date.UTC(y, mo - 1, da, h, mi, se || 0);
+  let ms = guess - tmrOffsetMin(guess) * 60000;
+  ms = guess - tmrOffsetMin(ms) * 60000;
+  const out = new Date(ms);
+  return isFinite(out.getTime()) ? out.toISOString() : null;
+}
+
+/* Saxlanan ISO -> `datetime-local` deyeri (duzelis dialoqunu doldurmaq ucun). */
+function tmrIsoToLocal(iso) {
+  const s = String(iso == null ? '' : iso).trim();
+  if (!s) return '';
+  const t = new Date(s).getTime();
+  if (!isFinite(t)) return '';
+  const d = new Date(t + tmrOffsetMin(t) * 60000);
+  return d.getUTCFullYear() + '-' + tmrPad(d.getUTCMonth() + 1) + '-' + tmrPad(d.getUTCDate())
+    + 'T' + tmrPad(d.getUTCHours()) + ':' + tmrPad(d.getUTCMinutes());
+}
+
+/* Bos saha ucun ilkin deyer. Istifadecinin yazdigi is vaxtini EVEZ ETMIR. */
+const tmrNowLocal = () => tmrIsoToLocal(new Date().toISOString());
+
+/* Ekranda: `DD.MM.YYYY HH:mm` — Baki saati ile. `fmtD` yalniz tarix verir. */
+function tmrFmtDT(iso) {
+  const s = String(iso == null ? '' : iso).trim();
+  if (!s) return '';
+  const t = new Date(s).getTime();
+  if (!isFinite(t)) return s;
+  const d = new Date(t + tmrOffsetMin(t) * 60000);
+  return tmrPad(d.getUTCDate()) + '.' + tmrPad(d.getUTCMonth() + 1) + '.' + d.getUTCFullYear()
+    + ' ' + tmrPad(d.getUTCHours()) + ':' + tmrPad(d.getUTCMinutes());
+}
+
+/* Aninin BAKI teqvim gunu (`YYYY-MM-DD`). Suzgecler gun deqiqliyindedir, lakin
+   hadiselerde saat var: `2026-03-02T21:00:00Z` Bakida 3-dur, ona gore xam ISO
+   setri ile muqayise sehv gun verir. */
+function tmrBakuDay(iso) {
+  const s = String(iso == null ? '' : iso).trim();
+  if (!s) return '';
+  const t = new Date(s).getTime();
+  if (!isFinite(t)) return '';
+  const d = new Date(t + tmrOffsetMin(t) * 60000);
+  return d.getUTCFullYear() + '-' + tmrPad(d.getUTCMonth() + 1) + '-' + tmrPad(d.getUTCDate());
+}
+/* Müddət → gün mətni. null «—» qalır: «tətbiq olunmur» ilə «sıfır gün» eyni
+   şey deyil. */
+const tmrDur = d => d == null ? '<span class="muted">—</span>'
+  : nf(d.ms / tmrDay, 1) + ' gün' + (d.ongoing ? ' <span class="tag t-op">davam edir</span>' : '');
+
+/* Temir muddeti: qayitma - gonderilme. `needed` dovrde hele hec ne
+   gonderilmeyib, `cancelled` dovr ise bas vermeyib — her ikisi null. */
+function tmrRepairDuration(c, now) {
+  if (c.status === 'cancelled' || c.status === 'needed') return null;
+  const sent = tmrTime(c.sent_to_repair_at);
+  if (sent == null) return null;
+  if (c.status === 'returned') {
+    const back = tmrTime(c.returned_from_repair_at);
+    return back == null ? null : { ms: Math.max(0, back - sent), ongoing: false };
+  }
+  return { ms: Math.max(0, now - sent), ongoing: true };
+}
+
+/* LEGV EDILMIS DOVR ZENCIRDE ISTIFADE OLUNMUR — ne subyekt, ne de onceki
+   hadise kimi. Evvel ekran ve ixrac xam massivde `cycles[i-1]` gotururdu, ona
+   gore legv edilmis sətir sonraki «is muddeti» reqeminin lovbersi olurdu. */
+function tmrLive(list) { return (list || []).filter(c => c.status !== 'cancelled'); }
+
+function tmrWorkingDuration(prev, cur, now) {
+  if (!prev) return null;                                    // ilk təmir
+  if (prev.status === 'cancelled') return null;              // legv: hadise deyil
+  if (cur && cur.status === 'cancelled') return null;
+  if (cur && prev.repair_card_id !== cur.repair_card_id) return null;  // ayrı kart
+  const back = tmrTime(prev.returned_from_repair_at);
+  if (back == null) return null;
+  const needed = cur ? tmrTime(cur.repair_needed_at) : null;
+  if (needed == null) return { ms: Math.max(0, now - back), ongoing: true };
+  return { ms: Math.max(0, needed - back), ongoing: false };
+}
+
+/* Son ugurlu qayitmadan sonra DAVAM EDEN is muddeti. React terefde bu
+   hesablanirdi, lakin hec yerde gosterilmirdi — istifadede olan vahid ucun
+   sutun bos qalirdi. */
+function tmrOpenWorking(cycles, now) {
+  const live = tmrLive(cycles);
+  const last = live[live.length - 1];
+  if (!last || last.status !== 'returned') return null;
+  const back = tmrTime(last.returned_from_repair_at);
+  if (back == null) return null;
+  return { ms: Math.max(0, now - back), ongoing: true };
+}
+
+/* HADISE DOVRU QAYDASI: dovr, uc is hadisesinden HER HANSI BIRI secilmis
+   araligda olduqda uygun sayilir — temir ehtiyaci, gonderilme, qayitma.
+   Tek sutun uzre suzgec isi gizlədir: martda gonderilib mayda qayidan temir
+   aprel-iyun hesabatinda gorunmezdi, halbuki qayitma mehz o araligdadir. */
+function tmrCycleInPeriod(c, d1, d2) {
+  if (!d1 && !d2) return true;
+  const days = [tmrBakuDay(c.repair_needed_at), tmrBakuDay(c.sent_to_repair_at),
+                tmrBakuDay(c.returned_from_repair_at)].filter(d => d !== '');
+  return days.some(d => (!d1 || d >= d1) && (!d2 || d <= d2));
+}
+
+const tmrCardCycles = id => DB.repairCycles
+  .filter(c => c.repair_card_id === id)
+  .slice().sort((a, b) => (a.cycle_no || 0) - (b.cycle_no || 0));
+
+const TMR_STATE_LABEL = {
+  'needs-repair': 'Təmirə ehtiyaclı',
+  'in-repair': 'Təmirdə', available: 'İstifadədə',
+  unusable: 'Yararsız', 'never-repaired': 'Təmir olunmayıb'
+};
+const TMR_STATUS_LABEL = {
+  needed: 'Təmirə ehtiyaclı', open: 'Təmirdə',
+  returned: 'Qayıdıb', cancelled: 'Ləğv edilib'
+};
+const TMR_RESULT_LABEL = { repaired: 'Təmir olundu', unusable: 'Yararsız' };
+
+function tmrCardSummary(card, now) {
+  const own = tmrCardCycles(card.id);
+  const live = tmrLive(own);
+  const open = own.find(c => c.status === 'open') || null;
+  const needed = own.find(c => c.status === 'needed') || null;
+  const returned = live.filter(c => c.status === 'returned');
+
+  let totalCost = null;
+  live.forEach(c => { if (c.cost != null) totalCost = (totalCost || 0) + (parseFloat(c.cost) || 0); });
+
+  let totalMs = 0;
+  returned.forEach(c => { const d = tmrRepairDuration(c, now); if (d) totalMs += d.ms; });
+
+  const last = live[live.length - 1] || null;
+  const lastRet = returned.slice().reverse()[0] || null;
+  const state = open ? 'in-repair'
+    : needed ? 'needs-repair'
+    : (lastRet && lastRet.result === 'unusable') ? 'unusable'
+    : returned.length ? 'available' : 'never-repaired';
+
+  return {
+    card, cycles: own, live, state, open, needed,
+    completed: returned.length, totalCost, totalMs,
+    openWorking: tmrOpenWorking(own, now),
+    wh: last ? last.warehouse : '',
+    lastNeeded: last ? last.repair_needed_at : '',
+    lastSent: last ? last.sent_to_repair_at : '',
+    lastRet: lastRet ? lastRet.returned_from_repair_at : ''
+  };
+}
+
+function tmrSummaries(now) {
+  return DB.repairCards.map(c => tmrCardSummary(c, now)).sort((a, b) => {
+    if ((a.state === 'in-repair') !== (b.state === 'in-repair')) return a.state === 'in-repair' ? -1 : 1;
+    const at = a.lastSent || a.lastNeeded || a.card.created_at,
+          bt = b.lastSent || b.lastNeeded || b.card.created_at;
+    if (at !== bt) return at < bt ? 1 : -1;
+    return String(a.card.card_no).localeCompare(String(b.card.card_no), 'az');
+  });
+}
+
+const tmrItemName = code => (DB.itemBy.get(code) || {}).name || '(nomenklaturada yoxdur: ' + code + ')';
+
+function rTmr() {
+  const now = Date.now();
+  const el = $('#tmr-filters');
+  if (!el.dataset.done) {
+    el.dataset.done = 1;
+    el.innerHTML = `<input type="search" id="tmr-q" placeholder="TMD nömrəsi, mal adı və ya kod…">
+      <select id="tmr-w"><option value="">Bütün anbarlar</option>${DB.whs.map(w => `<option value="${esc(w)}">${esc(whLabel(w))}</option>`).join('')}</select>
+      <select id="tmr-st"><option value="">Bütün vəziyyətlər</option>${Object.keys(TMR_STATE_LABEL).map(k => `<option value="${esc(k)}">${esc(TMR_STATE_LABEL[k])}</option>`).join('')}</select>
+      <input type="date" id="tmr-d1" title="Tarixdən" aria-label="Tarixdən">
+      <input type="date" id="tmr-d2" title="Tarixədək" aria-label="Tarixədək">`;
+    $('#tmr-q').oninput = debounce(() => { TMR.q = $('#tmr-q').value.trim().toLowerCase(); rTmr(); }, 200);
+    $('#tmr-w').onchange = () => { TMR.wh = $('#tmr-w').value; rTmr(); };
+    $('#tmr-st').onchange = () => { TMR.state = $('#tmr-st').value; rTmr(); };
+    $('#tmr-d1').onchange = () => { TMR.d1 = $('#tmr-d1').value; rTmr(); };
+    $('#tmr-d2').onchange = () => { TMR.d2 = $('#tmr-d2').value; rTmr(); };
+  }
+
+  const all = tmrSummaries(now);
+  const rows = all.filter(s => {
+    if (TMR.state && s.state !== TMR.state) return false;
+    if (TMR.wh && s.wh !== TMR.wh) return false;
+    /* Kart, dovrlerinden EN AZI BIRI araligda olduqda uygun sayilir. */
+    if ((TMR.d1 || TMR.d2) && !s.cycles.some(c => tmrCycleInPeriod(c, TMR.d1, TMR.d2))) return false;
+    if (TMR.q) {
+      const hay = (s.card.card_no + ' ' + s.card.item_code + ' ' + tmrItemName(s.card.item_code)
+        + ' ' + (s.card.ident_note || '')).toLowerCase();
+      if (hay.indexOf(TMR.q) < 0) return false;
+    }
+    return true;
+  });
+
+  /* Yalnız Admin dəyişə bilər — qayda serverdədir (repair_require_admin);
+     bu yoxlama düymələri gizlədir. */
+  const admin = isAdmin();
+  $('#tmr-send').style.display = admin ? '' : 'none';
+  $('#tmr-need').style.display = admin ? '' : 'none';
+  $('#tmr-qty').style.display = admin ? '' : 'none';
+
+  $('#t-tmr').innerHTML = tbl(
+    [{ t: 'TMD nömrəsi' }, { t: 'Kod' }, { t: 'Malın adı' }, { t: 'Anbar' }, { t: 'Cari vəziyyət' },
+     { t: 'Təmir sayı', r: 1 }, { t: 'Ümumi xərc', r: 1 }, { t: 'Təmirdə keçən vaxt', r: 1 },
+     { t: 'Təmirdən sonra işləyib', r: 1 },
+     { t: 'Son göndərilmə' }, { t: 'Son qayıtma' }, { t: 'Qeyd' }],
+    rows.map(s => ({
+      _a: `data-tmr="${esc(s.card.id)}"`,
+      c: [`<span class="code">${esc(s.card.card_no)}</span>`, `<span class="code">${esc(s.card.item_code)}</span>`,
+        `<div class="nm">${esc(tmrItemName(s.card.item_code))}</div>`, esc(whLabel(s.wh || '—')),
+        `<span class="tag ${s.state === 'in-repair' ? 't-op' : (s.state === 'unusable' || s.state === 'needs-repair') ? 't-rm' : 't-mut'}">${esc(TMR_STATE_LABEL[s.state])}</span>`,
+        nf(s.completed), s.totalCost == null ? '<span class="muted">—</span>' : money(s.totalCost),
+        nf(s.totalMs / tmrDay, 1) + ' gün',
+        tmrDur(s.openWorking),
+        esc(tmrFmtDT(s.lastSent) || '—'), esc(tmrFmtDT(s.lastRet) || '—'), esc(s.card.ident_note || '')]
+    })), { clk: 1, empty: 'TMD kartı yoxdur. İlk təmir qeydi kartı avtomatik yaradır.' });
+
+  $$('#t-tmr [data-tmr]').forEach(tr => tr.onclick = () => { TMR.card = tr.dataset.tmr; rTmr(); });
+
+  $('#tmr-pager').innerHTML = `<span class="hint">${nf(rows.length)} kart · «Təmirdə» açıq TMD dövrlərindən hesablanır</span>`;
+
+  /* Seçilmiş kartın tam xronoloji tarixçəsi. */
+  const sel = TMR.card ? rows.find(s => s.card.id === TMR.card) : null;
+  $('#tmr-detail').innerHTML = !sel ? '' : `<div class="card">
+    <header><h3>${esc(sel.card.card_no)} — ${esc(tmrItemName(sel.card.item_code))}</h3><div class="sp"></div>
+      <span class="hint">${esc(TMR_STATE_LABEL[sel.state])}</span></header>
+    <div class="tw">${tbl(
+      [{ t: 'Dövr №', r: 1 }, { t: 'Ehtiyac tarixi' }, { t: 'Göndərilmə' }, { t: 'Qayıtma' },
+       { t: 'Status' }, { t: 'Nəticə' }, { t: 'Təmir müddəti', r: 1 }, { t: 'Sonrakı iş müddəti', r: 1 },
+       { t: 'Təşkilat' }, { t: 'Səbəb' }, { t: 'Xərc', r: 1 }, { t: 'Sənəd №' }, { t: 'Görülən iş' },
+       { t: 'Qeyd' }, { t: 'Düzəliş səbəbi' }],
+      sel.cycles.map((c) => ({
+        /* Zencir lovbersi CANLI ardicilliqdan goturulur: legv edilmis sətir
+           gorunur, lakin hec vaxt onceki hadise olmur. */
+        c: (() => { const li = sel.live.findIndex(l => l.id === c.id);
+                    const prev = li > 0 ? sel.live[li - 1] : null; return [
+          nf(c.cycle_no), esc(tmrFmtDT(c.repair_needed_at) || '—'), esc(tmrFmtDT(c.sent_to_repair_at) || '—'),
+          esc(tmrFmtDT(c.returned_from_repair_at) || '—'),
+          `<span class="tag ${c.status === 'open' ? 't-op' : c.status === 'cancelled' ? 't-rm' : c.status === 'needed' ? 't-mut' : 't-in'}">${esc(TMR_STATUS_LABEL[c.status] || c.status)}</span>`,
+          esc(c.result ? (TMR_RESULT_LABEL[c.result] || c.result) : '—'),
+          tmrDur(tmrRepairDuration(c, now)),
+          tmrDur(tmrWorkingDuration(prev, c, now)),
+          esc(c.performer || '—'), esc(c.reason || '—'),
+          c.cost == null ? '<span class="muted">—</span>' : money(parseFloat(c.cost) || 0),
+          esc(c.doc_num || '—'), esc(c.completed_work || '—'), esc(c.note || '—'),
+          esc(c.correction_reason || '—')]; })()
+      })), {})}</div></div>`;
+
+  /* ---------- Dəyişiklik əməliyyatları — YALNIZ Admin ----------
+     Hər biri serverdəki RPC-ni çağırır; qayda serverdədir, bu düymələr sadəcə
+     interfeysdir. Uğurdan sonra HƏMİŞƏ tam yenidən yükləmə olur: «Təmirdə»,
+     kart vəziyyəti və müddət zəncirləri dövrlərdən TÖRƏYİR, ona görə əl ilə
+     yamaqlanmış sətir serverin yazdığı ilə fərqlənə bilərdi. */
+  /* Uğurlu yazıdan sonra platformanın standart ardıcıllığı: dialoqu bağla,
+     bazadan tam oxu, hər şeyi yenidən qur (bax 5704 — köhnə qeydin ləğvi). */
+  const tmrReload = async () => { closeModal(); await loadFromDB(); renderAll(); };
+
+  /* «Təmirə ehtiyac var» — ehtiyacı KONKRET TMD kartlarına yazır, heç nə
+     göndərmir. Bu düymə əvvəl heç bir hadisəyə bağlanmamışdı: görünürdü, lakin
+     işləmirdi, ona görə legacy-də təmir ehtiyacını qeyd etmək mümkün deyildi.
+     Miqdar = seçilmiş kartlar + yeni kart sayı; ayrıca miqdar sahəsi YOXDUR,
+     çünki bir kart bir fiziki vahiddir (sql/038 §6c). */
+  $('#tmr-need').onclick = () => {
+    if (!isAdmin()) return toast('Təmir jurnalını yalnız Admin dəyişə bilər', true);
+    modal('Təmirə ehtiyac var', `
+      <label>Anbar<select id="tn-w">${DB.whs.map(w => `<option value="${esc(w)}">${esc(whLabel(w))}</option>`).join('')}</select></label>
+      <label>Malın kodu<input id="tn-c" placeholder="0000001"></label>
+      <label>Mövcud TMD kartları<select id="tn-cards" multiple size="4"></select></label>
+      <label>Yeni kart sayı<input id="tn-new" type="number" min="0" step="1" value="1"></label>
+      <label>Ehtiyac tarixi və saatı<input id="tn-need" type="datetime-local" value="${esc(tmrNowLocal())}"></label>
+      <label>Səbəb<input id="tn-reason"></label>
+      <label>Qeyd<input id="tn-note"></label>
+      <p class="hint">Vahidlər anbarda qalır — «Təmirdə» dəyişmir, «Təmirə ehtiyaclı» ehtiyatı isə kart sayı qədər artır. Sərbəst qalıq çatmazsa server imtina edir.</p>`,
+      `<div style="flex:1"></div><button class="btn" data-close>İmtina</button><button class="btn pri" id="tn-go">Qeyd et</button>`);
+    $('#tn-go').onclick = async () => {
+      const w = $('#tn-w').value, code = $('#tn-c').value.trim();
+      if (!code) return toast('Mal kodu tələb olunur', true);
+      const cards = Array.from($('#tn-cards').selectedOptions).map(o => o.value).filter(Boolean);
+      const newCards = parseInt($('#tn-new').value, 10) || 0;
+      if (cards.length + newCards <= 0) return toast('Miqdar sıfırdan böyük olmalıdır', true);
+      $('#tn-go').disabled = true;
+      try {
+        const { error } = await SB.rpc('repair_mark_needed', {
+          p_warehouse: w, p_item_code: code,
+          p_cards: cards, p_new_cards: newCards,
+          p_needed_at: tmrLocalToIso($('#tn-need').value),
+          p_reason: $('#tn-reason').value.trim() || null,
+          p_note: $('#tn-note').value.trim() || null
+        });
+        if (error) throw error;
+        setSync(true);
+        await tmrReload();
+        toast('Təmir ehtiyacı qeyd edildi');
+      } catch (err) {
+        if ($('#tn-go')) $('#tn-go').disabled = false;
+        setSync(false);
+        toast('Xəta: ' + (err.message || 'server xətası'), true);
+      }
+    };
+    /* AKTIV dövrü olmayan kartlar seçilir: `needed` və `open` birlikdə — bir
+       kartda iki aktiv dövr ola bilməz (server də rədd edir). */
+    const fillNeedCards = () => {
+      const code = $('#tn-c').value.trim();
+      const active = new Set(DB.repairCycles
+        .filter(c => c.status === 'open' || c.status === 'needed').map(c => c.repair_card_id));
+      $('#tn-cards').innerHTML = DB.repairCards
+        .filter(c => c.item_code === code && !active.has(c.id))
+        .map(c => `<option value="${esc(c.id)}">${esc(c.card_no)}${c.ident_note ? ' — ' + esc(c.ident_note) : ''}</option>`)
+        .join('') || '<option disabled>Bu kod üzrə boş TMD kartı yoxdur</option>';
+    };
+    $('#tn-c').oninput = fillNeedCards;
+    fillNeedCards();
+  };
+
+  $('#tmr-send').onclick = () => {
+    if (!isAdmin()) return toast('Təmir jurnalını yalnız Admin dəyişə bilər', true);
+    const today0 = tmrNowLocal();
+    modal('Birbaşa təmirə göndər', `
+      <label>Anbar<select id="ts-w">${DB.whs.map(w => `<option value="${esc(w)}">${esc(whLabel(w))}</option>`).join('')}</select></label>
+      <label>Malın kodu<input id="ts-c" placeholder="0000001"></label>
+      <label>Mövcud TMD kartları (təkrar təmir üçün seçin)<select id="ts-cards" multiple size="4"></select></label>
+      <label>Yeni kart sayı (yeni fiziki vahidlər üçün)<input id="ts-new" type="number" min="0" step="1" value="1"></label>
+      <label>Təmir ehtiyacı tarixi və saatı<input id="ts-need" type="datetime-local" value="${esc(today0)}"></label>
+      <label>Göndərilmə tarixi və saatı<input id="ts-sent" type="datetime-local" value="${esc(today0)}"></label>
+      <label>Təşkilat / icraçı<input id="ts-perf"></label>
+      <label>Səbəb<input id="ts-reason"></label>
+      <label>Sənəd №<input id="ts-doc"></label>
+      <label>Xərc<input id="ts-cost" type="number" min="0" step="0.01"></label>
+      <label>Qeyd<input id="ts-note"></label>
+      <p class="hint">Miqdar = seçilmiş kartlar + yeni kart sayı. Bir kartın eyni anda iki açıq təmir dövrü ola bilməz.</p>
+      <p class="hint">Bu əməliyyat yalnız <b>Normal</b> qalıqdan götürür — «Təmirə ehtiyaclı» ehtiyatı dəyişmir. Artıq qeydə alınmış ehtiyacı göndərmək üçün kartı seçib «Təmirə göndər» düyməsindən istifadə edin.</p>`,
+      `<div style="flex:1"></div><button class="btn" data-close>İmtina</button><button class="btn pri" id="ts-go">Göndər</button>`);
+    $('#ts-go').onclick = async () => {
+      const w = $('#ts-w').value, code = $('#ts-c').value.trim();
+      if (!code) return toast('Mal kodu tələb olunur', true);
+      const cards = Array.from($('#ts-cards').selectedOptions).map(o => o.value).filter(Boolean);
+      const newCards = parseInt($('#ts-new').value, 10) || 0;
+      if (cards.length + newCards <= 0) return toast('Miqdar sıfırdan böyük olmalıdır', true);
+      $('#ts-go').disabled = true;
+      try {
+        const cost = $('#ts-cost').value === '' ? null : parseFloat($('#ts-cost').value);
+        const { error } = await SB.rpc('repair_send', {
+          p_warehouse: w, p_item_code: code,
+          p_cards: cards, p_new_cards: newCards,
+          p_repair_needed_at: tmrLocalToIso($('#ts-need').value),
+          p_sent_at: tmrLocalToIso($('#ts-sent').value),
+          p_performer: $('#ts-perf').value.trim() || null,
+          p_reason: $('#ts-reason').value.trim() || null,
+          p_doc_num: $('#ts-doc').value.trim() || null,
+          p_note: $('#ts-note').value.trim() || null,
+          p_cost: cost
+        });
+        if (error) throw error;
+        setSync(true);
+        await tmrReload();
+        toast('Təmirə göndərildi');
+      } catch (err) {
+        if ($('#ts-go')) $('#ts-go').disabled = false;
+        setSync(false);
+        toast('Xəta: ' + (err.message || 'server xətası'), true);
+      }
+    };
+    /* Eyni nomenklatura kodunun AÇIQ olmayan kartları — başqa kod seçilə
+       bilməz, çünki bir kart bir mala aiddir (server də rədd edir). */
+    const fillCards = () => {
+      const code = $('#ts-c').value.trim();
+      /* AKTIV dovru olan kartlar secilmir: `needed` ve `open` birlikde. Yalniz
+         `open` yoxlamaq, artiq ehtiyac qeyd olunmus karta ikinci aktiv dovr
+         acmaga cehd edib serverden imtina almaga aparardi. */
+      const open = new Set(DB.repairCycles
+        .filter(c => c.status === 'open' || c.status === 'needed').map(c => c.repair_card_id));
+      $('#ts-cards').innerHTML = DB.repairCards
+        .filter(c => c.item_code === code && !open.has(c.id))
+        .map(c => `<option value="${esc(c.id)}">${esc(c.card_no)}${c.ident_note ? ' — ' + esc(c.ident_note) : ''}</option>`)
+        .join('') || '<option disabled>Bu kod üzrə boş TMD kartı yoxdur</option>';
+    };
+    $('#ts-c').oninput = fillCards;
+    fillCards();
+  };
+
+  /* MİQDAR DÜZƏLİŞİ — KART ƏSASLI, ATOMİK, BİR AUDİT PAKETİ.
+     ========================================================
+     Bu düymə əvvəllər legacy-də HEÇ BİR hadisəyə bağlanmamışdı: görünürdü,
+     Admin üçün gizlədilib-göstərilirdi, lakin `repair_quantity_correct`
+     çağırışı legacy-də ümumiyyətlə yox idi. Miqdar düzəlişi yalnız React-də
+     işləyirdi, ona görə production legacy-də miqdarı düzəltmək mümkün deyildi.
+
+     BİR KART BİR FİZİKİ VAHİDDİR, ona görə miqdar AYRICA RƏQƏM DEYİL: onu
+     düzəltmək — paketdəki KARTLARI dəyişmək deməkdir (sql/038 §6g):
+       * azaltma  — `p_cancel_cycle_ids` ləğv ediləcək AKTİV dövrləri göstərir;
+       * artırma  — `p_add_cards` mövcud kartları, `p_new_cards` isə yeni
+                    yaradılacaq kartların sayını göstərir.
+     Ona görə burada «miqdar» sahəsi YOXDUR — server miqdarı kart üzvlüyündən
+     hesablayır və uyğunsuzluq struktur olaraq mümkün deyil.
+
+     Bütün dövrlər eyni `correction_batch_id` ilə damğalanır; server hamısını
+     bir tranzaksiyada yazır — hissəvi tətbiq yoxdur. Server imtina edərsə
+     LOKAL vəziyyət dəyişmir: `tmrReload()` yalnız uğurdan sonra çağırılır.
+
+     Qayda SERVERDƏDİR (repair_require_admin) — düymənin gizlədilməsi icazə
+     deyil, sadəcə rahatlıqdır. */
+  $('#tmr-qty').onclick = () => {
+    if (!isAdmin()) return toast('Təmir jurnalını yalnız Admin dəyişə bilər', true);
+    const today0 = tmrNowLocal();
+    modal('Miqdar düzəlişi', `
+      <label>Anbar<select id="tq-w">${DB.whs.map(w => `<option value="${esc(w)}">${esc(whLabel(w))}</option>`).join('')}</select></label>
+      <label>Malın kodu<input id="tq-c" placeholder="0000001"></label>
+      <label>Ləğv ediləcək aktiv dövrlər (azaltma)<select id="tq-cancel" multiple size="4"></select></label>
+      <label>Əlavə ediləcək mövcud kartlar (artırma)<select id="tq-add" multiple size="4"></select></label>
+      <label>Yeni kart sayı<input id="tq-new" type="number" min="0" step="1" value="0"></label>
+      <label>Yeni kartların identifikasiya qeydləri (hər sətir bir kart)<textarea id="tq-idents" rows="2" placeholder="Zavod nömrəsi 4471-A"></textarea></label>
+      <label>Əlavə olunan kartların vəziyyəti<select id="tq-state"><option value="needed">Təmirə ehtiyaclı</option><option value="open">Təmirdə</option></select></label>
+      <label>Ehtiyac tarixi və saatı<input id="tq-need" type="datetime-local" value="${esc(today0)}"></label>
+      <label id="tq-sent-l">Göndərilmə tarixi və saatı<input id="tq-sent" type="datetime-local" value="${esc(today0)}"></label>
+      <label>Düzəliş səbəbi (MÜTLƏQ)<input id="tq-reason" placeholder="Miqdar nə üçün düzəlir?"></label>
+      <p class="hint" id="tq-sum"></p>
+      <p class="hint">Miqdar kart üzvlüyü ilə dəyişir — ayrıca miqdar sahəsi yoxdur, çünki bir TMD kartı bir fiziki vahiddir. Hamısı bir düzəliş paketidir: server ya hamısını yazır, ya heç birini.</p>`,
+      `<div style="flex:1"></div><button class="btn" data-close>İmtina</button><button class="btn dgr" id="tq-go">Düzəlişi yaz</button>`);
+
+    /* Seçilmiş anbar/kod üzrə AKTİV dövrlər (ləğv üçün) və AKTİV dövrü olmayan
+       kartlar (əlavə üçün). Kart nomenklatura koduna aiddir, anbara yox. */
+    const tqFill = () => {
+      const w = $('#tq-w').value, code = $('#tq-c').value.trim();
+      const cardById = new Map(DB.repairCards.map(c => [c.id, c]));
+      $('#tq-cancel').innerHTML = DB.repairCycles
+        .filter(c => (c.status === 'needed' || c.status === 'open')
+                     && c.warehouse === w && c.item_code === code)
+        .map(c => `<option value="${esc(c.id)}">${esc((cardById.get(c.repair_card_id) || {}).card_no || c.id)} — ${esc(TMR_STATUS_LABEL[c.status] || c.status)}</option>`)
+        .join('') || '<option disabled>Bu anbar/kod üzrə aktiv dövr yoxdur</option>';
+      const active = new Set(DB.repairCycles
+        .filter(c => c.status === 'open' || c.status === 'needed').map(c => c.repair_card_id));
+      $('#tq-add').innerHTML = DB.repairCards
+        .filter(c => c.item_code === code && !active.has(c.id))
+        .map(c => `<option value="${esc(c.id)}">${esc(c.card_no)}${c.ident_note ? ' — ' + esc(c.ident_note) : ''}</option>`)
+        .join('') || '<option disabled>Bu kod üzrə boş TMD kartı yoxdur</option>';
+      tqSum();
+    };
+    /* Ləğv/əlavə/xalis dəyişiklik təsdiqdən ƏVVƏL görünür. */
+    const tqSum = () => {
+      const cancel = Array.from($('#tq-cancel').selectedOptions).map(o => o.value).filter(Boolean).length;
+      const add = Array.from($('#tq-add').selectedOptions).map(o => o.value).filter(Boolean).length
+                + (parseInt($('#tq-new').value, 10) || 0);
+      const d = add - cancel;
+      $('#tq-sum').innerHTML = `Ləğv: <b>${nf(cancel)}</b> · Əlavə: <b>${nf(add)}</b> · Xalis dəyişiklik: <b>${d > 0 ? '+' : ''}${nf(d)}</b>`;
+      $('#tq-sent-l').style.display = $('#tq-state').value === 'open' ? '' : 'none';
+    };
+    $('#tq-w').onchange = tqFill;
+    $('#tq-c').oninput = tqFill;
+    $('#tq-cancel').onchange = tqSum;
+    $('#tq-add').onchange = tqSum;
+    $('#tq-new').oninput = tqSum;
+    $('#tq-state').onchange = tqSum;
+    tqFill();
+
+    $('#tq-go').onclick = async () => {
+      const w = $('#tq-w').value, code = $('#tq-c').value.trim();
+      if (!code) return toast('Mal kodu tələb olunur', true);
+      const reason = $('#tq-reason').value.trim();
+      if (!reason) return toast('Düzəliş üçün səbəb mütləqdir', true);
+      const cancelIds = Array.from($('#tq-cancel').selectedOptions).map(o => o.value).filter(Boolean);
+      const addCards = Array.from($('#tq-add').selectedOptions).map(o => o.value).filter(Boolean);
+      const newCards = parseInt($('#tq-new').value, 10) || 0;
+      if (cancelIds.length === 0 && addCards.length + newCards === 0) {
+        return toast('Ən azı bir dövr ləğv edilməli və ya bir kart əlavə edilməlidir', true);
+      }
+      const state = $('#tq-state').value;
+      const idents = $('#tq-idents').value.split('\n').map(s => s.trim()).filter(Boolean);
+      $('#tq-go').disabled = true;
+      try {
+        /* MİQDAR YOX, KART İDENTİFİKATORLARI göndərilir. */
+        const { error } = await SB.rpc('repair_quantity_correct', {
+          p_warehouse: w, p_item_code: code,
+          p_reason: reason,
+          p_target_state: state,
+          p_cancel_cycle_ids: cancelIds,
+          p_add_cards: addCards,
+          p_new_cards: newCards,
+          p_needed_at: tmrLocalToIso($('#tq-need').value),
+          p_sent_at: state === 'open' ? tmrLocalToIso($('#tq-sent').value) : null,
+          p_ident_notes: idents
+        });
+        if (error) throw error;
+        setSync(true);
+        await tmrReload();
+        toast('Miqdar düzəlişi yazıldı');
+      } catch (err) {
+        /* Server imtina etdi — LOKAL vəziyyət dəyişmir, jurnal yenilənmir. */
+        if ($('#tq-go')) $('#tq-go').disabled = false;
+        setSync(false);
+        toast('Xəta: ' + (err.message || 'server xətası'), true);
+      }
+    };
+  };
+
+  /* Sətir daxilində qayıtma və düzəliş — yalnız Admin üçün görünür. */
+  if (admin && sel) {
+    const open = sel.open;
+    /* KARTIN ÖZ SƏTRİNDƏN GÖNDƏRİLİR — məcmu ehtiyatdan deyil.
+       «Təmirə göndər» yalnız qeydə alınmış `needed` dövrü üçün görünür və
+       repair_send_needed ilə HƏMİN dövrü `open` vəziyyətinə keçirir. Beləliklə
+       repair_qty = COUNT(status='needed') bərabərliyi qorunur.
+       «Göndərişi geri al» isə ləğvdən FƏRQLİ əməliyyatdır: dövr `needed`
+       vəziyyətinə qaytarılır və ehtiyat 1 vahid artır. */
+    const needed = sel.needed;
+    $('#tmr-detail').insertAdjacentHTML('afterbegin', `<div class="pill-row" style="margin-bottom:8px">
+      ${needed ? '<button class="btn pri" id="tmr-sn">Təmirə göndər</button>' : ''}
+      ${open ? '<button class="btn pri" id="tmr-ret">Təmirdən qaytar</button>' : ''}
+      ${open ? '<button class="btn" id="tmr-undo">Göndərişi geri al</button>' : ''}
+      ${sel.cycles.length ? '<button class="btn" id="tmr-cor">Düzəliş / ləğv</button>' : ''}</div>`);
+
+    /* Qeydə alınmış ehtiyacın təmirə göndərilməsi — EYNİ dövr dəyişir. */
+    if (needed) $('#tmr-sn').onclick = () => {
+      modal('Təmirə göndər — ' + sel.card.card_no, `
+        <p class="hint">Qeyd olunmuş ehtiyac tarixi: <b>${esc(tmrFmtDT(needed.repair_needed_at) || '—')}</b></p>
+        <label>Göndərilmə tarixi və saatı<input id="tsn-d" type="datetime-local" value="${esc(tmrNowLocal())}"></label>
+        <label>Təşkilat / icraçı<input id="tsn-perf"></label>
+        <label>Səbəb<input id="tsn-reason"></label>
+        <label>Sənəd №<input id="tsn-doc"></label>
+        <label>Xərc<input id="tsn-cost" type="number" min="0" step="0.01"></label>
+        <label>Qeyd<input id="tsn-note"></label>
+        <p class="hint">«Təmirə ehtiyaclı» ehtiyatı 1 vahid azalır, «Təmirdə» isə 1 vahid artır — eyni əməliyyatda, eyni dövr sətrində.</p>`,
+        `<div style="flex:1"></div><button class="btn" data-close>İmtina</button><button class="btn pri" id="tsn-go">Göndər</button>`);
+      $('#tsn-go').onclick = async () => {
+        $('#tsn-go').disabled = true;
+        try {
+          const cost = $('#tsn-cost').value === '' ? null : parseFloat($('#tsn-cost').value);
+          const { error } = await SB.rpc('repair_send_needed', {
+            p_cycle_ids: [needed.id],
+            p_sent_at: tmrLocalToIso($('#tsn-d').value),
+            p_performer: $('#tsn-perf').value.trim() || null,
+            p_reason: $('#tsn-reason').value.trim() || null,
+            p_doc_num: $('#tsn-doc').value.trim() || null,
+            p_note: $('#tsn-note').value.trim() || null,
+            p_cost: cost
+          });
+          if (error) throw error;
+          setSync(true);
+          await tmrReload();
+          toast('Təmirə göndərildi');
+        } catch (err) {
+          if ($('#tsn-go')) $('#tsn-go').disabled = false;
+          setSync(false);
+          toast('Xəta: ' + (err.message || 'server xətası'), true);
+        }
+      };
+    };
+
+    /* Göndərişin geri alınması — open -> needed, ehtiyat +1. LƏĞV DEYİL. */
+    if (open) $('#tmr-undo').onclick = () => {
+      modal('Göndərişi geri al — ' + sel.card.card_no, `
+        <p class="hint">Geri alınacaq göndərilmə: <b>${esc(tmrFmtDT(open.sent_to_repair_at) || '—')}</b></p>
+        <label>Səbəb (MÜTLƏQ)<input id="tu-reason" placeholder="Göndəriş nə üçün geri alınır?"></label>
+        <p class="hint">Dövr «Təmirə ehtiyaclı» vəziyyətinə qaytarılır: göndərilmə tarixi, təşkilat, sənəd və xərc silinir, «Təmirə ehtiyaclı» ehtiyatı <b>1 vahid artır</b>, «Təmirdə» 1 vahid azalır. Tarixçə silinmir.</p>
+        <p class="hint">Bütün qeyd səhvdirsə «Düzəliş / ləğv» əməliyyatından istifadə edin — o, ehtiyatı bərpa etmir.</p>`,
+        `<div style="flex:1"></div><button class="btn" data-close>İmtina</button><button class="btn pri" id="tu-go">Geri al</button>`);
+      $('#tu-go').onclick = async () => {
+        const reason = $('#tu-reason').value.trim();
+        if (!reason) return toast('Səbəb mütləqdir', true);
+        $('#tu-go').disabled = true;
+        try {
+          const { error } = await SB.rpc('repair_correct', {
+            p_cycle_id: open.id,
+            p_reason: reason,
+            p_cancel: false,
+            p_undo_send: true
+          });
+          if (error) throw error;
+          setSync(true);
+          await tmrReload();
+          toast('Göndəriş geri alındı');
+        } catch (err) {
+          if ($('#tu-go')) $('#tu-go').disabled = false;
+          setSync(false);
+          toast('Xəta: ' + (err.message || 'server xətası'), true);
+        }
+      };
+    };
+
+    if (open) $('#tmr-ret').onclick = () => {
+      modal('Təmirdən qaytar — ' + sel.card.card_no, `
+        <label>Qayıtma tarixi və saatı<input id="tr-d" type="datetime-local" value="${esc(tmrNowLocal())}"></label>
+        <label>Nəticə<select id="tr-r"><option value="repaired">Təmir olundu</option><option value="unusable">Yararsız</option></select></label>
+        <label>Təşkilat / icraçı<input id="tr-perf" value="${esc(open.performer || '')}"></label>
+        <label>Görülən iş<input id="tr-work"></label>
+        <label>Xərc<input id="tr-cost" type="number" min="0" step="0.01" value="${open.cost == null ? '' : esc(String(open.cost))}"></label>
+        <label>Sənəd №<input id="tr-doc" value="${esc(open.doc_num || '')}"></label>
+        <label>Qeyd<input id="tr-note"></label>
+        <p class="hint">«Təmir olundu» — vahid Normal qalığa qayıdır. «Yararsız» — «Yararsız» ehtiyatına keçir.</p>`,
+        `<div style="flex:1"></div><button class="btn" data-close>İmtina</button><button class="btn pri" id="tr-go">Qaytar</button>`);
+      $('#tr-go').onclick = async () => {
+        $('#tr-go').disabled = true;
+        try {
+          const cost = $('#tr-cost').value === '' ? null : parseFloat($('#tr-cost').value);
+          const { error } = await SB.rpc('repair_return', {
+            p_cycle_id: open.id,
+            p_returned_at: tmrLocalToIso($('#tr-d').value),
+            p_result: $('#tr-r').value,
+            p_performer: $('#tr-perf').value.trim() || null,
+            p_completed_work: $('#tr-work').value.trim() || null,
+            p_cost: cost,
+            p_doc_num: $('#tr-doc').value.trim() || null,
+            p_note: $('#tr-note').value.trim() || null
+          });
+          if (error) throw error;
+          setSync(true);
+          await tmrReload();
+          toast('Təmirdən qaytarıldı');
+        } catch (err) {
+          if ($('#tr-go')) $('#tr-go').disabled = false;
+          setSync(false);
+          toast('Xəta: ' + (err.message || 'server xətası'), true);
+        }
+      };
+    };
+
+    if (sel.cycles.length) $('#tmr-cor').onclick = () => {
+      /* Secilmis dovrun `returned` olub-olmadigi: qayitma sahelerinin
+         verilmesine yalniz o halda icaze verilir. */
+      window.tmrCorCycleReturned = () => {
+        const c = sel.cycles.find(x => x.id === $('#tc-cy').value);
+        return !!c && c.status === 'returned';
+      };
+      modal('Düzəliş / ləğv — ' + sel.card.card_no, `
+        <label>Təmir dövrü<select id="tc-cy">${sel.cycles.map(c => `<option value="${esc(c.id)}">${esc(String(c.cycle_no))} — ${esc(TMR_STATUS_LABEL[c.status] || c.status)}</option>`).join('')}</select></label>
+        <label><input type="checkbox" id="tc-cancel"> Dövrü tamamilə LƏĞV et (tarixçə silinmir)</label>
+        <p class="hint">Ləğv «Təmirə ehtiyaclı» ehtiyatını açıq dövr üçün BƏRPA ETMİR — geridə «təmirə ehtiyaclı» dövr qalmır. Göndəriş səhv, ehtiyac isə realdırsa «Göndərişi geri al» düyməsindən istifadə edin.</p>
+        <label>Səbəb (MÜTLƏQ)<input id="tc-reason" placeholder="Nə üçün düzəliş edilir?"></label>
+        <label>Ehtiyac tarixi və saatı<input id="tc-need" type="datetime-local"></label>
+        <label>Göndərilmə tarixi və saatı<input id="tc-sent" type="datetime-local"></label>
+        <label>Qayıtma tarixi və saatı<input id="tc-ret" type="datetime-local"></label>
+        <label>Nəticə<select id="tc-res"><option value="">— dəyişmə —</option><option value="repaired">Təmir olundu</option><option value="unusable">Yararsız</option></select></label>
+        <label>Təşkilat<input id="tc-perf"></label>
+        <label>Xərc<input id="tc-cost" type="number" min="0" step="0.01"></label>
+        <label>Sənəd №<input id="tc-doc"></label>
+        <label>Görülən iş<input id="tc-work"></label>
+        <label>Qeyd<input id="tc-note"></label>
+        <p class="hint">Boş buraxılan sahə dəyişmir. Tarixçə heç vaxt fiziki silinmir — ləğv statusla qeyd olunur.</p>`,
+        `<div style="flex:1"></div><button class="btn" data-close>İmtina</button><button class="btn dgr" id="tc-go">Yaz</button>`);
+      /* Saxlanan anlari gostermek ucun sahelere ilkin deyer verilir — bos
+         buraxilsa server «deyisme» kimi oxuyur. */
+      const tcSeed = () => {
+        const c = sel.cycles.find(x => x.id === $('#tc-cy').value);
+        $('#tc-need').value = c ? tmrIsoToLocal(c.repair_needed_at) : '';
+        $('#tc-sent').value = c ? tmrIsoToLocal(c.sent_to_repair_at) : '';
+        $('#tc-ret').value = c ? tmrIsoToLocal(c.returned_from_repair_at) : '';
+        const ret = !!c && c.status === 'returned';
+        $('#tc-ret').disabled = !ret;
+        $('#tc-res').disabled = !ret;
+      };
+      $('#tc-cy').onchange = tcSeed;
+      tcSeed();
+      $('#tc-go').onclick = async () => {
+        const reason = $('#tc-reason').value.trim();
+        if (!reason) return toast('Düzəliş üçün səbəb mütləqdir', true);
+        $('#tc-go').disabled = true;
+        try {
+          const cost = $('#tc-cost').value === '' ? null : parseFloat($('#tc-cost').value);
+          const { error } = await SB.rpc('repair_correct', {
+            p_cycle_id: $('#tc-cy').value,
+            p_reason: reason,
+            p_cancel: $('#tc-cancel').checked,
+            /* Ləğv və «göndərişi geri al» AYRI əməliyyatlardır (sql/038 §6e):
+               ləğv açıq dövr üçün «Təmirə ehtiyaclı» ehtiyatını bərpa etmir,
+               geri alma isə dövrü `needed` vəziyyətinə qaytarır və ehtiyatı
+               1 vahid artırır. Bu dialoq yalnız düzəliş/ləğv edir. */
+            p_undo_send: false,
+            p_needed_at: tmrLocalToIso($('#tc-need').value),
+            p_sent_at: tmrLocalToIso($('#tc-sent').value),
+            /* Qayitma tarixi/neticesi YALNIZ `returned` dovre verile biler —
+               qayitma ayrica, yoxlanilan kecidir (sql/038 §6e imtina edir). */
+            p_returned_at: tmrCorCycleReturned() ? tmrLocalToIso($('#tc-ret').value) : null,
+            p_result: tmrCorCycleReturned() ? ($('#tc-res').value || null) : null,
+            p_performer: $('#tc-perf').value.trim() || null,
+            p_doc_num: $('#tc-doc').value.trim() || null,
+            p_completed_work: $('#tc-work').value.trim() || null,
+            p_cost: cost,
+            p_note: $('#tc-note').value.trim() || null
+          });
+          if (error) throw error;
+          setSync(true);
+          await tmrReload();
+          toast('Düzəliş yazıldı');
+        } catch (err) {
+          if ($('#tc-go')) $('#tc-go').disabled = false;
+          setSync(false);
+          toast('Xəta: ' + (err.message || 'server xətası'), true);
+        }
+      };
+    };
+  }
+
+  $('#tmr-print').onclick = () => { printHead('Təmir jurnalı', nf(rows.length) + ' TMD kartı'); setTimeout(() => window.print(), 60); };
+  /* İxrac EKRANDAKI süzülmüş sətirlərdən qurulur — ayrı sorğu yoxdur. */
+  $('#tmr-exp').onclick = () => {
+    const head = ['TMD nömrəsi', 'Dövr №', 'Kod', 'Malın adı', 'Anbar', 'Ehtiyac tarixi',
+      'Göndərilmə tarixi', 'Qayıtma tarixi', 'Status', 'Nəticə', 'Təmir müddəti (gün)',
+      'Təmirdən sonra iş müddəti (gün)', 'Təşkilat / icraçı', 'Səbəb', 'Xərc', 'Sənəd №',
+      'Görülən iş', 'Qeyd', 'Düzəliş səbəbi', 'Düzəliş paketi'];
+    const body = [];
+    /* EKRANDAKI `rows` — suzulmus coxluq. Ayrica sorgu ve suzgecsiz coxluq
+       yoxdur, ona gore ekran, Excel ve cap eyni setirleri gosterir. */
+    rows.forEach(s => s.cycles.forEach(c => {
+      const li = s.live.findIndex(l => l.id === c.id);
+      const prev = li > 0 ? s.live[li - 1] : null;
+      const rd = tmrRepairDuration(c, now), wd = tmrWorkingDuration(prev, c, now);
+      body.push([s.card.card_no, c.cycle_no, c.item_code, tmrItemName(c.item_code), c.warehouse,
+        tmrFmtDT(c.repair_needed_at), tmrFmtDT(c.sent_to_repair_at), tmrFmtDT(c.returned_from_repair_at),
+        TMR_STATUS_LABEL[c.status] || c.status, c.result ? (TMR_RESULT_LABEL[c.result] || c.result) : '',
+        rd == null ? '' : +(rd.ms / tmrDay).toFixed(2), wd == null ? '' : +(wd.ms / tmrDay).toFixed(2),
+        c.performer || '', c.reason || '', c.cost == null ? '' : (parseFloat(c.cost) || 0).toFixed(2),
+        c.doc_num || '', c.completed_work || '', c.note || '', c.correction_reason || '',
+        c.correction_batch_id || '']);
+    }));
+    xls([head].concat(body), 'temir_jurnali');
+  };
 }
 
 /* Vəziyyət xanasının sətir-daxili redaktəsi. Enter/fokus itirmə saxlayır,
@@ -3164,7 +4035,7 @@ async function refSend(kind, action, id) {
   const btns = $$('#m-foot .btn'); btns.forEach(b => b.disabled = true);
   try {
     const { data, error } = await SB.rpc('manage_reference',
-      { p_kind: kind, p_action: action, p_id: id == null ? null : String(id), p_name: name || null, p_meta: meta });
+      { p_kind: kind, p_action: action, p_id: id, p_name: name || null, p_meta: meta });
     if (error) throw error;
     closeModal();
     if ($('#rf-new-name')) $('#rf-new-name').value = '';
@@ -6822,6 +7693,86 @@ function rRep() {
   else if (k === 'qaime') {
     rQaimeReport(out);
   }
+  /* ---------- Mal-material durumu (sql/038) ----------
+     YALNIZ OXUMAQ ÜÇÜN. Ekran, Excel və çap EYNİ süzülmüş sətir modelindən
+     qurulur — bir rəqəm ekranda bir cür, faylda başqa cür ola bilməz.
+     «Təmirdə» törəmə göstəricidir: açıq TMD dövrlərinin sayı, stock_conditions
+     sütunu deyil. Normal = qalıq − bütün müsbət işarələr − törəmə «Təmirdə». */
+  else if (k === 'durum') {
+    const EPS = 1e-9;
+    const seen = new Set(), src = [];
+    const push = (w, c, total) => {
+      const key = w + '|' + c;
+      if (seen.has(key)) return;
+      seen.add(key);
+      const cd = condOf(w, c);
+      const inRep = inRepairOf(w, c);
+      const unfit = cd ? (cd.unfit || 0) : 0, rep = cd ? (cd.repair || 0) : 0;
+      const onsite = cd ? (cd.onsite || 0) : 0, icare = cd ? (cd.icare || 0) : 0;
+      if (!total && !unfit && !rep && !inRep && !onsite && !icare) return;
+      const marked = unfit + rep + onsite + icare;
+      const normal = +Math.max(0, total - marked - inRep).toFixed(4);
+      const statuses = [];
+      DISPLAY_MARKER_COLS.forEach(mc => {
+        const v = mc.k === 'inRepair' ? inRep : (cd ? (cd[mc.k] || 0) : 0);
+        if (v > EPS) statuses.push(mc.t);
+      });
+      if (!statuses.length && normal > EPS) statuses.push('Normal');
+      const it = DB.itemBy.get(c) || {};
+      src.push({
+        w, c, name: it.name || '(nomenklaturada yoxdur: ' + c + ')', unit: it.unit || '',
+        total, normal, unfit, repair: rep, inRepair: inRep, onsite, icare, statuses,
+        consistent: Math.abs((marked + inRep + normal) - total) < 1e-6
+      });
+    };
+    IX.bal.forEach(b => push(b.w, b.c, b.q));
+    /* Hərəkəti olmayan, lakin işarəli və ya təmirdə olan sətirlər də görünür —
+       əks halda sıfır qalıqlı açıq təmir gizli qalardı, halbuki bu hesabat məhz
+       belə uyğunsuzluqları üzə çıxarmaq üçündür. */
+    DB.conds.forEach((v, key) => push(key.slice(0, key.indexOf('|')), key.slice(key.indexOf('|') + 1), 0));
+    DB.repairCounts.forEach((v, key) => push(key.slice(0, key.indexOf('|')), key.slice(key.indexOf('|') + 1), 0));
+
+    if (!$('#rep-filters').dataset.durum) {
+      $('#rep-filters').dataset.durum = 1;
+      $('#rep-filters').innerHTML = `<input type="search" id="du-q" placeholder="Mal adı və ya kod…">
+        <select id="du-w"><option value="">Bütün anbarlar</option>${DB.whs.map(w => `<option value="${esc(w)}">${esc(whLabel(w))}</option>`).join('')}</select>
+        <select id="du-s"><option value="">Hamısı</option><option value="normal">Normal</option>${DISPLAY_MARKER_COLS.map(m => `<option value="${esc(m.k)}">${esc(m.t)}</option>`).join('')}</select>`;
+      $('#du-q').oninput = debounce(rRep, 200);
+      $('#du-w').onchange = rRep; $('#du-s').onchange = rRep;
+    }
+    const q = (($('#du-q') || {}).value || '').trim().toLowerCase();
+    const wSel = ($('#du-w') || {}).value || '', st = ($('#du-s') || {}).value || '';
+    const qtyOf = (r, s) => s === 'normal' ? r.normal : r[s === 'inRepair' ? 'inRepair' : s];
+    const rows = src.filter(r => {
+      if (wSel && r.w !== wSel) return false;
+      if (st && !(qtyOf(r, st) > EPS)) return false;
+      if (q && (r.name + ' ' + r.c).toLowerCase().indexOf(q) < 0) return false;
+      return true;
+    }).sort((a, b) => a.c === b.c ? a.w.localeCompare(b.w, 'az') : a.c.localeCompare(b.c, 'az'));
+
+    const statusText = r => (r.statuses.length ? r.statuses.join(', ') : '—')
+      + (r.consistent ? '' : ' (uyğunsuzluq)');
+    const HEAD = ['Kod', 'Malın adı', 'Anbar', 'Ölçü vahidi', 'Ümumi qalıq', 'Normal',
+      'Yararsız', 'Təmirə ehtiyaclı', 'Təmirdə', 'Sahədə', 'İcarədə', 'Cari status'];
+    REP_NAME = 'mal_material_durumu';
+    REP_ROWS = [HEAD].concat(rows.map(r => [r.c, r.name, r.w, r.unit, r.total, r.normal,
+      r.unfit, r.repair, r.inRepair, r.onsite, r.icare, statusText(r)]));
+
+    const num = v => v > EPS ? nf(v, 2) : '<span class="muted">—</span>';
+    out.innerHTML = `<div class="card"><div class="tw">${tbl(
+      [{ t: 'Kod' }, { t: 'Malın adı' }, { t: 'Anbar' }, { t: 'Ölçü vahidi' },
+       { t: 'Ümumi qalıq', r: 1 }, { t: 'Normal', r: 1 }, { t: 'Yararsız', r: 1 },
+       { t: 'Təmirə ehtiyaclı', r: 1 }, { t: 'Təmirdə', r: 1 }, { t: 'Sahədə', r: 1 },
+       { t: 'İcarədə', r: 1 }, { t: 'Cari status' }],
+      cut(rows, 'durum').map(r => ({
+        _a: `data-card="${esc(r.c)}"`,
+        c: [`<span class="code">${esc(r.c)}</span>`, `<div class="nm">${esc(r.name)}</div>`,
+          esc(whLabel(r.w)), esc(r.unit), `<b>${nf(r.total, 2)}</b>`, nf(r.normal, 2),
+          num(r.unfit), num(r.repair), num(r.inRepair), num(r.onsite), num(r.icare),
+          r.consistent ? esc(statusText(r)) : `<span class="tag t-rm">${esc(statusText(r))}</span>`]
+      })), { clk: 1, empty: 'Bu süzgəclərə uyğun mövqe yoxdur.' })}</div>
+      <div class="pad hint">${nf(rows.length)} mövqe${cutNote(rows, 'durum', rRep)} · «Təmirdə» açıq TMD təmir dövrlərindən hesablanır və burada dəyişdirilmir.</div></div>`;
+  }
 }
 
 /* ================= QAİMƏLƏR ÜZRƏ HESABAT =================
@@ -7671,6 +8622,142 @@ async function enterApp(userId, email) {
   };
 
   document.getElementById('full-exp').onclick = fullExport;
+
+  /* ================= MƏDAXIL / SATINALMA EXPORT =================
+     A new, standalone workbook beside «Tam ixrac» and «Excel (SON formatı)»
+     (owner spec, 2026-09-15). Only canonical `Satınalma` purchase-receipt
+     lines — «Mədaxil» is the UI tab label (`data-k="in"`, not a
+     `movements.type` value), so the filter is `m.t === 'Satınalma'` alone,
+     matching the existing «Satınalmalar» sheet in `fullExport` above
+     (owner-confirmed: no separate channel condition). Reads `normalMovements()`
+     — the same cancellation-filtered, RLS-scoped set every other export
+     reads — so it adds no new fetch and no new permission surface. */
+
+  /* Baki ofseti (deqiqe) — self-contained, NOT the `tmr*` repair-feature
+     helpers above: this export stays decoupled from Təmir code. */
+  function pexOffsetMin(utcMs) {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Baku', year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+    }).formatToParts(new Date(utcMs));
+    const g = t => Number((parts.find(p => p.type === t) || {}).value || 0);
+    const h = g('hour') === 24 ? 0 : g('hour');
+    const asUtc = Date.UTC(g('year'), g('month') - 1, g('day'), h, g('minute'), g('second'));
+    return Math.round((asUtc - Math.floor(utcMs / 1000) * 1000) / 60000);
+  }
+  function pexPad(n) { return String(n).padStart(2, '0'); }
+  function pexBakuParts(iso) {
+    const t = new Date(iso).getTime();
+    if (!isFinite(t)) return null;
+    const off = pexOffsetMin(t);
+    const d = new Date(t + off * 60000);
+    return { y: d.getUTCFullYear(), mo: d.getUTCMonth() + 1, d: d.getUTCDate(), h: d.getUTCHours(), mi: d.getUTCMinutes(), s: d.getUTCSeconds() };
+  }
+  /* The Baku CALENDAR DAY, `YYYY-MM-DD` — used for the filename so a run made
+     late at night in Baku does not silently carry the previous UTC day. */
+  function pexBakuDay(now) {
+    const p = pexBakuParts((now || new Date()).toISOString());
+    return p ? (p.y + '-' + pexPad(p.mo) + '-' + pexPad(p.d)) : today();
+  }
+  const pexR2 = x => Math.round((x || 0) * 100) / 100;
+  /* Timezone-NEUTRAL Excel serial from already-derived Baku wall-clock parts
+     — `Date.UTC(...)/86400000 + 25569` treats those Baku components as if
+     they were UTC, matching the React writer's `bakuPartsToExcelSerial`
+     exactly. A `Date` object handed to SheetJS as `t:'d'` is instead
+     serialized via the RUNNING MACHINE's local timezone, so it must never be
+     used here. */
+  function pexPartsToSerial(p) { return Date.UTC(p.y, p.mo - 1, p.d, p.h, p.mi, p.s) / 86400000 + 25569; }
+  function pexDocDateSerial(isoDate) {
+    const s = String(isoDate || '').trim();
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+    if (!m) return null;
+    return pexPartsToSerial({ y: +m[1], mo: +m[2], d: +m[3], h: 0, mi: 0, s: 0 });
+  }
+  function pexPostedAtSerial(iso) {
+    const s = String(iso || '').trim();
+    if (!s) return null;
+    const p = pexBakuParts(s);
+    if (!p) return null;
+    return pexPartsToSerial(p);
+  }
+
+  window.purchaseExport = function() {
+    if (typeof XLSX === 'undefined') { toast('Excel kitabxanası yüklənmədi', true); return; }
+    const header = ['Sənəd tarixi', 'Keçirilmə tarixi', 'Qaimə №', 'Müqavilə №', 'Anbar',
+      'Kontragent', 'Satınalma kanalı', 'Malın kodu', 'Malın adı', 'Ölçü vahidi',
+      'Miqdar', 'Vahid qiyməti', 'Ümumi məbləğ', 'Qeyd'];
+    /* `whLabel` is deliberately NOT applied to `w` — the spec requires the
+       RECORDED warehouse value verbatim, matching the React export exactly
+       (owner-confirmed: `whLabel` rewrites e.g. `Xocahəsən` to `Xocəsən`,
+       which this historical export must not do). Likewise `unitPrice` comes
+       ONLY from the movement's own recorded `m.pr` — never backfilled from
+       the current `it.price` — so a legitimate recorded 0 stays 0 and a
+       missing recorded price stays missing (empty price/total cells) rather
+       than being fabricated from today's item price. */
+    const rows = normalMovements().filter(m => m.t === 'Satınalma').map(m => {
+      const it = DB.itemBy.get(m.c) || {};
+      const qty = m.i || 0;
+      const unitPrice = (m.pr == null || isNaN(Number(m.pr))) ? null : Number(m.pr);
+      return {
+        d: m.d, ts: m.ts, iv: m.iv || '', ct: m.ct || '', w: m.w,
+        p: m.p || '', ch: m.ch || '', c: m.c, name: it.name || '', unit: it.unit || '',
+        qty: qty, pr: unitPrice, total: unitPrice == null ? null : pexR2(qty * unitPrice), note: m.note || ''
+      };
+    });
+
+    const wb = XLSX.utils.book_new();
+    const aoa = [header].concat(rows.map(r => {
+      const docSerial = pexDocDateSerial(r.d);
+      const postedSerial = pexPostedAtSerial(r.ts);
+      return [
+        docSerial == null ? '' : docSerial, postedSerial == null ? '' : postedSerial, r.iv, r.ct, r.w,
+        r.p, r.ch, r.c, r.name, r.unit, r.qty, r.pr == null ? '' : r.pr, r.total == null ? '' : r.total, r.note
+      ];
+    }));
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    rows.forEach((r, i) => {
+      const ri = i + 1;
+      const docSerial = pexDocDateSerial(r.d);
+      const postedSerial = pexPostedAtSerial(r.ts);
+      const setCell = (ci, cell) => {
+        const addr = XLSX.utils.encode_cell({ r: ri, c: ci });
+        ws[addr] = Object.assign(ws[addr] || {}, cell);
+      };
+      setCell(0, docSerial != null ? { t: 'n', v: docSerial, z: 'dd.mm.yyyy' } : { t: 's', v: '' });
+      setCell(1, postedSerial != null ? { t: 'n', v: postedSerial, z: 'dd.mm.yyyy hh:mm:ss' } : { t: 's', v: '' });
+      setCell(2, { t: 's', v: r.iv });
+      setCell(3, { t: 's', v: r.ct });
+      setCell(4, { t: 's', v: r.w });
+      setCell(5, { t: 's', v: r.p });
+      setCell(6, { t: 's', v: r.ch });
+      setCell(7, { t: 's', v: r.c });
+      setCell(8, { t: 's', v: r.name });
+      setCell(9, { t: 's', v: r.unit });
+      setCell(10, { t: 'n', v: r.qty });
+      setCell(11, r.pr == null ? { t: 's', v: '' } : { t: 'n', v: r.pr });
+      setCell(12, r.total == null ? { t: 's', v: '' } : { t: 'n', v: r.total });
+      setCell(13, { t: 's', v: r.note });
+    });
+    const w = header.map((h, ci) => {
+      let m = h.length;
+      for (let ri = 0; ri < Math.min(rows.length, 300); ri++) {
+        const cell = ws[XLSX.utils.encode_cell({ r: ri + 1, c: ci })];
+        const s = cell && cell.t === 'n' && cell.z ? (cell.z === 'dd.mm.yyyy hh:mm:ss' ? '00.00.0000 00:00:00' : '00.00.0000') : String((cell && cell.v) == null ? '' : cell.v);
+        m = Math.max(m, s.length);
+      }
+      return { wch: Math.min(m + 2, 40) };
+    });
+    ws['!cols'] = w;
+    ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+    ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: aoa.length - 1, c: header.length - 1 } }) };
+    XLSX.utils.book_append_sheet(wb, ws, 'Mədaxil - Satınalma');
+
+    const fileName = 'Medaxil_Satinalma_' + pexBakuDay(new Date()) + '.xlsx';
+    XLSX.writeFile(wb, fileName);
+    toast(fileName + ' yükləndi — ' + nf(rows.length) + ' sətir');
+  };
+
+  document.getElementById('purchase-exp').onclick = purchaseExport;
 
   /* ================= SON FORMAT EXPORT (surgical .xlsx from template) =================
      Regenerates the original workbook (Filtrasiya, 3 anbar, Nomenklatura, Kontragent)
