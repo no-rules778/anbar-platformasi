@@ -2694,6 +2694,66 @@ function tmrSummaries(now) {
 
 const tmrItemName = code => (DB.itemBy.get(code) || {}).name || '(nomenklaturada yoxdur: ' + code + ')';
 
+function tmrNormalAvailable(warehouse, code) {
+  const balance = IX.bal.find(b => b.w === warehouse && b.c === code);
+  const condition = condOf(warehouse, code) || {};
+  let marked = 0;
+  COND_COLS.forEach(col => { marked += Number(condition[col.k]) || 0; });
+  return Math.max(0, (balance ? balance.q : 0) - marked - inRepairOf(warehouse, code));
+}
+
+/* Searchable nomenclature picker for repair dialogs. A code is accepted only
+   after choosing an item from the list, so a mistyped/non-existent code can
+   never reach a repair RPC. Focusing the field or pressing the arrow opens
+   the list even when the search field is empty. */
+function tmrItemPicker(inputId, resultsId, warehouseId, onPick, includeAll) {
+  const input = $('#' + inputId), results = $('#' + resultsId);
+  const toggle = $('#' + inputId + '-open');
+  let selectedCode = '';
+
+  const eligibleCodes = () => {
+    if (includeAll) return null;
+    const warehouse = $('#' + warehouseId).value;
+    return new Set(IX.bal.filter(b => b.w === warehouse && tmrNormalAvailable(warehouse, b.c) > 1e-9).map(b => b.c));
+  };
+  const render = () => {
+    const q = input.value.trim().toLowerCase();
+    if (selectedCode) {
+      const selected = DB.itemBy.get(selectedCode);
+      const label = selected ? selected.name + ' (' + selected.code + ')' : '';
+      if (input.value !== label) selectedCode = '';
+    }
+    const allowed = eligibleCodes();
+    const items = DB.items.filter(item =>
+      (!allowed || allowed.has(item.code)) &&
+      (!q || item.code.indexOf(q) >= 0 || item.name.toLowerCase().indexOf(q) >= 0));
+    results.innerHTML = items.length ? items.map(item =>
+      `<div data-code="${esc(item.code)}" style="padding:7px 9px;cursor:pointer;border-bottom:1px solid var(--line-2)"><b>${esc(item.name)}</b><div class="hint"><span class="code">${esc(item.code)}</span> · ${esc(item.unit || '')}</div></div>`
+    ).join('') : '<div class="hint" style="padding:9px">Uyğun mal tapılmadı</div>';
+    results.style.display = 'block';
+    $$('#' + resultsId + ' [data-code]').forEach(row => row.onclick = () => {
+      const item = DB.itemBy.get(row.dataset.code);
+      if (!item) return;
+      selectedCode = item.code;
+      input.value = item.name + ' (' + item.code + ')';
+      results.style.display = 'none';
+      onPick(item.code);
+    });
+  };
+  input.oninput = debounce(render, 120);
+  input.onfocus = render;
+  input.onblur = () => setTimeout(() => { results.style.display = 'none'; }, 200);
+  if (toggle) toggle.onclick = () => {
+    if (results.style.display === 'block') return void (results.style.display = 'none');
+    input.focus();
+    render();
+  };
+  return {
+    getCode: () => selectedCode,
+    clear: () => { selectedCode = ''; input.value = ''; results.style.display = 'none'; onPick(''); }
+  };
+}
+
 function rTmr() {
   const now = Date.now();
   const el = $('#tmr-filters');
@@ -2797,7 +2857,10 @@ function rTmr() {
     if (!isAdmin()) return toast('Təmir jurnalını yalnız Admin dəyişə bilər', true);
     modal('Təmirə ehtiyac var', `
       <label>Anbar<select id="tn-w">${DB.whs.map(w => `<option value="${esc(w)}">${esc(whLabel(w))}</option>`).join('')}</select></label>
-      <label>Malın kodu<input id="tn-c" placeholder="0000001"></label>
+      <label>Mal (ad və ya kodla axtarın)
+        <div style="position:relative"><div style="display:flex;gap:4px"><input id="tn-c" autocomplete="off" placeholder="məs. nasos, 0001581…"><button type="button" class="btn" id="tn-c-open" aria-label="Nomenklatura siyahısını aç" style="flex:0 0 38px;padding:0">▾</button></div>
+        <div id="tn-c-results" style="position:absolute;left:0;right:0;top:100%;background:#fff;border:1px solid var(--line);border-radius:0 0 4px 4px;max-height:230px;overflow:auto;z-index:20;display:none"></div></div>
+      </label>
       <label>Mövcud TMD kartları<select id="tn-cards" multiple size="4"></select></label>
       <label>Yeni kart sayı<input id="tn-new" type="number" min="0" step="1" value="1"></label>
       <label>Ehtiyac tarixi və saatı<input id="tn-need" type="datetime-local" value="${esc(tmrNowLocal())}"></label>
@@ -2805,9 +2868,23 @@ function rTmr() {
       <label>Qeyd<input id="tn-note"></label>
       <p class="hint">Vahidlər anbarda qalır — «Təmirdə» dəyişmir, «Təmirə ehtiyaclı» ehtiyatı isə kart sayı qədər artır. Sərbəst qalıq çatmazsa server imtina edir.</p>`,
       `<div style="flex:1"></div><button class="btn" data-close>İmtina</button><button class="btn pri" id="tn-go">Qeyd et</button>`);
+    /* AKTIV dövrü olmayan kartlar seçilir: `needed` və `open` birlikdə — bir
+       kartda iki aktiv dövr ola bilməz (server də rədd edir). */
+    const fillNeedCards = () => {
+      const code = picker.getCode();
+      const active = new Set(DB.repairCycles
+        .filter(c => c.status === 'open' || c.status === 'needed').map(c => c.repair_card_id));
+      $('#tn-cards').innerHTML = DB.repairCards
+        .filter(c => c.item_code === code && !active.has(c.id))
+        .map(c => `<option value="${esc(c.id)}">${esc(c.card_no)}${c.ident_note ? ' — ' + esc(c.ident_note) : ''}</option>`)
+        .join('') || '<option disabled>Bu kod üzrə boş TMD kartı yoxdur</option>';
+    };
+    const picker = tmrItemPicker('tn-c', 'tn-c-results', 'tn-w', fillNeedCards, false);
+    $('#tn-w').onchange = () => picker.clear();
+    fillNeedCards();
     $('#tn-go').onclick = async () => {
-      const w = $('#tn-w').value, code = $('#tn-c').value.trim();
-      if (!code) return toast('Mal kodu tələb olunur', true);
+      const w = $('#tn-w').value, code = picker.getCode();
+      if (!code) return toast('Nomenklaturadan mal seçin', true);
       const cards = Array.from($('#tn-cards').selectedOptions).map(o => o.value).filter(Boolean);
       const newCards = parseInt($('#tn-new').value, 10) || 0;
       if (cards.length + newCards <= 0) return toast('Miqdar sıfırdan böyük olmalıdır', true);
@@ -2830,19 +2907,6 @@ function rTmr() {
         toast('Xəta: ' + (err.message || 'server xətası'), true);
       }
     };
-    /* AKTIV dövrü olmayan kartlar seçilir: `needed` və `open` birlikdə — bir
-       kartda iki aktiv dövr ola bilməz (server də rədd edir). */
-    const fillNeedCards = () => {
-      const code = $('#tn-c').value.trim();
-      const active = new Set(DB.repairCycles
-        .filter(c => c.status === 'open' || c.status === 'needed').map(c => c.repair_card_id));
-      $('#tn-cards').innerHTML = DB.repairCards
-        .filter(c => c.item_code === code && !active.has(c.id))
-        .map(c => `<option value="${esc(c.id)}">${esc(c.card_no)}${c.ident_note ? ' — ' + esc(c.ident_note) : ''}</option>`)
-        .join('') || '<option disabled>Bu kod üzrə boş TMD kartı yoxdur</option>';
-    };
-    $('#tn-c').oninput = fillNeedCards;
-    fillNeedCards();
   };
 
   $('#tmr-send').onclick = () => {
@@ -2850,7 +2914,10 @@ function rTmr() {
     const today0 = tmrNowLocal();
     modal('Birbaşa təmirə göndər', `
       <label>Anbar<select id="ts-w">${DB.whs.map(w => `<option value="${esc(w)}">${esc(whLabel(w))}</option>`).join('')}</select></label>
-      <label>Malın kodu<input id="ts-c" placeholder="0000001"></label>
+      <label>Mal (ad və ya kodla axtarın)
+        <div style="position:relative"><div style="display:flex;gap:4px"><input id="ts-c" autocomplete="off" placeholder="məs. nasos, 0001581…"><button type="button" class="btn" id="ts-c-open" aria-label="Nomenklatura siyahısını aç" style="flex:0 0 38px;padding:0">▾</button></div>
+        <div id="ts-c-results" style="position:absolute;left:0;right:0;top:100%;background:#fff;border:1px solid var(--line);border-radius:0 0 4px 4px;max-height:230px;overflow:auto;z-index:20;display:none"></div></div>
+      </label>
       <label>Mövcud TMD kartları (təkrar təmir üçün seçin)<select id="ts-cards" multiple size="4"></select></label>
       <label>Yeni kart sayı (yeni fiziki vahidlər üçün)<input id="ts-new" type="number" min="0" step="1" value="1"></label>
       <label>Təmir ehtiyacı tarixi və saatı<input id="ts-need" type="datetime-local" value="${esc(today0)}"></label>
@@ -2863,9 +2930,26 @@ function rTmr() {
       <p class="hint">Miqdar = seçilmiş kartlar + yeni kart sayı. Bir kartın eyni anda iki açıq təmir dövrü ola bilməz.</p>
       <p class="hint">Bu əməliyyat yalnız <b>Normal</b> qalıqdan götürür — «Təmirə ehtiyaclı» ehtiyatı dəyişmir. Artıq qeydə alınmış ehtiyacı göndərmək üçün kartı seçib «Təmirə göndər» düyməsindən istifadə edin.</p>`,
       `<div style="flex:1"></div><button class="btn" data-close>İmtina</button><button class="btn pri" id="ts-go">Göndər</button>`);
+    /* Eyni nomenklatura kodunun AÇIQ olmayan kartları — başqa kod seçilə
+       bilməz, çünki bir kart bir mala aiddir (server də rədd edir). */
+    const fillCards = () => {
+      const code = picker.getCode();
+      /* AKTIV dovru olan kartlar secilmir: `needed` ve `open` birlikde. Yalniz
+         `open` yoxlamaq, artiq ehtiyac qeyd olunmus karta ikinci aktiv dovr
+         acmaga cehd edib serverden imtina almaga aparardi. */
+      const open = new Set(DB.repairCycles
+        .filter(c => c.status === 'open' || c.status === 'needed').map(c => c.repair_card_id));
+      $('#ts-cards').innerHTML = DB.repairCards
+        .filter(c => c.item_code === code && !open.has(c.id))
+        .map(c => `<option value="${esc(c.id)}">${esc(c.card_no)}${c.ident_note ? ' — ' + esc(c.ident_note) : ''}</option>`)
+        .join('') || '<option disabled>Bu kod üzrə boş TMD kartı yoxdur</option>';
+    };
+    const picker = tmrItemPicker('ts-c', 'ts-c-results', 'ts-w', fillCards, false);
+    $('#ts-w').onchange = () => picker.clear();
+    fillCards();
     $('#ts-go').onclick = async () => {
-      const w = $('#ts-w').value, code = $('#ts-c').value.trim();
-      if (!code) return toast('Mal kodu tələb olunur', true);
+      const w = $('#ts-w').value, code = picker.getCode();
+      if (!code) return toast('Nomenklaturadan mal seçin', true);
       const cards = Array.from($('#ts-cards').selectedOptions).map(o => o.value).filter(Boolean);
       const newCards = parseInt($('#ts-new').value, 10) || 0;
       if (cards.length + newCards <= 0) return toast('Miqdar sıfırdan böyük olmalıdır', true);
@@ -2893,22 +2977,6 @@ function rTmr() {
         toast('Xəta: ' + (err.message || 'server xətası'), true);
       }
     };
-    /* Eyni nomenklatura kodunun AÇIQ olmayan kartları — başqa kod seçilə
-       bilməz, çünki bir kart bir mala aiddir (server də rədd edir). */
-    const fillCards = () => {
-      const code = $('#ts-c').value.trim();
-      /* AKTIV dovru olan kartlar secilmir: `needed` ve `open` birlikde. Yalniz
-         `open` yoxlamaq, artiq ehtiyac qeyd olunmus karta ikinci aktiv dovr
-         acmaga cehd edib serverden imtina almaga aparardi. */
-      const open = new Set(DB.repairCycles
-        .filter(c => c.status === 'open' || c.status === 'needed').map(c => c.repair_card_id));
-      $('#ts-cards').innerHTML = DB.repairCards
-        .filter(c => c.item_code === code && !open.has(c.id))
-        .map(c => `<option value="${esc(c.id)}">${esc(c.card_no)}${c.ident_note ? ' — ' + esc(c.ident_note) : ''}</option>`)
-        .join('') || '<option disabled>Bu kod üzrə boş TMD kartı yoxdur</option>';
-    };
-    $('#ts-c').oninput = fillCards;
-    fillCards();
   };
 
   /* MİQDAR DÜZƏLİŞİ — KART ƏSASLI, ATOMİK, BİR AUDİT PAKETİ.
@@ -2937,7 +3005,10 @@ function rTmr() {
     const today0 = tmrNowLocal();
     modal('Miqdar düzəlişi', `
       <label>Anbar<select id="tq-w">${DB.whs.map(w => `<option value="${esc(w)}">${esc(whLabel(w))}</option>`).join('')}</select></label>
-      <label>Malın kodu<input id="tq-c" placeholder="0000001"></label>
+      <label>Mal (ad və ya kodla axtarın)
+        <div style="position:relative"><div style="display:flex;gap:4px"><input id="tq-c" autocomplete="off" placeholder="məs. nasos, 0001581…"><button type="button" class="btn" id="tq-c-open" aria-label="Nomenklatura siyahısını aç" style="flex:0 0 38px;padding:0">▾</button></div>
+        <div id="tq-c-results" style="position:absolute;left:0;right:0;top:100%;background:#fff;border:1px solid var(--line);border-radius:0 0 4px 4px;max-height:230px;overflow:auto;z-index:20;display:none"></div></div>
+      </label>
       <label>Ləğv ediləcək aktiv dövrlər (azaltma)<select id="tq-cancel" multiple size="4"></select></label>
       <label>Əlavə ediləcək mövcud kartlar (artırma)<select id="tq-add" multiple size="4"></select></label>
       <label>Yeni kart sayı<input id="tq-new" type="number" min="0" step="1" value="0"></label>
@@ -2953,7 +3024,7 @@ function rTmr() {
     /* Seçilmiş anbar/kod üzrə AKTİV dövrlər (ləğv üçün) və AKTİV dövrü olmayan
        kartlar (əlavə üçün). Kart nomenklatura koduna aiddir, anbara yox. */
     const tqFill = () => {
-      const w = $('#tq-w').value, code = $('#tq-c').value.trim();
+      const w = $('#tq-w').value, code = picker.getCode();
       const cardById = new Map(DB.repairCards.map(c => [c.id, c]));
       $('#tq-cancel').innerHTML = DB.repairCycles
         .filter(c => (c.status === 'needed' || c.status === 'open')
@@ -2977,8 +3048,8 @@ function rTmr() {
       $('#tq-sum').innerHTML = `Ləğv: <b>${nf(cancel)}</b> · Əlavə: <b>${nf(add)}</b> · Xalis dəyişiklik: <b>${d > 0 ? '+' : ''}${nf(d)}</b>`;
       $('#tq-sent-l').style.display = $('#tq-state').value === 'open' ? '' : 'none';
     };
-    $('#tq-w').onchange = tqFill;
-    $('#tq-c').oninput = tqFill;
+    const picker = tmrItemPicker('tq-c', 'tq-c-results', 'tq-w', tqFill, true);
+    $('#tq-w').onchange = () => picker.clear();
     $('#tq-cancel').onchange = tqSum;
     $('#tq-add').onchange = tqSum;
     $('#tq-new').oninput = tqSum;
@@ -2986,8 +3057,8 @@ function rTmr() {
     tqFill();
 
     $('#tq-go').onclick = async () => {
-      const w = $('#tq-w').value, code = $('#tq-c').value.trim();
-      if (!code) return toast('Mal kodu tələb olunur', true);
+      const w = $('#tq-w').value, code = picker.getCode();
+      if (!code) return toast('Nomenklaturadan mal seçin', true);
       const reason = $('#tq-reason').value.trim();
       if (!reason) return toast('Düzəliş üçün səbəb mütləqdir', true);
       const cancelIds = Array.from($('#tq-cancel').selectedOptions).map(o => o.value).filter(Boolean);
