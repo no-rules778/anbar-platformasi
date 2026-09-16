@@ -2725,11 +2725,16 @@ function tmrItemPicker(inputId, resultsId, warehouseId, onPick, includeAll) {
     }
     const allowed = eligibleCodes();
     const items = DB.items.filter(item =>
-      (!allowed || allowed.has(item.code)) &&
-      (!q || item.code.indexOf(q) >= 0 || item.name.toLowerCase().indexOf(q) >= 0));
-    results.innerHTML = items.length ? items.map(item =>
-      `<div data-code="${esc(item.code)}" style="padding:7px 9px;cursor:pointer;border-bottom:1px solid var(--line-2)"><b>${esc(item.name)}</b><div class="hint"><span class="code">${esc(item.code)}</span> · ${esc(item.unit || '')}</div></div>`
-    ).join('') : '<div class="hint" style="padding:9px">Uyğun mal tapılmadı</div>';
+      !q || item.code.indexOf(q) >= 0 || item.name.toLowerCase().indexOf(q) >= 0
+    ).slice().sort((a, b) => {
+      const ao = !allowed || allowed.has(a.code), bo = !allowed || allowed.has(b.code);
+      if (ao !== bo) return ao ? -1 : 1;
+      return a.code.localeCompare(b.code, 'az');
+    });
+    results.innerHTML = items.length ? items.map(item => {
+      const selectable = !allowed || allowed.has(item.code);
+      return `<div ${selectable ? `data-code="${esc(item.code)}"` : ''} style="padding:7px 9px;${selectable ? 'cursor:pointer;' : 'opacity:.55;'}border-bottom:1px solid var(--line-2)"><b>${esc(item.name)}</b><div class="hint"><span class="code">${esc(item.code)}</span> · ${esc(item.unit || '')}${selectable ? '' : ' · Normal qalıq yoxdur'}</div></div>`;
+    }).join('') : '<div class="hint" style="padding:9px">Uyğun mal tapılmadı</div>';
     results.style.display = 'block';
     $$('#' + resultsId + ' [data-code]').forEach(row => row.onclick = () => {
       const item = DB.itemBy.get(row.dataset.code);
