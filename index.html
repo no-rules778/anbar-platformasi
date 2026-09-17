@@ -320,7 +320,7 @@ label.f>span{display:block;font-size:10.5px;text-transform:uppercase;letter-spac
       <section class="page" id="p-mov">
         <div class="phead"><div><h2>Mal hərəkəti</h2><p>Bütün mədaxil, məxaric və yerdəyişmələrin vahid registri.</p></div><div class="sp"></div>
           <span class="hint" id="mov-wo-hint" style="display:none;max-width:220px">Əvvəlcə əməliyyat növü olaraq «Silinmə» seçin</span>
-          <button class="btn" id="mov-exp">Excel</button><button class="btn" id="mov-wo-exp">Silinmə hesabatının ixracı</button><button class="btn" id="mov-print">Çap</button><button class="btn dgr" id="mov-batch" style="display:none">Qrup üzrə ləğv</button><button class="btn pri" data-goto="op">Yeni əməliyyat</button></div>
+          <button class="btn" id="mov-exp">Excel</button><button class="btn" id="mov-wo-exp">Silinmə hesabatının ixracı</button><button class="btn" id="mov-print">Çap</button><button class="btn dgr" id="mov-batch" style="display:none">Qrup üzrə ləğv</button><button class="btn" id="mov-cancel-archive" style="display:none">Ləğv arxivi</button><button class="btn pri" data-goto="op">Yeni əməliyyat</button></div>
         <div class="filters" id="mov-filters"></div>
         <div class="card"><div class="tw" id="t-mov"></div><div class="pad" id="mov-pager" style="border-top:1px solid var(--line-2);display:flex;align-items:center;gap:10px"></div></div>
       </section>
@@ -1890,6 +1890,10 @@ function rMov() {
   if ($('#mov-batch')) {
     $('#mov-batch').style.display = isAdmin() ? '' : 'none';
     $('#mov-batch').onclick = batchCancelOpen;
+  }
+  if ($('#mov-cancel-archive')) {
+    $('#mov-cancel-archive').style.display = isAdmin() ? '' : 'none';
+    $('#mov-cancel-archive').onclick = cancellationArchiveOpen;
   }
   $('#mov-print').onclick = () => { printHead('Mal hərəkəti', nf(all.length) + ' qeyd'); setTimeout(() => window.print(), 60); };
   if ($('#mov-wo-exp')) {
@@ -5991,9 +5995,10 @@ function documentCancelView(m) {
   } else {
     statusHtml = `
       <div class="hint" style="margin:4px 0 8px">Ləğv zamanı ${inbound ? 'əks məxaric' : 'əks mədaxil'} yeni sənəd kimi yazılır. Orijinal sətirlər dəyişmir.${inbound ? ' Qalıq çatmırsa, ləğv baş tutmur.' : ''}</div>
-      <label class="f" style="max-width:220px"><span>Ləğv tarixi</span><input type="date" id="dc-date" value="${today()}"></label>`;
+      <label class="f" style="max-width:220px"><span>Ləğv tarixi</span><input type="date" id="dc-date" value="${today()}"></label>
+      <label class="f"><span>Ləğvin səbəbi (audit üçün məcburi)</span><input type="text" id="dc-why" placeholder="məs. sənəd səhvən ikiqat daxil edilib"></label>`;
     if (DB.layerActive) statusHtml += `<div class="hint" style="margin-top:8px">Partiya uçotu aktiv olduqda sənəd birbaşa redaktə edilmir. Dəyişiklik üçün təhlükəsiz ləğv edin və düzgün partiyalarla yeni sənəd yaradın.</div>`;
-    actionsHtml = `${DB.layerActive ? '' : '<button class="btn" id="dc-edit">Sənədi redaktə et</button>'}<div style="flex:1"></div><button class="btn" data-close>İmtina</button><button class="btn dgr" id="dc-go">Əməliyyatı ləğv et</button>`;
+    actionsHtml = `${DB.layerActive ? '' : '<button class="btn" id="dc-edit">Sənədi redaktə et</button>'}<div style="flex:1"></div><button class="btn" data-close>İmtina</button><button class="btn dgr" id="dc-go" disabled>Əməliyyatı ləğv et</button>`;
   }
   modal(m.t + ' sənədi' + (doc ? ' · ' + doc : ''), `
     <div class="hint" style="margin-bottom:10px">${esc(it.name || '')} · ${nf(rows.length)} sətir · qeyd edən: ${esc(m.by || '—')}</div>
@@ -6009,15 +6014,18 @@ function documentCancelView(m) {
     if (row) cancelRowDialog(row);
   });
   if ($('#dc-edit')) $('#dc-edit').onclick = () => editPostedDocument(doc);
+  if ($('#dc-why')) $('#dc-why').oninput = () => { $('#dc-go').disabled = !$('#dc-why').value.trim(); };
   if ($('#dc-go')) $('#dc-go').onclick = () => {
     if (!doc) return;
+    const why = $('#dc-why') ? $('#dc-why').value.trim() : '';
+    if (!why) return;
     $('#dc-go').disabled = true;
     const dt = $('#dc-date') ? $('#dc-date').value : '';
     (async () => {
       try {
         const cancelRpc = DB.layerActive ? 'cancel_layer_document' : 'cancel_document';
         const { data, error } = await SB.rpc(cancelRpc,
-          dt ? { p_doc_num: doc, p_reversal_date: dt } : { p_doc_num: doc });
+          dt ? { p_doc_num: doc, p_reversal_date: dt, p_reason: why } : { p_doc_num: doc, p_reason: why });
         if (error) throw error;
         closeModal();
         await loadFromDB(); if (typeof loadAuditTotal === 'function') loadAuditTotal();
@@ -6178,16 +6186,20 @@ function transferDocView(m) {
   } else {
     statusHtml = `
       <div class="hint" style="margin:4px 0 8px">Ləğv zamanı təyinatdan mənbəyə əks yerdəyişmə yeni sənəd kimi yazılır. Orijinal sətirlər dəyişmir. Təyinat anbarında qalıq çatmırsa, ləğv baş tutmur.</div>
-      <label class="f" style="max-width:220px"><span>Əks yerdəyişmə tarixi</span><input type="date" id="rev-date" value="${today()}"></label>`;
-    actionsHtml = `<div style="flex:1"></div><button class="btn" data-close>İmtina</button><button class="btn dgr" id="rev-go">Yerdəyişməni ləğv et</button>`;
+      <label class="f" style="max-width:220px"><span>Əks yerdəyişmə tarixi</span><input type="date" id="rev-date" value="${today()}"></label>
+      <label class="f"><span>Ləğvin səbəbi (audit üçün məcburi)</span><input type="text" id="rev-why" placeholder="məs. yerdəyişmə səhvən yazılıb"></label>`;
+    actionsHtml = `<div style="flex:1"></div><button class="btn" data-close>İmtina</button><button class="btn dgr" id="rev-go" disabled>Yerdəyişməni ləğv et</button>`;
   }
   modal('Yerdəyişmə sənədi' + (doc ? ' · ' + doc : ''), `
     <div class="hint" style="margin-bottom:10px">${esc(it.name || '')} · ${nf(rows.length)} sətir · qeyd edən: ${esc(m.by || '—')}</div>
     ${docRefsLine(rows)}
     <div class="card"><div class="tw">${tbl([{ t: 'Tarix' }, { t: 'Mal' }, { t: 'İstiqamət' }, { t: 'Miqdar', r: 1 }], preview)}</div></div>
     <div style="margin-top:12px">${statusHtml}</div>`, actionsHtml);
+  if ($('#rev-why')) $('#rev-why').oninput = () => { $('#rev-go').disabled = !$('#rev-why').value.trim(); };
   if ($('#rev-go')) $('#rev-go').onclick = () => {
     if (!doc) return;
+    const why = $('#rev-why') ? $('#rev-why').value.trim() : '';
+    if (!why) return;
     $('#rev-go').disabled = true;
     // p_reversal_date server default = current_date; icazə varsa istifadəçi seçə bilər
     const dt = $('#rev-date') ? $('#rev-date').value : '';
@@ -6195,7 +6207,7 @@ function transferDocView(m) {
       try {
         const transferCancelRpc = DB.layerActive ? 'cancel_layer_transfer_document' : 'cancel_transfer_document';
         const { data, error } = await SB.rpc(transferCancelRpc,
-          dt ? { p_original_doc_num: doc, p_reversal_date: dt } : { p_original_doc_num: doc });
+          dt ? { p_original_doc_num: doc, p_reversal_date: dt, p_reason: why } : { p_original_doc_num: doc, p_reason: why });
         if (error) throw error;
         closeModal();
         await loadFromDB(); if (typeof loadAuditTotal === 'function') loadAuditTotal();
@@ -6213,17 +6225,20 @@ function legacyCancelView(m) {
   const info = revDoc
     ? `<div class="hint" style="padding:9px;background:var(--out-l);border-radius:4px"><b>Ləğv edilib</b> · əks sənəd: <span class="code">${esc(revDoc)}</span>.</div>`
     : allowed
-    ? `<div class="hint" style="margin:4px 0 8px">Sənəd nömrəsi olmayan bu köhnə qeyd yalnız əks ${inbound ? 'məxaric' : 'mədaxil'} ilə ləğv edilir. Orijinal qeyd dəyişmir.${inbound ? ' Qalıq çatmırsa, heç nə yazılmır.' : ''}</div><label class="f" style="max-width:220px"><span>Ləğv tarixi</span><input type="date" id="lc-date" value="${today()}"></label>`
+    ? `<div class="hint" style="margin:4px 0 8px">Sənəd nömrəsi olmayan bu köhnə qeyd yalnız əks ${inbound ? 'məxaric' : 'mədaxil'} ilə ləğv edilir. Orijinal qeyd dəyişmir.${inbound ? ' Qalıq çatmırsa, heç nə yazılmır.' : ''}</div><label class="f" style="max-width:220px"><span>Ləğv tarixi</span><input type="date" id="lc-date" value="${today()}"></label><label class="f"><span>Ləğvin səbəbi (audit üçün məcburi)</span><input type="text" id="lc-why" placeholder="məs. qeyd səhvən daxil edilib"></label>`
     : `<div class="hint" style="padding:9px;background:var(--out-l);border-radius:4px">Köhnə qeyd yalnız Rəhbər (Admin) tərəfindən ləğv edilə bilər.</div>`;
   const actions = allowed
-    ? `<button class="btn" id="lc-repl">Malı əvəz et</button><div style="flex:1"></div><button class="btn" data-close>İmtina</button><button class="btn dgr" id="lc-go">Əməliyyatı ləğv et</button>`
+    ? `<button class="btn" id="lc-repl">Malı əvəz et</button><div style="flex:1"></div><button class="btn" data-close>İmtina</button><button class="btn dgr" id="lc-go" disabled>Əməliyyatı ləğv et</button>`
     : `<div style="flex:1"></div><button class="btn" data-close>Bağla</button>`;
   modal('Köhnə əməliyyat · ' + m.c, `<div class="hint" style="margin-bottom:10px">${esc(it.name || '')} · ${esc(fmtD(m.d))} · ${esc(whLabel(m.w))} · ${nf((m.i || m.o) || 0, 2)} ${esc(it.unit || '')}</div>${docRefsLine(m)}${info}`, actions);
   if ($('#lc-repl')) $('#lc-repl').onclick = () => replaceItemDialog(m);
+  if ($('#lc-why')) $('#lc-why').oninput = () => { $('#lc-go').disabled = !$('#lc-why').value.trim(); };
   if ($('#lc-go')) $('#lc-go').onclick = async () => {
+    const why = $('#lc-why') ? $('#lc-why').value.trim() : '';
+    if (!why) return;
     $('#lc-go').disabled = true;
     try {
-      const { data, error } = await SB.rpc(DB.layerActive ? 'cancel_layer_legacy_movement' : 'cancel_legacy_movement', { p_movement_id: m.id, p_reversal_date: $('#lc-date').value });
+      const { data, error } = await SB.rpc(DB.layerActive ? 'cancel_layer_legacy_movement' : 'cancel_legacy_movement', { p_movement_id: m.id, p_reversal_date: $('#lc-date').value, p_reason: why });
       if (error) throw error;
       closeModal(); await loadFromDB(); if (typeof loadAuditTotal === 'function') loadAuditTotal(); renderAll();
       toast('Köhnə əməliyyat ləğv edildi · əks sənəd: ' + (data && data.reversal_doc_num ? data.reversal_doc_num : '—'));
@@ -6235,16 +6250,19 @@ function legacyTransferCancelView(m) {
   const info = revDoc
     ? `<div class="hint" style="padding:9px;background:var(--out-l);border-radius:4px"><b>Ləğv edilib</b> · əks sənəd: <span class="code">${esc(revDoc)}</span>.</div>`
     : allowed
-    ? `<div class="hint" style="margin:4px 0 8px">Server yalnız bir etibarlı qarşı cüt taparsa ${esc(route)} üzrə əks yerdəyişmə yaradır. Cüt qeyri-müəyyəndirsə və ya qalıq çatmırsa, heç nə yazılmır.</div><label class="f" style="max-width:220px"><span>Əks yerdəyişmə tarixi</span><input type="date" id="lt-date" value="${today()}"></label>`
+    ? `<div class="hint" style="margin:4px 0 8px">Server yalnız bir etibarlı qarşı cüt taparsa ${esc(route)} üzrə əks yerdəyişmə yaradır. Cüt qeyri-müəyyəndirsə və ya qalıq çatmırsa, heç nə yazılmır.</div><label class="f" style="max-width:220px"><span>Əks yerdəyişmə tarixi</span><input type="date" id="lt-date" value="${today()}"></label><label class="f"><span>Ləğvin səbəbi (audit üçün məcburi)</span><input type="text" id="lt-why" placeholder="məs. yerdəyişmə səhvən yazılıb"></label>`
     : `<div class="hint" style="padding:9px;background:var(--out-l);border-radius:4px">Köhnə yerdəyişmə yalnız Rəhbər (Admin) tərəfindən ləğv edilə bilər.</div>`;
   const actions = allowed
-    ? `<div style="flex:1"></div><button class="btn" data-close>İmtina</button><button class="btn dgr" id="lt-go">Yerdəyişməni ləğv et</button>`
+    ? `<div style="flex:1"></div><button class="btn" data-close>İmtina</button><button class="btn dgr" id="lt-go" disabled>Yerdəyişməni ləğv et</button>`
     : `<div style="flex:1"></div><button class="btn" data-close>Bağla</button>`;
   modal('Köhnə yerdəyişmə · ' + m.c, `<div class="hint" style="margin-bottom:10px">${esc(it.name || '')} · ${esc(fmtD(m.d))} · ${esc(route)} · ${nf((m.i || m.o) || 0, 2)} ${esc(it.unit || '')}</div>${docRefsLine(m)}${info}`, actions);
+  if ($('#lt-why')) $('#lt-why').oninput = () => { $('#lt-go').disabled = !$('#lt-why').value.trim(); };
   if ($('#lt-go')) $('#lt-go').onclick = async () => {
+    const why = $('#lt-why') ? $('#lt-why').value.trim() : '';
+    if (!why) return;
     $('#lt-go').disabled = true;
     try {
-      const { data, error } = await SB.rpc(DB.layerActive ? 'cancel_layer_legacy_transfer' : 'cancel_legacy_transfer', { p_movement_id: m.id, p_reversal_date: $('#lt-date').value });
+      const { data, error } = await SB.rpc(DB.layerActive ? 'cancel_layer_legacy_transfer' : 'cancel_legacy_transfer', { p_movement_id: m.id, p_reversal_date: $('#lt-date').value, p_reason: why });
       if (error) throw error;
       closeModal(); await loadFromDB(); if (typeof loadAuditTotal === 'function') loadAuditTotal(); renderAll();
       toast('Köhnə yerdəyişmə ləğv edildi · əks sənəd: ' + (data && data.reversal_doc_num ? data.reversal_doc_num : '—'));
@@ -6321,6 +6339,84 @@ function buildBatchDocs() {
   }
   out.sort((a, b) => (b.date || '').localeCompare(a.date || '') || (a.doc || a.key).localeCompare(b.doc || b.key));
   return out;
+}
+/* ================= LƏĞV ARXİVİ (sql/039_movement_cancellations.sql) =================
+   Admin-only and read-only: rows come only from the protected server RPC. */
+const CANCEL_KIND_LABEL = {
+  document: 'Sənəd ləğvi', transfer_document: 'Yerdəyişmə ləğvi', row: 'Sətir ləğvi',
+  legacy_movement: 'Tarixi sətir ləğvi', legacy_transfer: 'Tarixi yerdəyişmə ləğvi'
+};
+function cancelArchiveActorLabel(label) {
+  return label === 'anar.ibraghimov@gmail.com' ? 'Admin' : label;
+}
+function cancelArchiveLineText(m) {
+  if (!m) return '—';
+  const qty = (m.in_qty || m.out_qty || 0);
+  const dir = (m.in_qty || 0) > 0 ? '+' : '-';
+  return `${m.item_code || '—'} · ${whLabel(m.warehouse || '')} · ${dir}${nf(qty)}`;
+}
+async function cancellationArchiveOpen() {
+  if (!isAdmin()) return toast('Bu əməliyyat yalnız Rəhbər (Admin) üçündür', true);
+  await cancellationArchiveSearch({});
+}
+async function cancellationArchiveSearch(f) {
+  modal('Ləğv arxivi', '<div class="hint">Yüklənir…</div>');
+  let rows = [], err = null;
+  try {
+    const { data, error } = await SB.rpc('list_cancelled_movements', {
+      p_warehouse: (f && f.wh) || null,
+      p_item_code: (f && f.item) || null,
+      p_date_from: (f && f.from) || null,
+      p_date_to: (f && f.to) || null,
+      p_search: (f && f.q) || null,
+      p_limit: 2000,
+      p_offset: 0
+    });
+    if (error) throw error;
+    rows = data || [];
+  } catch (e) {
+    err = (e && e.message) || 'Naməlum xəta';
+  }
+  renderCancellationArchive(rows, err, f || {});
+}
+function renderCancellationArchive(rows, err, f) {
+  const whOpts = '<option value="">Bütün anbarlar</option>' + DB.whs.map(w => `<option value="${esc(w)}" ${f.wh === w ? 'selected' : ''}>${esc(whLabel(w))}</option>`).join('');
+  const body = err
+    ? `<div class="hint" style="color:var(--danger,#c0392b)">${/İcazə yoxdur|icazə yoxdur/i.test(err) ? 'İcazə yoxdur: ləğv arxivini yalnız Admin görə bilər.' : ('Arxiv yüklənmədi: ' + esc(err))}</div>`
+    : `<table class="tw"><thead><tr>
+        <th>Ləğv tarixi</th><th>Sənəd № (orijinal)</th><th>Sənəd № (əks)</th><th>Növ</th>
+        <th>Orijinal sətir</th><th>Əks sətir</th><th>Səbəb</th><th>Ləğv edən</th>
+      </tr></thead><tbody>${
+        rows.length === 0
+          ? '<tr><td colspan="8">Ləğv edilmiş əməliyyat tapılmadı.</td></tr>'
+          : rows.map(r => `<tr>
+              <td>${esc(fmtD(r.cancelled_at))}</td>
+              <td>${esc(r.original_doc_num || '—')}</td>
+              <td>${esc(r.reversal_doc_num || '—')}</td>
+              <td>${esc(CANCEL_KIND_LABEL[r.cancel_kind] || r.cancel_kind)}</td>
+              <td>${esc(cancelArchiveLineText(r.original_movement))}</td>
+              <td>${esc(cancelArchiveLineText(r.reversal_movement))}</td>
+              <td>${esc(r.reason || '')}</td>
+              <td>${esc(cancelArchiveActorLabel(r.cancelled_by_label))}</td>
+            </tr>`).join('')
+      }</tbody></table>`;
+  modal('Ləğv arxivi', `
+    <div class="row" style="grid-template-columns:1fr 1fr 1fr">
+      <label class="f"><span>Tarix (başlanğıc)</span><input type="date" id="ca-from" value="${esc(f.from || '')}"></label>
+      <label class="f"><span>Tarix (son)</span><input type="date" id="ca-to" value="${esc(f.to || '')}"></label>
+      <label class="f"><span>Anbar</span><select id="ca-wh">${whOpts}</select></label>
+    </div>
+    <div class="row" style="grid-template-columns:1fr 1fr">
+      <label class="f"><span>Mal kodu</span><input type="text" id="ca-item" value="${esc(f.item || '')}" placeholder="məs. 0000123"></label>
+      <label class="f"><span>Axtarış (sənəd №, səbəb)</span><input type="text" id="ca-q" value="${esc(f.q || '')}"></label>
+    </div>
+    <div style="margin:8px 0"><button class="btn" id="ca-search">Axtar</button></div>
+    ${body}
+  `);
+  if ($('#ca-search')) $('#ca-search').onclick = () => cancellationArchiveSearch({
+    from: $('#ca-from').value, to: $('#ca-to').value, wh: $('#ca-wh').value,
+    item: $('#ca-item').value.trim(), q: $('#ca-q').value.trim()
+  });
 }
 function batchCancelOpen() {
   if (!isAdmin()) return toast('Bu əməliyyat yalnız Rəhbər (Admin) üçündür', true);
@@ -6424,21 +6520,25 @@ function renderBatchConfirm() {
       <div class="kpi"><div class="s">Cəmi sənəd</div><div class="v">${nf(sel.length)}</div></div>
       <div class="kpi"><div class="s">Cəmi sətir / miqdar</div><div class="v">${nf(totLines)} · ${nf(totQty, 2)}</div></div>
     </div>
-    <label class="f" style="max-width:220px;margin-top:10px"><span>Ləğv (əks-yazı) tarixi</span><input type="date" id="bc-date" value="${today()}"></label>`,
-    `<button class="btn" id="bc-back">Geri</button><div style="flex:1"></div><button class="btn dgr" id="bc-exec">${nf(sel.length)} sənədi ləğv et</button>`);
+    <label class="f" style="max-width:220px;margin-top:10px"><span>Ləğv (əks-yazı) tarixi</span><input type="date" id="bc-date" value="${today()}"></label>
+    <label class="f" style="margin-top:10px"><span>Ləğvin səbəbi (audit üçün məcburi)</span><input type="text" id="bc-why" placeholder="məs. sənədlər səhvən ikiqat daxil edilib"></label>`,
+    `<button class="btn" id="bc-back">Geri</button><div style="flex:1"></div><button class="btn dgr" id="bc-exec" disabled>${nf(sel.length)} sənədi ləğv et</button>`);
   if ($('#bc-back')) $('#bc-back').onclick = renderBatchSearch;
+  if ($('#bc-why')) $('#bc-why').oninput = () => { $('#bc-exec').disabled = !$('#bc-why').value.trim(); };
   if ($('#bc-exec')) $('#bc-exec').onclick = () => batchCancelExecute(sel.map(d => d.doc));
 }
 function batchCancelExecute(docNums) {
   if (!isAdmin()) return toast('Bu əməliyyat yalnız Rəhbər (Admin) üçündür', true);
   if (!docNums || !docNums.length) return;
+  const why = $('#bc-why') ? $('#bc-why').value.trim() : '';
+  if (!why) return toast('Ləğvin səbəbi tələb olunur (audit üçün məcburi)', true);
   const btn = $('#bc-exec'); if (btn) btn.disabled = true;
   const dt = $('#bc-date') ? $('#bc-date').value : '';
   (async () => {
     try {
       const batchRpc = DB.layerActive ? 'cancel_layer_documents_batch' : 'cancel_documents_batch';
       const { data, error } = await SB.rpc(batchRpc,
-        dt ? { p_doc_nums: docNums, p_reversal_date: dt } : { p_doc_nums: docNums });
+        dt ? { p_doc_nums: docNums, p_reversal_date: dt, p_reason: why } : { p_doc_nums: docNums, p_reason: why });
       if (error) throw error;
       closeModal();
       await loadFromDB(); if (typeof loadAuditTotal === 'function') loadAuditTotal();
