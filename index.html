@@ -2330,6 +2330,19 @@ function rBal() {
       BF.page = 0; rBal();
     });
   }
+  /* The filter shell can render before the asynchronous warehouse read has
+     finished.  Reconcile the options on every render when the warehouse set
+     changes; otherwise `dataset.done` permanently freezes an empty list. */
+  const bw = $('#bf-w');
+  const whSig = DB.whs.join('\u001f');
+  if (bw && bw.dataset.whSig !== whSig) {
+    bw.innerHTML = '<option value="">Anbarlar üzrə ayrı</option>'
+      + '<option value="__sum">Ümumi (anbarlar birlikdə)</option>'
+      + DB.whs.map(w => `<option value="${esc(w)}">${esc(whLabel(w))}</option>`).join('');
+    bw.dataset.whSig = whSig;
+    if (BF.w === '__sum' || DB.whs.includes(BF.w)) bw.value = BF.w;
+    else { BF.w = ''; bw.value = ''; }
+  }
   if (BF.init) {
     const base = getInitialBalanceRows();
     const wSel = (BF.w && BF.w !== '__sum') ? BF.w : '';   // __sum bu görünüşdə anbar ayrılığını pozmur
