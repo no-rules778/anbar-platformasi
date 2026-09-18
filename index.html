@@ -865,6 +865,13 @@ const DB = {
 /* Audit jurnalı üçün istifadəçi id → e-poçt xəritəsi (yalnız təsdiqlənmiş users sütunları: id, email).
    users.name sorğusu YOXDUR — uydurma ad göstərilmir. Xəta baş verərsə UMAIL_ERR qeyd olunur. */
 let UMAIL = new Map(), UMAIL_ERR = false;
+/* Presentation only: authentication, stored identities and audit rows retain
+   their original values. The exact owner email is shortened consistently in
+   every user-facing «Qeyd edən» label. */
+const ADMIN_RECORDER_EMAIL = 'anar.ibraghimov@gmail.com';
+function displayActorLabel(label) {
+  return label === ADMIN_RECORDER_EMAIL ? 'Admin' : (label || '');
+}
 /* audit_log-un ümumi sətir sayı (server tərəfindən); null = hələ yüklənməyib */
 let AUDIT_TOTAL = null, AUDIT_TOTAL_ERR = false;
 /* Sonuncu loadFromDB yeniləməsində baş vermiş fetch xətası (yoxdursa null).
@@ -1039,7 +1046,7 @@ async function loadFromDB() {
     (us.data || []).forEach(u => uname.set(u.id, u.email));
   } catch (e) { }
   DB.movs.forEach(m => {
-    m.by = !m.by || m.by === 'sistem' ? 'Excel idxalı' : (uname.get(m.by) || (ME && m.by === ME.sbId ? ME.name : 'digər istifadəçi'));
+    m.by = displayActorLabel(!m.by || m.by === 'sistem' ? 'Excel idxalı' : (uname.get(m.by) || (ME && m.by === ME.sbId ? ME.name : 'digər istifadəçi')));
   });
   // Soraqçalar: purchase channels, units and item categories all come from the
   // one central directory. Before SQL 011/012 are applied the built-in
@@ -3126,8 +3133,8 @@ function rTmr() {
           esc(c.correction_reason || '—'),
           /* Kimin yaratdığı/dəyişdiyi — səhvən yaradılmış qeydi araşdırarkən
              admin üçün MÜTLƏQ görünən audit izi (tələb D). */
-          esc(c.created_by || '—'), esc(tmrFmtDT(c.created_at) || '—'),
-          esc(c.updated_by || '—'), esc(tmrFmtDT(c.updated_at) || '—')]; })()
+          esc(displayActorLabel(c.created_by) || '—'), esc(tmrFmtDT(c.created_at) || '—'),
+          esc(displayActorLabel(c.updated_by) || '—'), esc(tmrFmtDT(c.updated_at) || '—')]; })()
       })), {})}</div></div>`;
 
   /* ---------- Dəyişiklik əməliyyatları — YALNIZ Admin ----------
@@ -6575,13 +6582,13 @@ const CANCEL_KIND_LABEL = {
   document: 'Sənəd ləğvi', transfer_document: 'Yerdəyişmə ləğvi', row: 'Sətir ləğvi',
   legacy_movement: 'Tarixi sətir ləğvi', legacy_transfer: 'Tarixi yerdəyişmə ləğvi'
 };
-/* CLAUDE.md recorder-label rule, applied ONLY to this archive's presentation:
+/* Shared recorder-label rule, used here for this archive's presentation:
    the exact stored/resolved email anar.ibraghimov@gmail.com displays as
    «Admin». Stored audit identity (cancelled_by, the resolved email itself) is
    never modified — this is a display-only swap on the label the server
    already resolved. */
 function cancelArchiveActorLabel(label) {
-  return label === 'anar.ibraghimov@gmail.com' ? 'Admin' : label;
+  return displayActorLabel(label);
 }
 function cancelArchiveLineText(m) {
   if (!m) return '—';
@@ -7867,7 +7874,7 @@ function smReportRows() {
       d: doc.d, proj: proj ? proj.name : '', item: it ? it.name : l.code, code: l.code,
       unit: it ? it.unit : '', qty: l.qty, price: l.price, sum: l.sum,
       kontragent: doc.kontragent, avto: doc.avto, kanal: doc.kanal, iv: doc.iv, note: doc.note,
-      by: UMAIL.get(doc.by) || doc.by, docNum: doc.num
+      by: displayActorLabel(UMAIL.get(doc.by) || doc.by), docNum: doc.num
     };
   }).filter(Boolean);
 }
@@ -8435,13 +8442,13 @@ let LOG_REQ = 0;
 // Heç vaxt uydurma ad qaytarmır (users.name istifadə olunmur).
 function auditActor(userId) {
   if (!userId) return 'Sistem/naməlum';
-  return UMAIL.get(userId) || userId;
+  return displayActorLabel(UMAIL.get(userId) || userId);
 }
 function logFilters() {
   const el = $('#log-filters'); if (el.dataset.done) return; el.dataset.done = 1;
   const actorOpts = ['<option value="">Bütün istifadəçilər</option>', '<option value="__null">Sistem/naməlum</option>']
     .concat(Array.from(UMAIL.entries()).sort((a, b) => (a[1] || a[0]).localeCompare(b[1] || b[0]))
-      .map(([id, email]) => `<option value="${esc(id)}">${esc(email || id)}</option>`));
+      .map(([id, email]) => `<option value="${esc(id)}">${esc(displayActorLabel(email || id))}</option>`));
   el.innerHTML = `
     <select id="lf-table"><option value="">Bütün obyektlər</option>${Object.entries(AUDIT_TABLE_LABEL).map(([k, v]) => `<option value="${esc(k)}">${esc(v)}</option>`).join('')}</select>
     <select id="lf-action"><option value="">Bütün əməliyyatlar</option>${Object.entries(AUDIT_ACTION_LABEL).map(([k, v]) => `<option value="${esc(k)}">${esc(v)}</option>`).join('')}</select>
@@ -10196,7 +10203,7 @@ function azpCardHistory(m, cardId) {
             (r.replaced_by ? '<div class="hint">əvəz: #' + esc(String(r.replaced_by)) + '</div>' : '')
           : '<span class="tag t-az">aktiv</span>' +
             (r.replaces_id ? '<div class="hint">düzəliş: #' + esc(String(r.replaces_id)) + '</div>' : '')) + '</td>' +
-        '<td class="muted">' + esc(r.created_by || '—') + '</td></tr>').join('') +
+        '<td class="muted">' + esc(displayActorLabel(r.created_by) || '—') + '</td></tr>').join('') +
       '</tbody><tfoot><tr><td colspan="2"><b>Cəmi (ləğv edilməmiş ' + nf(T.live) + ' qeyd)</b></td>' +
       '<td class="num"><b>' + azpMoney(T.net) + '</b></td>' +
       '<td colspan="4" class="hint">Mədaxil ' + azpMoney(T.medaxil) + ' · ' + esc(L.out) + ' ' + azpMoney(T.mexaric) +
