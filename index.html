@@ -256,6 +256,7 @@ label.f>span{display:block;font-size:10.5px;text-transform:uppercase;letter-spac
       <div class="grp">Bazalar</div>
       <a data-p="nom">Nomenklatura <b id="c-nom"></b></a>
       <a data-p="nreq" id="nav-nreq" style="display:none">Nomenklatura sorğuları <b id="c-nreq"></b></a>
+      <a data-p="woa" id="nav-woa" style="display:none">Silinmə təsdiq növbəsi <b id="c-woa"></b></a>
       <a data-p="grp">Mal qrupları</a>
       <a data-p="knt">Kontragentlər <b id="c-knt"></b></a>
       <a data-p="anb">Anbar və layihələr <b id="c-anb"></b></a>
@@ -350,6 +351,17 @@ label.f>span{display:block;font-size:10.5px;text-transform:uppercase;letter-spac
           <button class="btn pri" id="nreq-new" style="display:none">Yeni nomenklatura sorğusu</button></div>
         <div class="filters" id="nreq-filters"></div>
         <div class="card"><div class="tw" id="t-nreq"></div><div class="pad" id="nreq-note" style="border-top:1px solid var(--line-2)"></div></div>
+      </section>
+
+      <!-- WRITE-OFF (Silinmə) APPROVAL QUEUE — anbardar submits, Admin
+           approves (sql/040). A pending request has ZERO stock/movement/layer
+           /condition effect until an Admin approves it through the RPC, which
+           delegates the real write to post_layer_movement_document exactly
+           once. -->
+      <section class="page" id="p-woa">
+        <div class="phead"><div><h2>Silinmə təsdiq növbəsi</h2><p id="woa-sub">Anbardarın göndərdiyi Silinmə tələbləri. Təsdiqlənənə qədər anbar qalığı dəyişmir.</p></div></div>
+        <div class="filters" id="woa-filters"></div>
+        <div class="card"><div class="tw" id="t-woa"></div><div class="pad" id="woa-note" style="border-top:1px solid var(--line-2)"></div></div>
       </section>
 
       <!-- ITEM GROUPS (read-only selection + dedicated XLSX export) -->
@@ -860,6 +872,9 @@ const DB = {
   /* SQL 036 — partiya qalığı və Silinmə dəyərinin dəyişməz snapshot-u. */
   layerReady: false, layerActive: false, layerVersion: 0,
   woVals: new Map(), woAllocs: [],
+  /* SQL 041 — Yerdəyişmə status qərarı qabiliyyəti. DB.splitReady/layerActive-dən
+     ayrı saxlanılır (Codex qəbul tapıntısı 4) — heç biri bunun əvəzedicisi deyil. */
+  transferCondAvailable: false, transferCondVersion: 0,
   users: {}, dirty: true
 };
 /* Audit jurnalı üçün istifadəçi id → e-poçt xəritəsi (yalnız təsdiqlənmiş users sütunları: id, email).
@@ -936,6 +951,20 @@ async function loadFromDB() {
       }));
     }
   } catch (e) { /* 017 tətbiq edilməyib — sorğu bölməsi sadəcə boş olur */ }
+  /* Silinmə təsdiq növbəsi (sql/040). Admin list_writeoff_approval_requests
+     ilə HAMISINI, Anbardar list_my_writeoff_approval_requests ilə YALNIZ
+     ÖZ sorğularını görür — server RPC-də ayrılır, RLS də eyni qaydanı
+     təkrarlayır. Cədvəl/RPC hələ yaradılmayıbsa (040 tətbiq edilməyib),
+     sükutla boş qalır. */
+  DB.woaRequests = [];
+  try {
+    if (isAdmin() || isAnbardar()) {
+      const { data: woaRows, error: woaErr } = isAdmin()
+        ? await SB.rpc('list_writeoff_approval_requests', { p_status: WOA.status || null })
+        : await SB.rpc('list_my_writeoff_approval_requests', { p_status: null });
+      if (!woaErr) DB.woaRequests = woaRows || [];
+    }
+  } catch (e) { /* 040 tətbiq edilməyib — təsdiq növbəsi sadəcə boş olur */ }
   /* Mal vəziyyəti işarələri (SQL 025). AYRI cədvəldir və heç bir hesablamaya
      qoşulmur — yalnız qalıq cədvəlində göstərilir. RLS özü süzgəcləyir:
      anbardar yalnız öz anbarının sətirlərini görür. Cədvəl hələ yaradılmayıbsa
@@ -989,6 +1018,32 @@ async function loadFromDB() {
     const { error: spErr } = await SB.rpc('movement_split_supported');
     if (!spErr) DB.splitReady = true;
   } catch (e) { /* 032 tətbiq edilməyib — bölgü UI-da bloklanır */ }
+  /* Feature B (sql/041) — «is 041 live» qabiliyyət zondu. Bu, DB.splitReady
+     (031/032) VƏ DB.layerActive (036)-dən TAMAMILƏ AYRIDIR — Codex qəbul
+     tapıntısı 4: heç biri serverin condition_transitions-u saxlaya/tətbiq edə
+     bildiyini SÜBUT ETMİR, ona görə heç biri əvəzedici kimi istifadə
+     edilmir. Yalnız `supported===true` VƏ `version>=41` olduqda işarəli
+     yerdəyişmə göndərilə bilər; əks halda (funksiya yoxdur, xəta, yanlış
+     format, dəstəklənmir, köhnə versiya) DB.transferCondAvailable false
+     qalır və işarəli yerdəyişmələr HEÇ BİR post RPC çağırışı etmədən rədd
+     edilir (aşağıda). */
+  DB.transferCondAvailable = false; DB.transferCondVersion = 0;
+  try {
+    const { data: tcCap, error: tcErr } = await SB.rpc('transfer_condition_capability');
+    // Codex qəbul tapıntısı 4: `+(tcCap.version || 0)` "41" kimi STRING-i də,
+    // "Infinity"-ni də ədədə çevirirdi (heç bir tip/tamlıq yoxlaması yox idi),
+    // massiv isə typeof==='object' testini keçirdi. İndi: payload massiv
+    // OLMAYAN sadə obyekt, `supported` DƏQİQ boolean true, `version` artıq
+    // JS number (heç vaxt string-dən çevrilmir), sonlu, TAM ədəd və >=41
+    // olmalıdır — əks halda naməlum/əlçatmaz sayılır.
+    if (!tcErr && tcCap && typeof tcCap === 'object' && !Array.isArray(tcCap)) {
+      const rawVersion = tcCap.version;
+      DB.transferCondVersion = (typeof rawVersion === 'number' && isFinite(rawVersion)) ? rawVersion : 0;
+      DB.transferCondAvailable = tcCap.supported === true
+        && typeof rawVersion === 'number' && isFinite(rawVersion)
+        && Number.isInteger(rawVersion) && rawVersion >= 41;
+    }
+  } catch (e) { /* 041 tətbiq edilməyib — işarəli yerdəyişmələr UI-da bloklanır */ }
   DB.whs = (warehouses.data || []).filter(r => r.active && r.type === 'anbar').map(r => r.name);
   DB.transferDests = DB.whs.slice();
   DB.locs = (warehouses.data || []).map(r => ({ id: r.id, name: r.name, kind: r.type, active: r.active !== false, seed: true }));
@@ -1558,6 +1613,12 @@ function go(p) {
   if (p === 'nreq' && !(isAdmin() || isAnbardar() || isRehber())) {
     return toast('Nomenklatura sorğularına girişiniz yoxdur', true);
   }
+  /* Silinmə təsdiq növbəsi (sql/040) — Admin (hamısını qərar), Anbardar
+     (yalnız öz sorğuları, geri götürmə). Rəhbər üçün heç bir oxu/yazma RPC-si
+     yoxdur, ona görə bağlıdır. */
+  if (p === 'woa' && !(isAdmin() || isAnbardar())) {
+    return toast('Silinmə təsdiq növbəsinə girişiniz yoxdur', true);
+  }
   /* Azpetrol/Araz — ayrıca modul, öz hüquq modeli ilə (anbardar üçün bağlıdır) */
   if (p === 'azp' && !(typeof azpCanRead === 'function' && azpCanRead())) return toast('Azpetrol / Araz moduluna girişiniz yoxdur', true);
   /* Təmir jurnalı (sql/038) — bütün rollar OXUYA bilər (RLS anbardarı öz
@@ -1577,7 +1638,7 @@ $$('.rail a').forEach(a => a.onclick = () => go(a.dataset.p));
 $('#burger').onclick = () => $('#rail').classList.toggle('open');
 
 function render(p) {
-  ({ dash: rDash, op: rOp, mov: rMov, bal: rBal, tmr: rTmr, nom: rNom, nreq: rNreq, grp: rGroups, knt: rKnt, anb: rAnb, refs: rRefs, sm: rSm, rep: rRep, fin: rFin, ctrl: rCtrl, log: rLog, set: rSet, azp: (typeof rAzp === 'function' ? rAzp : null) }[p] || (() => { }))();
+  ({ dash: rDash, op: rOp, mov: rMov, bal: rBal, tmr: rTmr, nom: rNom, nreq: rNreq, woa: rWoa, grp: rGroups, knt: rKnt, anb: rAnb, refs: rRefs, sm: rSm, rep: rRep, fin: rFin, ctrl: rCtrl, log: rLog, set: rSet, azp: (typeof rAzp === 'function' ? rAzp : null) }[p] || (() => { }))();
   counters();
 }
 function renderAll() { render(PAGE); }
@@ -1598,6 +1659,7 @@ function counters() {
   $('#c-log').textContent = AUDIT_TOTAL === null ? '…' : (AUDIT_TOTAL_ERR ? '!' : nf(AUDIT_TOTAL));
   const ctrl = controlIssues();
   $('#c-ctrl').textContent = nf(ctrl.reduce((s, g) => s + g.rows.length, 0));
+  if ($('#c-woa')) $('#c-woa').textContent = nf((DB.woaRequests || []).filter(r => r.status === 'pending').length);
 }
 
 /* ================= DASHBOARD ================= */
@@ -2227,6 +2289,114 @@ function condSplitPayload(split) {
     if (v > 1e-9) out[cc.k] = +v.toFixed(4);
   });
   return Object.keys(out).length ? out : null;
+}
+/* ---------- Feature B (sql/041) — Yerdəyişmə status qərarı ----------
+   Köhnə "conditions" sahəsi yerdəyişmə sətirlərində artıq QƏBUL EDİLMİR
+   (server rədd edir). Onun yerinə hər işarəli kova üçün AÇIQ qərar tələb
+   olunur: "Statusu saxla" (təyinat eyni statusu alır) və ya "Statusu dəyiş"
+   (istifadəçi başqa hədəf seçir). Heç bir sükut default yoxdur — qərarsız
+   kova sənədə düşmür, rədd edilir. `Təmirdə` heç vaxt seçilə bilməz: onun nə
+   açarı, nə də sütunu var, bu siyahılarda strukturca mövcud deyil. */
+function condBucketsNeedingDecision(split) {
+  if (!split) return [];
+  return COND_COLS.map(cc => cc.k).filter(k => (Number(split[k]) || 0) > 1e-9);
+}
+/* The only valid `change` targets (spec: normal/unfit/repair/onsite/icare).
+   `Təmirdə` is never one of them. Codex acceptance finding 3 — a decision
+   with mode:'change' and an absent/null/empty/unknown target (including
+   'Təmirdə') must never pass just because it differs from the source. */
+var COND_VALID_TARGETS = ['normal', 'unfit', 'repair', 'onsite', 'icare'];
+function condDecisionValid(k, dec, splitQty) {
+  if (!dec) return false;
+  if (dec.source !== k) return false;
+  var qty = Number(dec.qty);
+  if (!isFinite(qty) || qty <= 0) return false;
+  if (Math.abs(qty - splitQty) >= 1e-4) return false;
+  if (dec.mode === 'keep') return dec.target === k;
+  if (dec.mode === 'change') {
+    var t = dec.target;
+    return typeof t === 'string' && t.length > 0 && COND_VALID_TARGETS.indexOf(t) !== -1 && t !== k;
+  }
+  return false;
+}
+function condDecisionsComplete(split, decisions) {
+  const needed = condBucketsNeedingDecision(split);
+  const d = decisions || {};
+  return needed.every(k => condDecisionValid(k, d[k], Number(split[k]) || 0));
+}
+/* Codex acceptance finding 3 — validates internally rather than trusting the
+   caller to have checked condDecisionsComplete first: an incomplete or
+   malformed decision THROWS instead of silently producing a payload with an
+   undefined/invalid target. */
+function buildConditionTransitions(split, decisions) {
+  const needed = condBucketsNeedingDecision(split);
+  if (!needed.length) return null;
+  const d = decisions || {};
+  return needed.map(k => {
+    const dec = d[k];
+    const splitQty = Number(split[k]) || 0;
+    if (!condDecisionValid(k, dec, splitQty)) {
+      throw new Error('buildConditionTransitions: incomplete/malformed decision for bucket "' + k + '"');
+    }
+    return { source: k, target: dec.mode === 'keep' ? k : dec.target, mode: dec.mode, qty: dec.qty };
+  });
+}
+const COND_LABEL = { unfit: 'Yararsız', repair: 'Təmirə ehtiyaclı', onsite: 'Sahədə', icare: 'İcarədə' };
+const TARGET_LABEL = Object.assign({ normal: 'Normal' }, COND_LABEL);
+function condTransitionSummaryLine(dec) {
+  const targetLabel = dec.mode === 'keep' ? COND_LABEL[dec.source] : TARGET_LABEL[dec.target];
+  return `${COND_LABEL[dec.source]} ${nf(dec.qty, 2)} → ${targetLabel}`;
+}
+/* Modal qərar dialoqu — hər işarəli kova üçün saxla/dəyiş, OK yalnız hamısı
+   qərarlaşdırılıbsa aktiv olur. onDone(decisions) təsdiqdə çağrılır,
+   onCancel isə İmtina-da (heç nə commit edilmir).
+   Feature B (sql/041) — Codex qəbul tapıntısı 3: heç bir kova əvvəlcədən
+   qərarlaşdırılmış başlamır. `decisions` boş obyektlə başlayır (heç bir
+   girişi yoxdur); operator «Statusu saxla» və ya «Statusu dəyiş»-i açıq
+   basmalıdır — Təsdiqlə düyməsi bundan əvvəl aktiv olmur. */
+function conditionDecisionDialog(split, srcWh, dstWh, itemLabel, onDone, onCancel) {
+  const needed = condBucketsNeedingDecision(split);
+  const decisions = {};
+  function render() {
+    const rows = needed.map(k => {
+      const label = (COND_COLS.find(cc => cc.k === k) || {}).t || k;
+      const dec = decisions[k];
+      const targetOpts = ['normal', ...COND_COLS.map(cc => cc.k)].filter(x => x !== k)
+        .map(x => `<option value="${x}" ${dec && dec.target === x ? 'selected' : ''}>${esc(TARGET_LABEL[x])}</option>`).join('');
+      return `<div class="row" style="margin-bottom:10px;align-items:center" data-cd-row="${k}">
+        <div style="flex:1"><b>${esc(label)}</b> — ${nf(Number(split[k]) || 0, 2)}</div>
+        <div class="seg">
+          <button data-cd-mode="keep" data-cd-k="${k}" class="${dec && dec.mode === 'keep' ? 'on' : ''}">Statusu saxla</button>
+          <button data-cd-mode="change" data-cd-k="${k}" class="${dec && dec.mode === 'change' ? 'on' : ''}">Statusu dəyiş</button>
+        </div>
+        ${dec && dec.mode === 'change' ? `<select data-cd-target="${k}"><option value="" ${dec.target ? '' : 'selected'} disabled>— seçin —</option>${targetOpts}</select>` : ''}
+        ${dec && (dec.mode === 'keep' || dec.target) ? `<span class="hint" style="margin-left:8px">${esc(condTransitionSummaryLine(dec))}</span>` : ''}
+      </div>`;
+    }).join('');
+    modal(`Status qərarı — ${esc(itemLabel)}`,
+      `<p class="hint">${esc(srcWh)} → ${esc(dstWh)}. İşarələnmiş mal üçün status qərarı verin.</p>${rows}`,
+      `<button class="btn" id="cd-cancel">İmtina</button><button class="btn pri" id="cd-ok" ${condDecisionsComplete(split, decisions) ? '' : 'disabled'}>Təsdiqlə</button>`);
+    $$('[data-cd-mode]').forEach(b => b.onclick = () => {
+      const k = b.dataset.cdK, mode = b.dataset.cdMode;
+      const prevTarget = decisions[k] && decisions[k].mode === 'change' ? decisions[k].target : undefined;
+      // «Statusu dəyiş» heç vaxt hədəfi sükutla seçmir — mode='change' ilə
+      // yeni girişdə `target` YOXDUR (undefined), operator seçənə qədər.
+      decisions[k] = { source: k, mode, qty: Number(split[k]) || 0,
+        target: mode === 'keep' ? k : prevTarget };
+      render();
+    });
+    $$('[data-cd-target]').forEach(s => s.onchange = () => {
+      const k = s.dataset.cdTarget;
+      decisions[k] = Object.assign({}, decisions[k], { target: s.value });
+      render();
+    });
+    $('#cd-cancel').onclick = () => { closeModal(); onCancel(); };
+    $('#cd-ok').onclick = () => {
+      if (!condDecisionsComplete(split, decisions)) return;
+      closeModal(); onDone(decisions);
+    };
+  }
+  render();
 }
 const SPLIT_UNSUPPORTED_MSG =
   'Tiplərə görə bölgü serverdə hələ aktiv deyil (sql/031 tətbiq edilməyib) — '
@@ -3647,6 +3817,10 @@ function rNom() {
    hesabatlarda və mal axtarışında görünə bilmir və kodu olmur.
    Bütün yazılar RPC üzərindəndir; brauzer yoxlamaları yalnız erkən xəbərdarlıqdır. */
 const NREQ = { q: '', status: 'pending' };
+/* Silinmə təsdiq növbəsi (sql/040) filter vəziyyəti. Yalnız Admin görünüşü
+   status seqmentini istifadə edir; Anbardar həmişə öz sorğularının hamısını
+   görür (list_my_writeoff_approval_requests(null)). */
+const WOA = { status: 'pending' };
 const NREQ_STATUS_TAG = {
   pending:   '<span class="tag t-op">Gözləyir</span>',
   approved:  '<span class="tag t-in">Təsdiqlənib</span>',
@@ -3728,6 +3902,133 @@ function rNreq() {
     $('#c-nreq').textContent = nf((DB.itemReqs || []).filter(r => r.status === 'pending').length);
   }
 }
+/* ================= SİLİNMƏ TƏSDİQ NÖVBƏSİ (sql/040) =================
+   Anbardar submit_writeoff_approval_request ilə YALNIZ gözləyən sorğu
+   yaradır — heç bir hərəkət/partiya/balans/vəziyyət dəyişmir. Admin
+   approve_writeoff_approval_request çağıranda server cari vəziyyəti YENİDƏN
+   yoxlayır (kilidlər altında) və əsl yazını post_layer_movement_document-ə
+   HAVALƏ EDİR — bu fayl heç vaxt partiya/hərəkət mühasibatlığını özü
+   yazmır. approve serverdə İDEMPOTENT-dir: iki dəfə klikləmək iki sənəd
+   yaratmır. */
+function woaLineSummary(r) {
+  return (r.lines || []).map(l => (l.code || '?') + ' × ' + nf(l.out_qty || 0)).join(', ');
+}
+function woaPriceSummary(r) {
+  const lines = r.lines || [];
+  const known = lines.filter(l => l.final_amount !== null && l.final_amount !== undefined);
+  if (!known.length) return 'Qiymət: naməlum';
+  return 'Məlum sətir sayı: ' + nf(known.length) + ' / ' + nf(lines.length);
+}
+function rWoa() {
+  const admin = isAdmin();
+  if ($('#woa-sub')) {
+    $('#woa-sub').textContent = admin
+      ? 'Anbardarın göndərdiyi Silinmə tələbləri. Təsdiqlənənə qədər anbar qalığı dəyişmir.'
+      : 'Sizin göndərdiyiniz Silinmə tələbləri. Admin təsdiqləyənə qədər anbar qalığı dəyişmir.';
+  }
+  const el = $('#woa-filters');
+  if (admin) {
+    if (!el.dataset.done) {
+      el.dataset.done = 1;
+      el.innerHTML = `<div class="seg" id="woa-s">
+        <button data-s="pending" class="on">Gözləyən</button>
+        <button data-s="approved">Təsdiqlənən</button>
+        <button data-s="rejected">Rədd edilən</button>
+        <button data-s="withdrawn">Geri götürülən</button>
+        <button data-s="">Hamısı</button></div>`;
+      $$('#woa-s button').forEach(b => b.onclick = async () => {
+        WOA.status = b.dataset.s;
+        $$('#woa-s button').forEach(x => x.classList.toggle('on', x === b));
+        await loadFromDB(); rWoa();
+      });
+    }
+    el.style.display = '';
+  } else if (el) {
+    el.style.display = 'none';
+  }
+
+  const rows = DB.woaRequests || [];
+  const cols = admin
+    ? [{ t: 'Tarix' }, { t: 'Anbardar' }, { t: 'Anbar' }, { t: 'Mallar' }, { t: 'Qiymət' }, { t: 'Status' }, { t: '' }]
+    : [{ t: 'Tarix' }, { t: 'Anbar' }, { t: 'Mallar' }, { t: 'Qiymət' }, { t: 'Status' }, { t: '' }];
+  $('#t-woa').innerHTML = tbl(cols, rows.map(r => {
+    const acts = [];
+    if (admin && r.status === 'pending') {
+      acts.push(`<button class="btn sm pri" data-woa-ap="${esc(r.id)}">Təsdiqlə</button>`);
+      acts.push(`<button class="btn sm" data-woa-rj="${esc(r.id)}">Rədd et</button>`);
+    }
+    if (!admin && r.status === 'pending') {
+      acts.push(`<button class="btn sm" data-woa-wd="${esc(r.id)}">Geri götür</button>`);
+    }
+    let statusHtml = '';
+    if (r.status === 'pending') statusHtml = '<span class="tag">Gözləyir</span>';
+    else if (r.status === 'approved') statusHtml = `<span class="tag t-in">Təsdiqləndi${r.approved_doc_num ? ' (' + esc(r.approved_doc_num) + ')' : ''}</span>`;
+    else if (r.status === 'rejected') statusHtml = `<span class="tag t-rm">Rədd edildi${r.decision_reason ? ': ' + esc(r.decision_reason) : ''}</span>`;
+    else if (r.status === 'withdrawn') statusHtml = '<span class="tag">Geri götürülüb</span>';
+    const dateCell = esc(new Date(r.requested_at).toLocaleString('az-AZ'));
+    const c = admin
+      ? [dateCell, esc(r.requester_email || '—'), esc(r.requester_warehouse), esc(woaLineSummary(r)), esc(woaPriceSummary(r)), statusHtml, acts.join(' ')]
+      : [dateCell, esc(r.requester_warehouse), esc(woaLineSummary(r)), esc(woaPriceSummary(r)), statusHtml, acts.join(' ')];
+    return { c };
+  }), { empty: 'Silinmə tələbi yoxdur.' });
+
+  $('#woa-note').innerHTML = `<span class="hint">${nf(rows.length)} tələb</span>`;
+
+  $$('[data-woa-ap]').forEach(b => b.onclick = () => woaApprove((DB.woaRequests || []).find(x => String(x.id) === b.dataset.woaAp)));
+  $$('[data-woa-rj]').forEach(b => b.onclick = () => woaRejectDialog((DB.woaRequests || []).find(x => String(x.id) === b.dataset.woaRj)));
+  $$('[data-woa-wd]').forEach(b => b.onclick = () => woaWithdraw((DB.woaRequests || []).find(x => String(x.id) === b.dataset.woaWd)));
+
+  if ($('#c-woa')) $('#c-woa').textContent = nf(rows.filter(r => r.status === 'pending').length);
+}
+async function woaApprove(r) {
+  if (!r || r.status !== 'pending') return;
+  try {
+    const { error } = await SB.rpc('approve_writeoff_approval_request', { p_request_id: r.id });
+    if (error) throw error;
+    await loadFromDB(); renderAll();
+    toast('Silinmə təsdiqləndi');
+  } catch (err) {
+    /* Server təsdiq anında yenidən yoxlayır (sql/040 §7) — qalıq, partiya
+       və ya vəziyyət tələb göndəriləndən sonra dəyişibsə, rədd edir və sorğu
+       gözləyən qalır. Xəta mesajı olduğu kimi göstərilir. */
+    toast('Təsdiqlənmədi: ' + (err.message || 'server xətası'), true);
+  }
+}
+function woaRejectDialog(r) {
+  if (!r || r.status !== 'pending') return;
+  modal('Silinmə tələbini rədd et', `
+    <div class="hint" style="margin-bottom:10px">${esc(woaLineSummary(r))} — ${esc(r.requester_warehouse)}</div>
+    <label class="f"><span>Rədd səbəbi (məcburi)</span>
+      <textarea id="woa-why" rows="3" placeholder="Rədd səbəbi"></textarea></label>`,
+    `<button class="btn" data-close>İmtina</button><button class="btn pri" id="woa-rj-ok">Rədd et</button>`);
+  $('#woa-rj-ok').onclick = async () => {
+    const why = $('#woa-why').value.trim();
+    if (!why) return toast('Rədd səbəbi tələb olunur', true);
+    $('#woa-rj-ok').disabled = true;
+    try {
+      const { error } = await SB.rpc('reject_writeoff_approval_request', { p_request_id: r.id, p_reason: why });
+      if (error) throw error;
+      closeModal();
+      await loadFromDB(); renderAll();
+      toast('Silinmə tələbi rədd edildi');
+    } catch (err) {
+      $('#woa-rj-ok').disabled = false;
+      toast('Rədd edilmədi: ' + (err.message || 'server xətası'), true);
+    }
+  };
+}
+async function woaWithdraw(r) {
+  if (!r || r.status !== 'pending') return;
+  try {
+    const { error } = await SB.rpc('withdraw_writeoff_approval_request', { p_request_id: r.id });
+    if (error) throw error;
+    await loadFromDB(); renderAll();
+    toast('Silinmə tələbi geri götürüldü');
+  } catch (err) {
+    toast('Geri götürülmədi: ' + (err.message || 'server xətası'), true);
+  }
+}
+
 /* Oxşar adların siyahısı — brauzerdə DB.items üzərində, server isə eyni işi
    item_request_candidates() ilə görür (o, başqa anbardarın gözləyən sorğusunu
    da tapır). Dəqiq uyğunluq bloklayır, oxşarlıq yalnız xəbərdarlıqdır. */
@@ -4831,6 +5132,22 @@ function addLine() {
   }
   line.q = v.q;
   if (v.warn) err.innerHTML = `<span style="color:var(--alarm)">${esc(v.warn)}</span>`;
+  /* Feature B (sql/041) — a transfer line carrying marked stock must not
+     commit until every marked bucket has an explicit keep/change decision.
+     Runs BEFORE the layer-pick handoff: the decision is part of what the
+     line IS, not something layered on afterward. A normal-only transfer
+     (line.cond has no marked buckets) skips this entirely. */
+  if (line.kind === 'mv' && condBucketsNeedingDecision(line.cond).length) {
+    conditionDecisionDialog(line.cond, line.w, line.w2, it.name,
+      (decisions) => {
+        line.condDecisions = decisions;
+        if (DB.layerActive && line.kind !== 'in') { openDraftLineLayers(line, v.warn || ''); return; }
+        commitDraftLine(line);
+      },
+      () => { /* İmtina — heç nə commit edilmir, sətir qaralamada qalmır */ }
+    );
+    return;
+  }
   if (DB.layerActive && line.kind !== 'in') {
     openDraftLineLayers(line, v.warn || '');
     return;
@@ -5965,18 +6282,34 @@ async function postOpDocument(editReason) {
   // ---- Yerdəyişmələr: atomar server RPC (mənfi qalıq serverdə bloklanır) ----
   // Köhnə emitMany yolu (ayrı-ayrı insert, atomar deyil) yerdəyişmə üçün istifadə OLUNMUR.
   if (mvLines.length) {
+    // Feature B (sql/041) — Codex qəbul tapıntısı 3: hər işarəli kova üçün
+    // qərar verilib-verilmədiyi buildConditionTransitions-dan ƏVVƏL yoxlanır,
+    // sonra yox — buildConditionTransitions artıq natamam/yanlış qərardan
+    // payload qurmaq əvəzinə throw edir, ona görə bu sıra restore edilmiş/
+    // pozulmuş qaralama halında da funksiyanın THROW ilə deyil, adi "rədd
+    // edildi" mesajı ilə dayanmasını təmin edir.
+    if (mvLines.some(l => !condDecisionsComplete(l.cond, l.condDecisions))) {
+      toast('Yerdəyişmə qeyd edilmədi: işarələnmiş mal üçün "Statusu saxla" və ya "Statusu dəyiş" seçilməlidir.', true);
+      return;
+    }
+    // condition_transitions ƏVƏZ EDİR köhnə "conditions" sahəsini.
+    // qərarsız kova yoxdursa (normal-only sətir) heç bir sahə göndərilmir.
     const p_lines = mvLines.map(l => ({
       date: l.d, source: l.w, dest: l.w2, code: l.c, qty: l.q,
       note: l.note || '', channel: l.ch || '', contract: l.ct || '', invoice: l.iv || '',
-      // Tiplərə görə bölgü (sql/031): mənbədən çıxır, təyinatda EYNİ tiplə
-      // yaranır. Yoxdursa bütün miqdar «normal» sayılır.
-      conditions: l.cond ? condSplitPayload(l.cond) : null,
+      condition_transitions: l.cond ? buildConditionTransitions(l.cond, l.condDecisions) : null,
       revision: l.layerRevision || '', allocations: l.allocations || null
     }));
     // Server bölgünü tanımırsa naməlum açar SÜKUTLA iqnor edilər və mal
     // təyinat anbarında işarəsiz görünərdi — ona görə bloklanır, keçilmir.
-    if (p_lines.some(x => x.conditions) && !DB.splitReady) {
-      toast(SPLIT_UNSUPPORTED_MSG, true);
+    // Feature B (sql/041) — Codex qəbul tapıntısı 4: DB.splitReady (031/032)
+    // 041-in condition_transitions-u saxlaya bildiyini sübut etmir. Yalnız
+    // əsl DB.transferCondAvailable (transfer_condition_capability, supported
+    // VƏ version>=41) yoxlanılır; naməlum/uğursuz/köhnə halda HEÇ BİR post
+    // RPC çağırışı edilmədən, köhnə "conditions" sahəsinə geri qayıtmadan
+    // rədd edilir.
+    if (p_lines.some(x => x.condition_transitions) && !DB.transferCondAvailable) {
+      toast('Yerdəyişmə qeyd edilmədi: status qərarları serverdə hələ aktiv görünmür (sql/041). Səhifəni yeniləyin və yenidən cəhd edin, ya da işarəli malı seçimdən çıxarın.', true);
       return;
     }
     try {
@@ -6017,6 +6350,46 @@ async function postOpDocument(editReason) {
     }
     try {
       const isLayerOut = DB.layerActive && other.some(l => l.kind !== 'in');
+
+      /* Feature A (sql/040) — bir Anbardarın Silinməsi HEÇ VAXT birbaşa
+         yazılmır: o, submit_writeoff_approval_request-ə gedir, bu isə YALNIZ
+         gözləyən yazı yaradır (heç bir hərəkət/partiya/balans/vəziyyət
+         effekti yoxdur). `DB.layerActive`-dən ASILI OLMAYARAQ aşkarlanır —
+         Codex qəbul tapıntısı 2: yoxlama əvvəllər `isLayerOut`-a bağlı
+         olduğundan, partiya qabiliyyəti yalan və ya hələ həll olunmamış
+         olduqda bir Anbardarın Silinməsi post_movement_document-ə birbaşa
+         keçirdi. Silinmə digər növlərlə eyni sənəddə qarışdırıla bilməz
+         (yuxarıdakı tək-marşrut qaydası artıq bunu təmin edir), ona görə
+         `other` burada ya TAMAMILƏ Silinmədir, ya da heç birində yoxdur — bu
+         yoxlama dəqiqdir, təxmini deyil. Admin-in öz birbaşa Silinməsi
+         TOXUNULMAZ qalır: isAnbardar() Admin üçün false olduğundan bu blok
+         hər zaman aşağıdakı normal yazıya keçir. */
+      const isAnbardarSilinme = isAnbardar() && other.every(l => l.t === 'Silinmə');
+
+      if (isAnbardarSilinme) {
+        /* Növbənin özü partiya-aware bölgü tələb edir (spec §3: təsdiq,
+           verildikdən sonra, post_layer_movement_document-ə həvalə edir).
+           Partiya qabiliyyəti qeyri-aktivdirsə, naməlumdursa (zond hələ həll
+           olunmayıb və ya uğursuz olub) və ya bu sənədin sətirlərində etibarlı
+           bölgü yoxdursa, Anbardar tamamilə rədd edilir — HEÇ BİR halda bu
+           post_movement_document və ya post_layer_movement_document-ə
+           keçməməlidir. */
+        if (!DB.layerActive) {
+          throw new Error('Silinmə tələbi göndərilmədi: partiya uçotu bu sessiyada aktiv görünmür. Səhifəni yeniləyin və yenidən cəhd edin.');
+        }
+        if (other.some(l => !Array.isArray(l.allocations) || !l.allocations.length)) {
+          throw new Error('Partiya seçilməyib — sətiri silib «Malları seç» vasitəsilə yenidən əlavə edin');
+        }
+        const { error } = await SB.rpc('submit_writeoff_approval_request', { p_lines, p_request_key: opRequestKey() });
+        if (error) throw error;
+        OP.lines = []; OP.requestKey = ''; OP.restoredAt = 0; clearDraft();
+        captureOpHeader();
+        if (OP.hdr) { OP.hdr.iv = ''; OP.hdr.ct = ''; }
+        renderAll();
+        toast('Silinmə tələbi Admin təsdiqinə göndərildi. Təsdiqlənənə qədər anbar qalığı dəyişməyəcək.');
+        return;
+      }
+
       if (isLayerOut && other.some(l => l.kind === 'in')) {
         throw new Error('Mədaxil və məxaric partiyalı rejimdə eyni sənəddə qarışdırıla bilməz');
       }
@@ -8873,6 +9246,7 @@ async function enterApp(userId, email) {
   $('#app').style.display = 'block';
   if ($('#nav-refs')) $('#nav-refs').style.display = isAdmin() ? '' : 'none';
   if ($('#nav-nreq')) $('#nav-nreq').style.display = (isAdmin() || isAnbardar() || isRehber()) ? '' : 'none';
+  if ($('#nav-woa')) $('#nav-woa').style.display = (isAdmin() || isAnbardar()) ? '' : 'none';
   if ($('#nav-azp')) $('#nav-azp').style.display = (typeof azpCanRead === 'function' && azpCanRead()) ? '' : 'none';
   $('#btn-me').textContent = ME.name.split(' ')[0] + ' · ' + (ROLES[ME.role] ? ROLES[ME.role].name : ME.role);
   $('#btn-me').onclick = sessionDialog;
