@@ -753,19 +753,16 @@ function sourceWarehouses() {
   if (isAnbardar() && ME.wh) return DB.whs.filter(w => sourceGroupWarehouses(ME.wh).includes(w));
   return DB.whs.slice();
 }
-/* Yasamal (Qanlı göl) — sahib qərarı, 2026-09-21: Yasamal Astaradan
-   müstəqildir və istifadəçi təyin olunana qədər yalnız aktiv admin ona giriş
-   /əməliyyat apara bilər. Heç bir anbardar seçicisi (mənbə və ya təyinat)
-   Yasamalı təklif etməməlidir. Bu, YALNIZ İSTİFADƏÇİ İNTERFEYSİ rahatlığıdır
-   (D-H1 ilə eyni naxış — Ofis istisnası) — əsl sərhəd serverdədir
-   (post_transfer_document, sql/043); bu filtri silmək serverin rədd edəcəyi
-   bir yazını keçirə bilməz, sadəcə həmişə uğursuz olan seçimləri gizlədir. */
-const ADMIN_ONLY_WAREHOUSE = 'Yasamal (Qanlı göl)'; // must be the exact live warehouse name (sql/043) — a short form never matches DB.whs and would silently disable this filter
-/* Yerdəyişmə təyinat seçimləri — anbardar üçün Ofis (server qaydası) və
-   Yasamal (sahib qərarı) çıxarılır. Admin üçün dəyişməz. */
+/* Yerdəyişmə üçün anbardar yalnız öz anbarından göndərir. Astara anbardarı
+   Ofis və Yasamal (Qanlı göl)-ə də göndərə bilər; digər anbardarlar üçün
+   əvvəlki iki təyinat qadağası dəyişmir.
+   Təyinatı seçmək həmin anbarın qalığını/hərəkətlərini oxumaq və ya oradan
+   əməliyyat aparmaq hüququ vermir; bu sərhədlər serverdə qalır (sql/045). */
 function transferDestWarehouses() {
   const list = DB.transferDests || DB.whs;
-  if (isAnbardar()) return list.filter(w => w !== 'Ofis' && w !== ADMIN_ONLY_WAREHOUSE);
+  if (isAnbardar() && ME.wh !== 'Astara') {
+    return list.filter(w => w !== 'Ofis' && w !== 'Yasamal (Qanlı göl)');
+  }
   return list.slice();
 }
 /* Hər mal üçün QLOBAL sonuncu etibarlı Satınalma qiyməti (anbardan asılı olmayaraq).
