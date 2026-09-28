@@ -6310,7 +6310,7 @@ async function postOpDocument(editReason) {
     const p_lines = mvLines.map(l => ({
       date: l.d, source: l.w, dest: l.w2, code: l.c, qty: l.q,
       note: l.note || '', channel: l.ch || '', contract: l.ct || '', invoice: l.iv || '',
-      condition_transitions: l.cond ? buildConditionTransitions(l.cond, l.condDecisions) : null,
+      ...(l.cond ? { condition_transitions: buildConditionTransitions(l.cond, l.condDecisions) } : {}),
       revision: l.layerRevision || '', allocations: l.allocations || null
     }));
     // Server bölgünü tanımırsa naməlum açar SÜKUTLA iqnor edilər və mal
