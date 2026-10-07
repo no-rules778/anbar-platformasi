@@ -7237,7 +7237,7 @@ function nextCode() {
   let max = 0; DB.items.forEach(i => { const n = parseInt(i.code, 10); if (n > max) max = n; });
   return String(max + 1).padStart(7, '0');
 }
-function editItem(code, presetName) {
+function editItem(code, presetName, onSaved) {
   if (!need(code ? 'item.edit' : 'item.add')) return;
   const it = code ? DB.itemBy.get(code) : null;
   /* Ölçü vahidi YALNIZ soraqçadan seçilir — sərbəst mətn qəbul edilmir, əks
@@ -7303,6 +7303,7 @@ function editItem(code, presetName) {
     // claim success unless the server returned the edited/created item code.
     if (!saved || !saved.ok) return;
     closeModal(); renderAll();
+    if (onSaved) onSaved(c);
     // Kartoçka bu malla açıq qalıbsa, yenilənmiş məlumatla yenidən qurulur —
     // istifadəçi dəyişikliyi dərhal görür və kartoçka bağlanmır.
     if (it && CARD_CODE === c && $('#drawer').classList.contains('on')) itemCard(c);
@@ -7856,7 +7857,33 @@ function importNewItems() {
    yoxdur — movements cədvəlinə YAZILMIR, ayrı sql/032 cədvəllərinə yazılır.
    sql/032 hələ Supabase-ə tətbiq edilməyibsə DB.smReady=false qalır və bölmə
    "hazır deyil" mesajı göstərir (movement_split_supported zondu ilə eyni üsul). */
-const SM = { lines: [], filters: {}, editDocId: null };
+const SM = { lines: [], filters: {}, editDocId: null, form: null, owner: null };
+
+function smNumber(value) {
+  return Number.isFinite(value) ? value.toLocaleString('az-AZ', { minimumFractionDigits: 2, maximumFractionDigits: 20 }) : '—';
+}
+
+function smSheetRows(sheet, documents) {
+  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: false, blankrows: true });
+  const head = (rows[0] || []).map(v => String(v).toLowerCase());
+  const qi = head.findIndex(v => /miqdar|qty/.test(v)), pi = head.findIndex(v => /qiym|price/.test(v));
+  const columns = [qi < 0 ? (documents ? 2 : 1) : qi, pi < 0 ? (documents ? 3 : 2) : pi];
+  const start = XLSX.utils.decode_range(sheet['!ref'] || 'A1').s;
+  rows.forEach((row, r) => columns.forEach(c => {
+    const cell = sheet[XLSX.utils.encode_cell({ r: start.r + r, c: start.c + c })];
+    if (cell && cell.t === 'n' && typeof cell.v === 'number') row[c] = cell.v;
+  }));
+  return rows;
+}
+
+// Keep all typed fields, including the unfinished line, across rSm()/navigation.
+const SM_FORM_IDS = ['sm-proj', 'sm-date', 'sm-kanal', 'sm-kontragent', 'sm-avto', 'sm-iv', 'sm-note', 'sm-item', 'sm-qty', 'sm-price'];
+function smCaptureForm(selCode) {
+  if (!$('#sm-proj')) return;
+  const values = {};
+  SM_FORM_IDS.forEach(id => { values[id] = $('#' + id).value; });
+  SM.form = { editDocId: SM.editDocId, values, selCode: selCode === undefined ? (SM.form && SM.form.selCode || '') : selCode };
+}
 
 async function smLoad() {
   DB.smReady = false;
@@ -7903,6 +7930,8 @@ function smDocById(id) { return DB.smDocs.find(d => d.id === id); }
 function smProjById(id) { return DB.smProjects.find(p => p.id === id); }
 
 function rSm() {
+  const owner = ME && (ME.sbId || ME.id || ME.email);
+  if (SM.owner !== owner) { SM.owner = owner; SM.form = null; SM.lines = []; SM.editDocId = null; }
   if (!$('#sm-seg').dataset.wired) {
     $('#sm-seg').dataset.wired = '1';
     $$('#sm-seg button').forEach(b => b.onclick = () => {
@@ -7923,9 +7952,9 @@ function rSm() {
 /* ---------- Sənəd forması: şapka (layihə/kontragent/avtomobil/kanal/tarix/qeyd)
    + material sətirləri (əl ilə və ya Excel-dən kod/miqdar/qiymət idxalı) ---------- */
 function smRenderForm(out) {
-  const editing = !!SM.editDocId;
+  let editing = !!SM.editDocId;
   const editDoc = editing ? smDocById(SM.editDocId) : null;
-  if (editing && !editDoc) { SM.editDocId = null; SM.lines = []; } // sənəd artıq yoxdur (məs. silinib)
+  if (editing && !editDoc) { SM.editDocId = null; SM.lines = []; SM.form = null; editing = false; }
   if (!editing && !smCanWrite()) { out.innerHTML = '<div class="card"><div class="pad hint">Sənəd yaratmaq üçün icazəniz yoxdur (yalnız Admin və Anbardar).</div></div>'; return; }
   if (editing && !isAdmin()) { out.innerHTML = '<div class="card"><div class="pad hint">Provedilmiş sənədi yalnız Admin düzəldə bilər.</div></div>'; return; }
   // Düzəliş rejimində Admin istənilən (hətta öz layihəsi olmayan) sənədi aça bilməlidir —
@@ -7967,8 +7996,8 @@ function smRenderForm(out) {
             <div id="sm-item-res" style="position:absolute;left:0;right:0;top:100%;background:#fff;border:1px solid var(--line);border-radius:0 0 4px 4px;max-height:220px;overflow:auto;z-index:20;display:none"></div></div>
           </label>
           <div class="row" style="grid-template-columns:1fr 1fr">
-            <label class="f"><span>Miqdar</span><input type="number" id="sm-qty" step="0.01" min="0"></label>
-            <label class="f"><span>Qiymət</span><input type="number" id="sm-price" step="0.01" min="0"></label>
+            <label class="f"><span>Miqdar</span><input type="number" id="sm-qty" step="any" min="0"></label>
+            <label class="f"><span>Qiymət</span><input type="number" id="sm-price" step="any" min="0"></label>
           </div>
           <button class="btn" id="sm-add-line" style="width:100%">Sətri əlavə et →</button>
         </div>
@@ -7983,25 +8012,44 @@ function smRenderForm(out) {
       </div>
     </div></div>`;
 
-  if (editing && $('#sm-edit-cancel')) $('#sm-edit-cancel').onclick = e => { e.preventDefault(); SM.editDocId = null; SM.lines = []; smRenderForm(out); };
+  if (SM.form && SM.form.editDocId === SM.editDocId) {
+    SM_FORM_IDS.forEach(id => { $('#' + id).value = SM.form.values[id] || ''; });
+  }
+  out.oninput = () => smCaptureForm();
+  out.onchange = () => smCaptureForm();
+  if (editing && $('#sm-edit-cancel')) $('#sm-edit-cancel').onclick = e => { e.preventDefault(); SM.editDocId = null; SM.lines = []; SM.form = null; smRenderForm(out); };
 
   smRenderLines();
 
-  let selCode = '';
+  let selCode = SM.form && SM.form.editDocId === SM.editDocId ? SM.form.selCode : '';
   const inp = $('#sm-item'), res = $('#sm-item-res');
   const search = () => {
     const q = inp.value.trim().toLowerCase();
     if (q.length < 2) { res.style.display = 'none'; return; }
     const hit = DB.items.filter(i => i.name.toLowerCase().indexOf(q) >= 0 || i.code.indexOf(q) >= 0).slice(0, 12);
-    res.innerHTML = hit.length ? hit.map(i => `<div data-c="${esc(i.code)}" style="padding:7px 9px;cursor:pointer;border-bottom:1px solid var(--line-2)"><b>${esc(i.name)}</b><div class="hint"><span class="code">${esc(i.code)}</span> · ${esc(i.unit)}</div></div>`).join('') : '<div style="padding:9px" class="hint">Tapılmadı</div>';
+    res.innerHTML = hit.length ? hit.map(i => `<div data-c="${esc(i.code)}" style="padding:7px 9px;cursor:pointer;border-bottom:1px solid var(--line-2)"><b>${esc(i.name)}</b><div class="hint"><span class="code">${esc(i.code)}</span> · ${esc(i.unit)}</div></div>`).join('')
+      : `<div style="padding:9px" class="hint">Tapılmadı. ${can('item.add') ? '<a href="#" id="sm-new-item">Yeni mal yarat →</a>' : ''}</div>`;
     res.style.display = 'block';
     $$('#sm-item-res [data-c]').forEach(d => d.onclick = () => {
       selCode = d.dataset.c; const it = DB.itemBy.get(selCode);
       inp.value = it ? it.name : selCode; res.style.display = 'none';
       if (it && !$('#sm-price').value) $('#sm-price').value = it.price || '';
+      smCaptureForm(selCode);
     });
+    if ($('#sm-new-item')) $('#sm-new-item').onclick = e => {
+      e.preventDefault(); res.style.display = 'none'; smCaptureForm(selCode);
+      editItem(null, inp.value, code => {
+        const item = DB.itemBy.get(code);
+        if (!SM.form || !item) return;
+        SM.form.values['sm-item'] = item.name;
+        SM.form.values['sm-price'] = item.price || '';
+        SM.form.selCode = code;
+        rSm();
+      });
+    };
   };
-  inp.oninput = debounce(search, 160);
+  const delayedSearch = debounce(search, 160);
+  inp.oninput = () => { selCode = ''; smCaptureForm(selCode); delayedSearch(); };
   inp.onblur = () => setTimeout(() => res.style.display = 'none', 150);
 
   $('#sm-add-line').onclick = () => {
@@ -8012,6 +8060,7 @@ function smRenderForm(out) {
     $('#sm-err').textContent = '';
     SM.lines.push({ code: selCode, qty, price });
     selCode = ''; inp.value = ''; $('#sm-qty').value = ''; $('#sm-price').value = '';
+    smCaptureForm(selCode);
     smRenderLines();
   };
 
@@ -8023,7 +8072,7 @@ function smRenderForm(out) {
         if (typeof XLSX === 'undefined') { toast('Excel kitabxanası yüklənmədi', true); return; }
         const wb = XLSX.read(rd.result, { type: 'array' });
         const ws = wb.Sheets[wb.SheetNames[0]];
-        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
+        const rows = smSheetRows(ws, false);
         smImportLines(rows);
       } catch (err) { console.error(err); toast('Fayl oxunmadı: ' + (err.message || ''), true); }
     };
@@ -8141,7 +8190,7 @@ function smImportDocsFile(e) {
       if (typeof XLSX === 'undefined') { toast('Excel kitabxanası yüklənmədi', true); return; }
       const wb = XLSX.read(rd.result, { type: 'array' });
       const ws = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
+      const rows = smSheetRows(ws, true);
       smPreviewDocsImport(rows);
     } catch (err) { console.error(err); toast('Fayl oxunmadı: ' + (err.message || ''), true); }
   };
@@ -8192,7 +8241,7 @@ function smRenderLines() {
   el.innerHTML = `<table class="tbl"><thead><tr><th>Mal</th><th>Kod</th><th>Ölçü</th><th>Miqdar</th><th>Qiymət</th><th>Cəm</th><th></th></tr></thead><tbody>
     ${SM.lines.map((l, i) => { const it = DB.itemBy.get(l.code); return `<tr>
       <td>${esc(it ? it.name : l.code)}</td><td class="code">${esc(l.code)}</td><td>${esc(it ? it.unit : '')}</td>
-      <td>${nf(l.qty, 2)}</td><td>${nf(l.price, 2)}</td><td>${money(l.qty * l.price)}</td>
+      <td>${smNumber(l.qty)}</td><td>${smNumber(l.price)}</td><td>${money(l.qty * l.price)}</td>
       <td><a href="#" data-i="${i}" class="sm-del">✕</a></td></tr>`; }).join('')}
   </tbody><tfoot><tr><td colspan="5" style="text-align:right"><b>Cəmi</b></td><td colspan="2"><b>${money(SM.lines.reduce((s, l) => s + l.qty * l.price, 0))}</b></td></tr></tfoot></table>`;
   $$('.sm-del').forEach(a => a.onclick = e => { e.preventDefault(); SM.lines.splice(+a.dataset.i, 1); smRenderLines(); });
@@ -8220,7 +8269,7 @@ async function smSubmitDocument() {
     : await SB.rpc('create_serfiyyat_document', args);
   if (error) { toast('Xəta: ' + error.message, true); return; }
   toast((editing ? 'Sənəd düzəldildi: ' : 'Sənəd yaradıldı: ') + (data && data.doc_num ? data.doc_num : ''));
-  SM.lines = []; SM.editDocId = null;
+  SM.lines = []; SM.editDocId = null; SM.form = null;
   // Hesabat DB.smDocs/DB.smLines-dən oxuyur — yenidən yükləmə ilə dəyişiklik
   // dərhal həm cari ekranda, həm sonrakı Hesabat açılışında əks olunur.
   await smLoad();
@@ -8231,6 +8280,7 @@ async function smSubmitDocument() {
 function smOpenEditDocument(docId) {
   const doc = smDocById(docId); if (!doc) return;
   SM.editDocId = docId;
+  SM.form = null;
   SM.lines = DB.smLines.filter(l => l.docId === docId).map(l => ({ code: l.code, qty: l.qty, price: l.price }));
   $('#sm-seg').dataset.tab = 'doc';
   $$('#sm-seg button').forEach(x => x.classList.toggle('on', x.dataset.tab === 'doc'));
@@ -8243,7 +8293,7 @@ async function smDeleteDocument(docId) {
   const { error } = await SB.rpc('delete_serfiyyat_document', { p_doc_id: docId });
   if (error) { toast('Xəta: ' + error.message, true); return; }
   toast('Sənəd silindi: ' + doc.num);
-  if (SM.editDocId === docId) { SM.editDocId = null; SM.lines = []; }
+  if (SM.editDocId === docId) { SM.editDocId = null; SM.lines = []; SM.form = null; }
   await smLoad();
   rSm();
 }
@@ -8371,7 +8421,7 @@ function smRenderReportTable() {
     <th>Tarix</th><th>Sənəd №</th><th>Layihə</th><th>Material</th><th>Ölçü</th><th>Miqdar</th><th>Qiymət</th><th>Cəm</th>
     <th>Kontragent</th><th>Avtomobil</th><th>Alınma kanalı</th><th>Qaimə №</th><th>Qeyd</th><th>Daxil edən</th></tr></thead><tbody>
     ${rows.map(r => `<tr><td>${fmtD(r.d)}</td><td class="code">${esc(r.docNum)}</td><td>${esc(r.proj)}</td><td>${esc(r.item)}</td><td>${esc(r.unit)}</td>
-      <td>${nf(r.qty, 2)}</td><td>${nf(r.price, 2)}</td><td>${money(r.sum)}</td><td>${esc(r.kontragent)}</td>
+      <td>${smNumber(r.qty)}</td><td>${smNumber(r.price)}</td><td>${money(r.sum)}</td><td>${esc(r.kontragent)}</td>
       <td>${esc(r.avto)}</td><td>${esc(r.kanal)}</td><td class="code">${esc(r.iv)}</td><td>${esc(r.note)}</td><td>${esc(r.by)}</td></tr>`).join('')}
   </tbody></table>${rows.length ? '' : '<div class="pad hint">Uyğun sətir tapılmadı.</div>'}`;
 
