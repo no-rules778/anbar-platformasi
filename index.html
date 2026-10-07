@@ -7885,6 +7885,19 @@ function smCaptureForm(selCode) {
   SM.form = { editDocId: SM.editDocId, values, selCode: selCode === undefined ? (SM.form && SM.form.selCode || '') : selCode };
 }
 
+function smPartnerMatches(query) {
+  const q = String(query || '').trim().toLocaleLowerCase('az-AZ');
+  if (!q) return [];
+  return DB.partners
+    .filter(p => p.active !== false && p.name.toLocaleLowerCase('az-AZ').includes(q))
+    .sort((a, b) => {
+      const ap = a.name.toLocaleLowerCase('az-AZ').startsWith(q) ? 0 : 1;
+      const bp = b.name.toLocaleLowerCase('az-AZ').startsWith(q) ? 0 : 1;
+      return ap - bp || a.name.localeCompare(b.name, 'az-AZ');
+    })
+    .slice(0, 12);
+}
+
 async function smLoad() {
   DB.smReady = false;
   DB.smProjects = []; DB.smDocs = []; DB.smLines = [];
@@ -7978,7 +7991,10 @@ function smRenderForm(out) {
         <label class="f"><span>Alınma kanalı</span><select id="sm-kanal"><option value="">—</option>${kanallar.map(k => `<option ${editDoc && editDoc.kanal === k ? 'selected' : ''}>${esc(k)}</option>`).join('')}</select></label>
       </div>
       <div class="row" style="grid-template-columns:1fr 1fr 1fr">
-        <label class="f"><span>Kontragent</span><input type="text" id="sm-kontragent" value="${esc(editDoc ? editDoc.kontragent : '')}" placeholder="məs. Anbar Tədarük MMC"></label>
+        <label class="f"><span>Kontragent</span><div style="position:relative">
+          <input type="text" id="sm-kontragent" value="${esc(editDoc ? editDoc.kontragent : '')}" placeholder="məs. Anbar Tədarük MMC" autocomplete="off">
+          <div id="sm-kontragent-res" style="position:absolute;left:0;right:0;top:100%;background:#fff;border:1px solid var(--line);border-radius:0 0 4px 4px;max-height:220px;overflow:auto;z-index:21;display:none"></div>
+        </div></label>
         <label class="f"><span>Avtomobil nömrəsi</span><input type="text" id="sm-avto" value="${esc(editDoc ? editDoc.avto : '')}" placeholder="məs. 10-AA-123"></label>
         <label class="f"><span>Qaimə №</span><input type="text" id="sm-iv" value="${esc(editDoc ? editDoc.iv : '')}" placeholder="məs. 83951"></label>
       </div>
@@ -8018,6 +8034,24 @@ function smRenderForm(out) {
   out.oninput = () => smCaptureForm();
   out.onchange = () => smCaptureForm();
   if (editing && $('#sm-edit-cancel')) $('#sm-edit-cancel').onclick = e => { e.preventDefault(); SM.editDocId = null; SM.lines = []; SM.form = null; smRenderForm(out); };
+
+  const partnerInput = $('#sm-kontragent'), partnerResults = $('#sm-kontragent-res');
+  const searchPartners = () => {
+    const hit = smPartnerMatches(partnerInput.value);
+    if (!partnerInput.value.trim()) { partnerResults.style.display = 'none'; return; }
+    partnerResults.innerHTML = hit.length
+      ? hit.map((p, i) => `<div data-i="${i}" style="padding:7px 9px;cursor:pointer;border-bottom:1px solid var(--line-2)">${esc(p.name)}</div>`).join('')
+      : '<div style="padding:9px" class="hint">Tapılmadı</div>';
+    partnerResults.style.display = 'block';
+    $$('#sm-kontragent-res [data-i]').forEach(d => d.onclick = () => {
+      partnerInput.value = hit[+d.dataset.i].name;
+      partnerResults.style.display = 'none';
+      smCaptureForm();
+    });
+  };
+  partnerInput.oninput = searchPartners;
+  partnerInput.onfocus = () => { if (partnerInput.value.trim()) searchPartners(); };
+  partnerInput.onblur = () => setTimeout(() => { partnerResults.style.display = 'none'; }, 150);
 
   smRenderLines();
 
