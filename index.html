@@ -8075,10 +8075,13 @@ function smRenderForm(out) {
     res.innerHTML = hit.length ? hit.map(i => `<div data-c="${esc(i.code)}" style="padding:7px 9px;cursor:pointer;border-bottom:1px solid var(--line-2)"><b>${esc(i.name)}</b><div class="hint"><span class="code">${esc(i.code)}</span> · ${esc(i.unit)}</div></div>`).join('')
       : `<div style="padding:9px" class="hint">Tapılmadı. ${can('item.add') ? '<a href="#" id="sm-new-item">Yeni mal yarat →</a>' : ''}</div>`;
     res.style.display = 'block';
-    $$('#sm-item-res [data-c]').forEach(d => d.onclick = () => {
+    $$('#sm-item-res [data-c]').forEach(d => d.onpointerdown = e => {
+      if (e.button !== undefined && e.button !== 0) return;
+      e.preventDefault();
       selCode = d.dataset.c; const it = DB.itemBy.get(selCode);
-      inp.value = it ? it.name : selCode; res.style.display = 'none';
-      if (it && !$('#sm-price').value) $('#sm-price').value = it.price || '';
+      inp.value = it ? it.name : selCode;
+      $('#sm-price').value = it && it.price ? it.price : '';
+      res.style.display = 'none';
       smCaptureForm(selCode);
     });
     if ($('#sm-new-item')) $('#sm-new-item').onclick = e => {
