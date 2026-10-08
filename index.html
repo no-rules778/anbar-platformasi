@@ -11789,5 +11789,77 @@ async function azpExport(m) {
   });
 })();
 </script>
+<script>
+/* Visible dates are always DD.MM.YYYY; original ISO inputs remain the API contract. */
+(function installDayFirstDates() {
+  const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+  function display(iso) {
+    return /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso.slice(8) + '.' + iso.slice(5, 7) + '.' + iso.slice(0, 4) : '';
+  }
+  function wire(input) {
+    if (input.dataset.dayFirst) return;
+    input.dataset.dayFirst = '1';
+    const wrap = document.createElement('span');
+    wrap.style.cssText = 'display:flex;position:relative;align-items:center;gap:4px;width:100%;min-width:0';
+    const editor = document.createElement('input');
+    editor.type = 'text'; editor.inputMode = 'numeric'; editor.maxLength = 10;
+    editor.placeholder = 'DD.MM.YYYY'; editor.autocomplete = 'off';
+    editor.setAttribute('aria-label', input.getAttribute('aria-label') || input.title || 'Tarix');
+    editor.style.cssText = 'min-width:0;flex:1;width:100%';
+    editor.dataset.dateFor = input.id;
+    const button = document.createElement('button');
+    button.type = 'button'; button.className = 'btn'; button.textContent = '▦';
+    button.title = 'Təqvimi aç'; button.setAttribute('aria-label', 'Təqvimi aç');
+    input.parentNode.insertBefore(wrap, input);
+    wrap.append(editor, button, input);
+    input.style.cssText = 'position:absolute;opacity:0;width:1px;height:1px;pointer-events:none;right:0;bottom:0';
+    input.tabIndex = -1; input.setAttribute('aria-hidden', 'true');
+    const sync = () => {
+      editor.value = display(descriptor.get.call(input));
+      editor.disabled = button.disabled = input.disabled;
+      editor.readOnly = input.readOnly; button.disabled = input.disabled || input.readOnly;
+      editor.required = input.required;
+      editor.setCustomValidity('');
+    };
+    Object.defineProperty(input, 'value', {
+      configurable: true,
+      get() { return descriptor.get.call(this); },
+      set(value) { descriptor.set.call(this, value); sync(); }
+    });
+    sync();
+    const publish = (iso) => {
+      input.value = iso;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    editor.addEventListener('input', () => {
+      const digits = editor.value.replace(/\D/g, '').slice(0, 8);
+      const text = digits.length > 4 ? digits.slice(0, 2) + '.' + digits.slice(2, 4) + '.' + digits.slice(4)
+        : digits.length > 2 ? digits.slice(0, 2) + '.' + digits.slice(2) : digits;
+      editor.value = text;
+      if (!text) { publish(''); return; }
+      const match = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(text);
+      const iso = match ? match[3] + '-' + match[2] + '-' + match[1] : '';
+      const probe = document.createElement('input'); probe.type = 'date'; probe.value = iso;
+      if (iso && probe.value === iso && (!input.min || iso >= input.min) && (!input.max || iso <= input.max)) publish(iso);
+      else editor.setCustomValidity('Tarixi gün.ay.il formatında düzgün daxil edin.');
+    });
+    editor.addEventListener('blur', () => {
+      if (!editor.checkValidity()) { editor.reportValidity(); sync(); }
+    });
+    input.addEventListener('input', sync);
+    input.addEventListener('change', sync);
+    input.addEventListener('focus', () => editor.focus());
+    button.addEventListener('click', () => {
+      if (input.showPicker) { try { input.showPicker(); } catch (_) { editor.focus(); } }
+      else editor.focus();
+    });
+    new MutationObserver(sync).observe(input, { attributes: true, attributeFilter: ['value', 'disabled', 'readonly', 'required', 'min', 'max'] });
+  }
+  const scan = () => document.querySelectorAll('input[type="date"]').forEach(wire);
+  scan();
+  new MutationObserver(scan).observe(document.body, { childList: true, subtree: true });
+})();
+</script>
 </body>
 </html>
