@@ -4814,7 +4814,16 @@ function rOp() {
       res.style.display = 'block';
       $$('#o-res [data-c]').forEach(d => d.onmouseenter = () => d.style.background = 'var(--line-2)');
       $$('#o-res [data-c]').forEach(d => d.onmouseleave = () => d.style.background = '');
-      $$('#o-res [data-c]').forEach(d => d.onclick = () => pickItem(d.dataset.c));
+      /* Seçimi blur-dan ƏVVƏL qeyd et. `click` blur-dan sonra gəlirdi və real
+         brauzerdə siyahı gizlənəndə bəzi kliklər itirdi: sahədə axtarış mətni
+         qalır, OP.pick isə boş olurdu. pointerdown siçan/toxunma/qələm üçün
+         erkən işləyir; preventDefault input fokusunu və siyahını seçim bitənə
+         qədər saxlayır. */
+      $$('#o-res [data-c]').forEach(d => d.onpointerdown = e => {
+        if (e.button !== undefined && e.button !== 0) return;
+        e.preventDefault();
+        pickItem(d.dataset.c);
+      });
       if ($('#o-new')) $('#o-new').onclick = e => { e.preventDefault(); res.style.display = 'none'; editItem(null, inp.value); };
     };
     inp.oninput = debounce(search, 160);
