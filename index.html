@@ -2023,7 +2023,7 @@ function itemCard(code) {
       <div class="kpis" style="grid-template-columns:repeat(3,1fr)">
         <div class="kpi ${tot < 0 ? 'r' : 'g'}"><div class="eyebrow">Ümumi qalıq</div><div class="v">${nf(tot, 2)}</div><div class="s">${esc(it.unit)}</div></div>
         <div class="kpi"><div class="eyebrow">Qalıq dəyəri</div><div class="v" style="font-size:18px">${money(tot * it.price)}</div><div class="s">${it.price ? 'son qiymətlə' : 'qiymət yoxdur'}</div></div>
-        <div class="kpi v"><div class="eyebrow">Hərəkət sayı</div><div class="v">${nf(movs.length)}</div><div class="s">${movs.length ? movs[movs.length - 1].d + ' → ' + movs[0].d : '—'}</div></div>
+        <div class="kpi v"><div class="eyebrow">Hərəkət sayı</div><div class="v">${nf(movs.length)}</div><div class="s">${movs.length ? fmtD(movs[movs.length - 1].d) + ' → ' + fmtD(movs[0].d) : '—'}</div></div>
       </div>
       <h4 style="margin:16px 0 7px;font-size:12px" class="eyebrow">Anbarlar üzrə qalıq</h4>
       <div class="card">${tbl([{ t: 'Anbar' }, { t: 'Mədaxil', r: 1 }, { t: 'Məxaric', r: 1 }, { t: 'Qalıq', r: 1 }],
@@ -2982,7 +2982,9 @@ function tmrItemPicker(inputId, resId, availId, opts) {
     res.style.display = 'block';
     $$('#' + resId + ' [data-c]').forEach(d => d.onmouseenter = () => d.style.background = 'var(--line-2)');
     $$('#' + resId + ' [data-c]').forEach(d => d.onmouseleave = () => d.style.background = '');
-    $$('#' + resId + ' [data-c]').forEach(d => d.onclick = () => {
+    $$('#' + resId + ' [data-c]').forEach(d => d.onpointerdown = e => {
+      if (e.button !== undefined && e.button !== 0) return;
+      e.preventDefault();
       const it = DB.itemBy.get(d.dataset.c);
       if (!it) return;
       inp.value = it.name + ' (' + it.code + ')';
@@ -4824,7 +4826,10 @@ function rOp() {
         e.preventDefault();
         pickItem(d.dataset.c);
       });
-      if ($('#o-new')) $('#o-new').onclick = e => { e.preventDefault(); res.style.display = 'none'; editItem(null, inp.value); };
+      if ($('#o-new')) $('#o-new').onpointerdown = e => {
+        if (e.button !== undefined && e.button !== 0) return;
+        e.preventDefault(); res.style.display = 'none'; editItem(null, inp.value);
+      };
     };
     inp.oninput = debounce(search, 160);
     inp.onblur = () => setTimeout(() => res.style.display = 'none', 200);
@@ -5441,7 +5446,9 @@ function renderEditLine(msg) {
       ? hit.map(x => `<div data-c="${esc(x.code)}" style="padding:7px 9px;cursor:pointer;border-bottom:1px solid var(--line-2)"><b>${esc(x.name)}</b><div class="hint"><span class="code">${esc(x.code)}</span> · ${esc(x.unit)}${x.price ? ' · ' + nf(x.price, 2) + ' ₼' : ''}</div></div>`).join('')
       : '<div style="padding:9px" class="hint">Tapılmadı.</div>';
     res.style.display = 'block';
-    $$('#el-res [data-c]').forEach(el => el.onclick = () => {
+    $$('#el-res [data-c]').forEach(el => el.onpointerdown = e => {
+      if (e.button !== undefined && e.button !== 0) return;
+      e.preventDefault();
       const it = DB.itemBy.get(el.dataset.c);
       if (!it) return;
       captureEditLine();                       // digər sahələrin cari dəyəri itməsin
@@ -6555,7 +6562,9 @@ function replaceItemDialog(m) {
       ? hit.map(i => `<div data-c="${esc(i.code)}" style="padding:7px 9px;cursor:pointer;border-bottom:1px solid var(--line-2)"><b>${esc(i.name)}</b><div class="hint"><span class="code">${esc(i.code)}</span> · ${esc(i.unit)}</div></div>`).join('')
       : '<div style="padding:9px" class="hint">Tapılmadı</div>';
     res.style.display = 'block';
-    $$('#rp-res [data-c]').forEach(d => d.onclick = () => {
+    $$('#rp-res [data-c]').forEach(d => d.onpointerdown = e => {
+      if (e.button !== undefined && e.button !== 0) return;
+      e.preventDefault();
       picked = d.dataset.c;
       const pi = DB.itemBy.get(picked) || {};
       $('#rp-sel').innerHTML = `Seçildi: <b>${esc(pi.name || picked)}</b> · <span class="code">${esc(picked)}</span>`;
@@ -8084,7 +8093,8 @@ function smRenderForm(out) {
       res.style.display = 'none';
       smCaptureForm(selCode);
     });
-    if ($('#sm-new-item')) $('#sm-new-item').onclick = e => {
+    if ($('#sm-new-item')) $('#sm-new-item').onpointerdown = e => {
+      if (e.button !== undefined && e.button !== 0) return;
       e.preventDefault(); res.style.display = 'none'; smCaptureForm(selCode);
       editItem(null, inp.value, code => {
         const item = DB.itemBy.get(code);
@@ -8273,7 +8283,7 @@ async function smConfirmDocsImport() {
       p_alinma_kanali: g.kanal || null, p_invoice_num: g.iv || null, p_note: g.note || null,
       p_lines: g.lines.map(l => ({ code: l.code, qty: l.qty, price: l.price }))
     });
-    if (error) fail.push(g.projectName + ' (' + g.date + '): ' + error.message); else ok++;
+    if (error) fail.push(g.projectName + ' (' + fmtD(g.date) + '): ' + error.message); else ok++;
   }
   closeModal();
   SM.importGroups = [];
@@ -8889,7 +8899,7 @@ function rCtrl() {
     ['Ümumi hal', nf(tot), nf(G.length) + ' kateqoriya', tot ? 'o' : 'g'],
     ['Yüksək risk', nf(high), 'təcili baxış tələb edir', high ? 'r' : 'g'],
     ['Uçotun tamlığı', (normalMovements().length ? (100 - Math.min(100, tot / normalMovements().length * 100)).toFixed(1) : 100) + '%', 'problemsiz qeydlərin payı', 'g'],
-    ['Yoxlama tarixi', today(), 'hər dəyişiklikdə avtomatik', '']
+    ['Yoxlama tarixi', fmtD(today()), 'hər dəyişiklikdə avtomatik', '']
   ].map(k => `<div class="kpi ${k[3]}"><div class="eyebrow">${esc(k[0])}</div><div class="v" style="font-size:19px">${k[1]}</div><div class="s">${esc(k[2])}</div></div>`).join('');
   $('#ctrl-out').innerHTML = G.length ? G.map(g => `
     <div class="card" style="margin-bottom:12px">
