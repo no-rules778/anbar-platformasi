@@ -1692,7 +1692,7 @@ function rDash() {
   const noPrice = pos.filter(b => !b.price).length;
   const last = IX.dates[IX.dates.length - 1] || '—';
 
-  $('#dash-sub').textContent = (w || 'Bütün anbarlar') + ' · son əməliyyat tarixi ' + last + ' · ' + nf(movs.length) + ' hərəkət qeydi';
+  $('#dash-sub').textContent = (w || 'Bütün anbarlar') + ' · son əməliyyat tarixi ' + fmtD(last) + ' · ' + nf(movs.length) + ' hərəkət qeydi';
   $('#dash-kpis').innerHTML = [
     ['Qalıq dəyəri', money(val), nf(pos.length) + ' aktiv mövqe', 'g'],
     ['Ümumi mədaxil', nf(tin, 2), 'bütün dövr üzrə', ''],
@@ -4398,7 +4398,7 @@ function rAnb() {
     DB.whs.map(w => {
       const b = IX.bal.filter(x => x.w === w), st = IX.byWh.get(w) || { n: 0 };
       const last = normalMovements().filter(m => m.w === w).reduce((s, m) => m.d > s ? m.d : s, '');
-      return { c: [`<b>${esc(whLabel(w))}</b>`, nf(b.filter(x => Math.abs(x.q) > 1e-9).length), money(b.reduce((s, x) => s + x.val, 0)), nf(st.n), esc(last || '—')] };
+      return { c: [`<b>${esc(whLabel(w))}</b>`, nf(b.filter(x => Math.abs(x.q) > 1e-9).length), money(b.reduce((s, x) => s + x.val, 0)), nf(st.n), esc(fmtD(last) || '—')] };
     }));
   $('#t-loc').innerHTML = tbl(
     [{ t: 'Ünvan / layihə' }, { t: 'Tipi' }, { t: 'Əməliyyat', r: 1 }, { t: 'Dövriyyə', r: 1 }],
@@ -5213,7 +5213,7 @@ function renderDraftLineLayerList(){
   $('#dl-list').innerHTML=tbl(
     [{t:''},{t:'Mənbə'},{t:'Tarix'},{t:'Sənəd / Qaimə'},{t:'Qiymət',r:1},{t:'Mövcud',r:1},{t:'Seçilən',r:1}],
     DLP.rows.map(l=>{const q=+(DLP.sel.get(l.id)||0),on=DLP.sel.has(l.id);return{c:[
-      `<input type="checkbox" data-dll="${esc(l.id)}" ${on?'checked':''}>`,esc(layerSourceLabel(l)),esc(l.received_date||'—'),
+      `<input type="checkbox" data-dll="${esc(l.id)}" ${on?'checked':''}>`,esc(layerSourceLabel(l)),esc(fmtD(l.received_date)||'—'),
       `${l.source_doc_num?`<span class="code">${esc(l.source_doc_num)}</span>`:'<span class="muted">sənəd yoxdur</span>'}${l.source_invoice_num?`<div class="hint">Qaimə: ${esc(l.source_invoice_num)}</div>`:'<div class="hint">Qaimə göstərilməyib</div>'}`,
       l.price_status==='unknown'?'<span class="muted">Qiymət yoxdur</span>':money(+(l.unit_price||0)),nf(+l.available_qty,2),
       `<input type="number" data-dlq="${esc(l.id)}" min="0" max="${esc(String(l.available_qty))}" step="0.01" value="${on?esc(String(q)):''}" ${on?'':'disabled'} style="width:100px;text-align:right">`]};}),
@@ -5886,7 +5886,7 @@ function renderBulkLayerList() {
       const ref = (l.source_doc_num ? `<span class="code">${esc(l.source_doc_num)}</span>` : '<span class="muted">sənəd yoxdur</span>')
         + (l.source_invoice_num ? `<div class="hint">Qaimə: <span class="code">${esc(l.source_invoice_num)}</span></div>` : '<div class="hint">Qaimə göstərilməyib</div>');
       const price = l.price_status === 'unknown' ? '<span class="muted">Qiymət yoxdur</span>' : money(+(l.unit_price || 0));
-      return {c:[`<input type="checkbox" data-bll="${esc(l.id)}" ${on?'checked':''}>`,esc(layerSourceLabel(l)),esc(l.received_date || '—'),ref,price,
+      return {c:[`<input type="checkbox" data-bll="${esc(l.id)}" ${on?'checked':''}>`,esc(layerSourceLabel(l)),esc(fmtD(l.received_date) || '—'),ref,price,
         nf(+l.available_qty,2),`<input type="number" data-blq="${esc(l.id)}" min="0" max="${esc(String(l.available_qty))}" step="0.01" value="${on?esc(String(q)):''}" ${on?'':'disabled'} style="width:100px;text-align:right">`]};
     }),{empty:'Bu mal üzrə əlçatan partiya yoxdur.'});
   $$('#bl-list [data-bll]').forEach(cb => cb.onchange=()=>{
