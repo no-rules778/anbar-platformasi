@@ -525,7 +525,7 @@ label.f>span{display:block;font-size:10.5px;text-transform:uppercase;letter-spac
             <div class="card" style="margin-top:12px">
               <header><h3>Kartların hesabatı</h3><div class="sp"></div>
                 <button class="btn sm" id="azp-newcard-azpetrol">+ Kart</button><button class="btn sm" id="azp-rep-azpetrol">Hesabat</button>
-                <button class="btn sm" id="azp-newmov-azpetrol">+ Əməliyyat</button>
+                <button class="btn sm" id="azp-newmov-azpetrol">+ Əməliyyat</button><button class="btn sm" id="azp-transfer-azpetrol">Balans köçür</button>
                 <button class="btn sm" id="azp-imp-azpetrol">⬆ Excel idxalı</button>
                 <button class="btn sm" id="azp-exp-azpetrol">⬇ Excel ixracı</button>
               </header>
@@ -10121,6 +10121,16 @@ const azpN = v => { const n = Number(v); return isFinite(n) ? n : 0; };
 const azpR2 = v => Math.round(azpN(v) * 100) / 100;
 const azpMoney = v => (v == null || !isFinite(Number(v))) ? '—' : nf(Number(v), 2) + ' ₼';
 function azpKindLabel(m, k) { return k === 'medaxil' ? 'Mədaxil' : AZP_LABEL[m].out; }
+function azpMovementLabel(m, r) { return r && r.transfer_id ? 'Kartlararası köçürmə' : azpKindLabel(m, r.kind); }
+function azpTransferRoute(st, r) {
+  if (!r || !r.transfer_id) return '';
+  const pair = st.movs.find(x => x.transfer_id === r.transfer_id && Number(x.id) !== Number(r.id));
+  const fromId = r.transfer_side === 'out' ? r.card_id : pair && pair.card_id;
+  const toId = r.transfer_side === 'in' ? r.card_id : pair && pair.card_id;
+  const from = st.cards.find(c => c.card_id === fromId);
+  const to = st.cards.find(c => c.card_id === toId);
+  return (from ? from.card_no : '—') + ' → ' + (to ? to.card_no : '—');
+}
 
 /* Excel seriya nömrəsi və ya mətn → ISO tarix (yoxdursa boş sətir) */
 function azpDate(v) {
@@ -10232,7 +10242,7 @@ function azpRenderBoard(m) {
 
 function azpSyncButtons(m) {
   const admin = azpIsAdmin();
-  ['newcard', 'newmov', 'imp'].forEach(k => {
+  ['newcard', 'newmov', 'imp', 'transfer'].forEach(k => {
     const b = $('#azp-' + k + '-' + m);
     if (b) b.style.display = admin ? '' : 'none';
   });
@@ -10303,7 +10313,8 @@ function azpRenderCards(m) {
       '<td class="r" style="white-space:nowrap">' +
       (admin && c.active
         ? '<button class="btn sm" onclick="azpQuick(\'' + m + '\',\'' + esc(c.card_id) + '\',\'medaxil\')">Mədaxil</button> ' +
-          '<button class="btn sm" onclick="azpQuick(\'' + m + '\',\'' + esc(c.card_id) + '\',\'mexaric\')">' + esc(L.out) + '</button> '
+          '<button class="btn sm" onclick="azpQuick(\'' + m + '\',\'' + esc(c.card_id) + '\',\'mexaric\')">' + esc(L.out) + '</button> ' +
+          (m === 'azpetrol' ? '<button class="btn sm" onclick="azpTransferModal(\'' + esc(c.card_id) + '\')">Köçür</button> ' : '')
         : '') +
       '<button class="btn sm" onclick="azpCardHistory(\'' + m + '\',\'' + esc(c.card_id) + '\')">Tarixçə</button>' +
       (admin ? ' <button class="btn sm" onclick="azpCardModal(\'' + m + '\',\'' + esc(c.card_id) + '\')">Redaktə</button>' : '') +
@@ -10416,15 +10427,17 @@ function azpRenderMovs(m) {
         '<td>' + esc(r.op_date ? fmtD(r.op_date) : '—') + '</td>' +
         '<td class="code">' + esc(c ? c.card_no : '—') + '</td>' +
         '<td class="nm">' + esc(c ? c.holder : '—') + '</td>' +
-        '<td><span class="tag ' + (r.kind === 'medaxil' ? 't-in' : 't-out') + '">' + esc(azpKindLabel(m, r.kind)) + '</span>' +
+        '<td><span class="tag ' + (r.kind === 'medaxil' ? 't-in' : 't-out') + '">' + esc(azpMovementLabel(m, r)) + '</span>' +
+        (r.transfer_id ? '<div class="hint">' + esc(azpTransferRoute(st, r)) + '</div>' : '') +
         (r.cancelled ? ' <span class="tag t-rm">ləğv edilib</span>' : '') +
         (r.vat_included ? ' <span class="tag t-mut">ƏDV</span>' : '') + '</td>' +
         '<td class="num">' + azpMoney(r.amount) + '</td>' +
         '<td class="code">' + esc(r.doc_num || '—') + '</td>' +
         '<td class="muted">' + esc(r.note || (r.cancel_reason ? 'Ləğv səbəbi: ' + r.cancel_reason : '')) + '</td>' +
-        (admin ? '<td class="r">' + (r.cancelled ? '' :
-          '<button class="btn sm" onclick="azpCorrectMov(\'' + m + '\',' + Number(r.id) + ')">Düzəliş et</button> ' +
-          '<button class="btn sm dgr" onclick="azpCancelMov(\'' + m + '\',' + Number(r.id) + ')">Ləğv et</button>') + '</td>' : '') +
+        (admin ? '<td class="r">' + (r.cancelled ? '' : (r.transfer_id
+          ? '<button class="btn sm dgr" onclick="azpCancelTransfer(\'' + esc(r.transfer_id) + '\')">Köçürməni ləğv et</button>'
+          : '<button class="btn sm" onclick="azpCorrectMov(\'' + m + '\',' + Number(r.id) + ')">Düzəliş et</button> ' +
+            '<button class="btn sm dgr" onclick="azpCancelMov(\'' + m + '\',' + Number(r.id) + ')">Ləğv et</button>')) + '</td>' : '') +
         '</tr>';
     }).join('') +
     '</tbody><tfoot><tr><td colspan="4"><b>Cəmi (ləğv edilməmiş): ' + nf(live.length) + ' qeyd</b></td>' +
@@ -10443,7 +10456,7 @@ function azpRenderLog(m) {
   const act = { create: 'yaradıldı', update: 'dəyişdirildi', delete: 'silindi', post: 'yazıldı', cancel: 'ləğv edildi', import: 'idxal edildi' };
   el.innerHTML = '<table><thead><tr><th>Vaxt</th><th>Obyekt</th><th>Əməliyyat</th><th>Təfərrüat</th></tr></thead><tbody>' +
     st.log.map(r => '<tr><td>' + esc(new Date(r.at).toLocaleString('az-AZ')) + '</td>' +
-      '<td>' + esc(r.entity === 'card' ? 'Kart' : 'Əməliyyat') + '</td>' +
+      '<td>' + esc(r.entity === 'card' ? 'Kart' : r.entity === 'transfer' ? 'Köçürmə' : 'Əməliyyat') + '</td>' +
       '<td>' + esc(act[r.action] || r.action) + '</td>' +
       '<td class="muted">' + esc(r.detail ? JSON.stringify(r.detail) : '') + '</td></tr>').join('') +
     '</tbody></table>';
@@ -10588,6 +10601,75 @@ async function azpCancelMov(m, id) {
   await azpLoad(m, true); azpRenderBoard(m);
 }
 
+/* ---------- Azpetrol kartları arasında atomar balans köçürməsi (sql/047) ---------- */
+function azpRequestId() {
+  if (window.crypto && typeof window.crypto.randomUUID === 'function') return window.crypto.randomUUID();
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 3 | 8); return v.toString(16);
+  });
+}
+function azpTransferModal(fromCardId) {
+  const m = 'azpetrol';
+  if (!azpNeedAdmin()) return;
+  const st = AZP.data[m], cards = st.cards.filter(c => c.active);
+  if (cards.length < 2) { toast('Köçürmə üçün ən azı iki aktiv Azpetrol kartı olmalıdır', true); return; }
+  const first = cards.some(c => c.card_id === fromCardId) ? fromCardId : cards[0].card_id;
+  const second = cards.find(c => c.card_id !== first).card_id;
+  const requestId = azpRequestId();
+  const options = selected => cards.map(c => '<option value="' + esc(c.card_id) + '"' +
+    (c.card_id === selected ? ' selected' : '') + '>' + esc(c.card_no) + ' — ' + esc(c.holder) + '</option>').join('');
+  modal('Balans köçür — Azpetrol',
+    '<label class="f"><span>Göndərən kart *</span><select id="azp-tr-from">' + options(first) + '</select></label>' +
+    '<label class="f"><span>Alan kart *</span><select id="azp-tr-to">' + options(second) + '</select></label>' +
+    '<label class="f"><span>Məbləğ (₼) *</span><input type="number" id="azp-tr-amt" min="0.01" step="0.01"></label>' +
+    '<label class="f"><span>Tarix *</span><input type="date" id="azp-tr-date" value="' + today() + '" required></label>' +
+    '<label class="f"><span>Qeyd</span><input type="text" id="azp-tr-note" maxlength="500"></label>' +
+    '<div class="hint" id="azp-tr-preview" style="padding:10px;background:var(--azp-l2);border-radius:4px;margin-top:8px"></div>' +
+    '<span class="err" id="azp-tr-err"></span>',
+    '<button class="btn" data-close>İmtina</button><button class="btn pri" id="azp-tr-save">Köçür</button>');
+  const draw = () => {
+    const from = cards.find(c => c.card_id === $('#azp-tr-from').value);
+    const to = cards.find(c => c.card_id === $('#azp-tr-to').value);
+    const amount = azpR2($('#azp-tr-amt').value);
+    const a = from ? azpN(from.balance) : 0, b = to ? azpN(to.balance) : 0;
+    $('#azp-tr-preview').innerHTML = !from || !to ? '' :
+      '<b>' + esc(from.card_no) + ':</b> ' + azpMoney(a) + ' → ' + azpMoney(a - amount) +
+      ' &nbsp; <b>' + esc(to.card_no) + ':</b> ' + azpMoney(b) + ' → ' + azpMoney(b + amount) +
+      '<br><span>Ümumi kart balansı və tətbiqin cari balansı dəyişmir.</span>';
+  };
+  ['azp-tr-from', 'azp-tr-to'].forEach(id => $('#' + id).onchange = draw);
+  $('#azp-tr-amt').oninput = draw; draw();
+  $('#azp-tr-save').onclick = async () => {
+    const from = $('#azp-tr-from').value, to = $('#azp-tr-to').value;
+    const amount = azpR2($('#azp-tr-amt').value), date = $('#azp-tr-date').value;
+    const err = $('#azp-tr-err'); err.textContent = '';
+    if (from === to) { err.textContent = 'Göndərən və alan kart fərqli olmalıdır.'; return; }
+    if (!(amount > 0)) { err.textContent = 'Məbləğ müsbət olmalıdır.'; return; }
+    const source = cards.find(c => c.card_id === from);
+    if (!source || amount > azpN(source.balance)) { err.textContent = 'Göndərən kartda kifayət qədər balans yoxdur.'; return; }
+    if (!date) { err.textContent = 'Tarix mütləqdir.'; return; }
+    $('#azp-tr-save').disabled = true;
+    const { error } = await SB.rpc('azp_transfer_balance', {
+      p_module: m, p_from_card: from, p_to_card: to, p_amount: amount,
+      p_date: date, p_note: $('#azp-tr-note').value.trim() || null, p_request_id: requestId
+    });
+    if (error) { $('#azp-tr-save').disabled = false; err.textContent = error.message; return; }
+    closeModal(); toast('Balans kartdan karta köçürüldü');
+    await azpLoad(m, true); azpRenderBoard(m);
+  };
+}
+async function azpCancelTransfer(transferId) {
+  if (!azpNeedAdmin()) return;
+  const why = prompt('Köçürmənin ləğv səbəbi (istəyə bağlı):', '');
+  if (why === null) return;
+  const { error } = await SB.rpc('azp_cancel_transfer', {
+    p_module: 'azpetrol', p_transfer_id: transferId, p_reason: why || null
+  });
+  if (error) { toast(error.message, true); return; }
+  toast('Köçürmə bütövlükdə ləğv edildi');
+  await azpLoad('azpetrol', true); azpRenderBoard('azpetrol');
+}
+
 /* ---------- yazılmış əməliyyatın təhlükəsiz düzəlişi (sql/023) ----------
    Sətir üzərinə YAZILMIR və silinmir: server orijinalı «Düzəlişlə əvəz edilib»
    səbəbi ilə ləğv edir və düzəldilmiş dəyərlərlə əvəz sətri yaradır, hər ikisi
@@ -10688,7 +10770,8 @@ function azpCardHistory(m, cardId) {
       '<th>Qaimə №</th><th>Qeyd</th><th>Status</th><th>Yazan</th></tr></thead><tbody>' +
       rows.map(r => '<tr' + (r.cancelled ? ' style="opacity:.55"' : '') + '>' +
         '<td>' + esc(r.op_date ? fmtD(r.op_date) : '—') + '</td>' +
-        '<td><span class="tag ' + (r.kind === 'medaxil' ? 't-in' : 't-out') + '">' + esc(azpKindLabel(m, r.kind)) + '</span></td>' +
+        '<td><span class="tag ' + (r.kind === 'medaxil' ? 't-in' : 't-out') + '">' + esc(azpMovementLabel(m, r)) + '</span>' +
+        (r.transfer_id ? '<div class="hint">' + esc(azpTransferRoute(st, r)) + '</div>' : '') + '</td>' +
         '<td class="num">' + azpMoney(r.amount) + '</td>' +
         '<td class="code">' + esc(r.doc_num || '—') + '</td>' +
         '<td class="muted">' + esc(r.note || '') + '</td>' +
@@ -11771,6 +11854,7 @@ async function azpExport(m) {
     on('azp-newcard-' + m, 'click', () => azpCardModal(m, null));
     on('azp-rep-' + m, 'click', () => azpReportModal(m));   // yalnız oxu — Rehber/Muhasib də aça bilər
     on('azp-newmov-' + m, 'click', () => azpMovModal(m));
+    on('azp-transfer-' + m, 'click', () => azpTransferModal());
     on('azp-imp-' + m, 'click', () => azpImportModal(m));
     on('azp-exp-' + m, 'click', () => azpExport(m));
     const f = AZP.filter[m];
